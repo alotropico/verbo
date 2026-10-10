@@ -734,6 +734,15 @@
   padding-block: rem(12px);
   color: var(--foreground);
   overflow-wrap: break-word;
+
+  p {
+    &:first-child {
+      margin-top: 0;
+    }
+    &:last-child {
+      margin-bottom: 0;
+    }
+  }
 }
 
 .userMessageContent:empty {
