@@ -23,6 +23,7 @@ import { useDisclosure } from "@mantine/hooks";
 import { SlidersHorizontalIcon } from "lucide-react";
 import { useEffect, useState, type ReactElement } from "react";
 import { z } from "zod";
+import { MemorySettings } from "./MemorySettings";
 import styles from "./SettingsPanel.module.css";
 
 type ModelFormValues = {
@@ -37,7 +38,7 @@ type InstalledModels =
   | { ok: true; models: string[] }
   | { ok: false; error: string; models?: string[] };
 
-function modelFormSchema(contextValues: string[]) {
+function modelFormSchema(contextValues: string[]): z.ZodType<ModelFormValues> {
   return z.object({
     model: z.string().min(1).max(128),
     think: z.boolean(),
@@ -86,6 +87,7 @@ function SettingsForm({
   const choices = contextChoices(settings.numCtx);
   const [models, setModels] = useState<InstalledModels | null>(null);
   const [confirmDiscard, setConfirmDiscard] = useState(false);
+  const [tab, setTab] = useState("model");
   const form = useForm<ModelFormValues>({
     mode: "uncontrolled",
     initialValues: {
@@ -116,6 +118,17 @@ function SettingsForm({
           ? `${model} (not installed)`
           : model,
     }));
+
+  useEffect(() => {
+    const openSettings = (event: Event): void => {
+      const detail = (event as CustomEvent<{ tab?: string }>).detail;
+      setTab(detail?.tab ?? "memory");
+      onOpen();
+    };
+    window.addEventListener("verbo:open-settings", openSettings);
+    return () =>
+      window.removeEventListener("verbo:open-settings", openSettings);
+  }, [onOpen]);
 
   const requestClose = (): void => {
     if (form.isDirty()) {
@@ -185,7 +198,8 @@ function SettingsForm({
           })}
         >
           <Tabs
-            defaultValue="model"
+            value={tab}
+            onChange={(value) => setTab(value ?? "model")}
             className={styles.tabs}
             keepMounted={false}
           >
@@ -259,10 +273,7 @@ function SettingsForm({
               </Stack>
             </Tabs.Panel>
             <Tabs.Panel value="memory" className={styles.panel}>
-              <UnavailableTab
-                title="Memory"
-                detail="Memory entries are not available yet. This tab will edit them through the same actions as commands. Cancel does not undo a memory change that already completed."
-              />
+              <MemorySettings />
             </Tabs.Panel>
             <Tabs.Panel value="files" className={styles.panel}>
               <UnavailableTab

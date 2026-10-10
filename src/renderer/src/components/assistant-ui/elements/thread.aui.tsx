@@ -23,6 +23,8 @@ import {
   ToolGroupTrigger,
 } from "@/components/assistant-ui/elements/tool-group.aui";
 import { TooltipIconButton } from "./tooltip-icon-button";
+import { CommandNotice } from "@/components/CommandNotice";
+import { useLocalCommandGuard } from "@/runtime/use-local-command";
 import { ActionIcon, Button, Skeleton } from "@mantine/core";
 import { cx } from "@/lib/cx";
 import a11y from "@/lib/a11y.module.css";
@@ -232,6 +234,7 @@ const ThreadRoot: FC<{ isEmpty: boolean; autoFocus: boolean }> = ({
             )}
           >
             <ThreadFollowupSuggestions />
+            <CommandNotice />
             <Composer autoFocus={autoFocus} />
             <AuiIf condition={(s) => isNewChatView(s) && s.composer.isEmpty}>
               <ThreadSuggestions />
@@ -521,8 +524,6 @@ const ThreadWelcome: FC = () => {
 
   useEffect(() => {
     let cancelled = false;
-    setLine(null);
-    setLinePending(true);
     void window.verbo.ollama
       .welcomeLine({ verb, modifier })
       .then((next) => {
@@ -615,9 +616,11 @@ const STARTER_PROMPTS = [
 ] as const;
 
 const Composer: FC<{ autoFocus: boolean }> = ({ autoFocus }) => {
+  const command = useLocalCommandGuard();
   return (
     <ComposerPrimitive.Root
       className={cx("aui-composer-root", styles.composerRoot)}
+      onSubmit={command.onSubmit}
     >
       <ComposerPrimitive.AttachmentDropzone
         render={
@@ -636,13 +639,19 @@ const Composer: FC<{ autoFocus: boolean }> = ({ autoFocus }) => {
           enterKeyHint="send"
           aria-label="Message input"
         />
-        <ComposerAction />
+        <ComposerAction
+          canSend={command.canSend}
+          onSend={command.sendOrCommand}
+        />
       </ComposerPrimitive.AttachmentDropzone>
     </ComposerPrimitive.Root>
   );
 };
 
-const ComposerAction: FC = () => {
+const ComposerAction: FC<{
+  canSend: boolean;
+  onSend: () => void;
+}> = ({ canSend, onSend }) => {
   // The stop control only cancels the send while no run it could stop is going.
   const isSending = useAuiState(
     (s) =>
@@ -726,25 +735,23 @@ const ComposerAction: FC = () => {
               s.composer.submission === undefined)
           }
         >
-          <ComposerPrimitive.Send
-            render={
-              <TooltipIconButton
-                tooltip="Send message"
-                side="bottom"
-                type="button"
-                className={cx(
-                  "aui-composer-send",
-                  styles.composerIconButton,
-                  styles.composerSend,
-                )}
-                aria-label="Send message"
-              />
-            }
+          <TooltipIconButton
+            tooltip="Send message"
+            side="bottom"
+            type="button"
+            className={cx(
+              "aui-composer-send",
+              styles.composerIconButton,
+              styles.composerSend,
+            )}
+            aria-label="Send message"
+            disabled={!canSend}
+            onClick={onSend}
           >
             <ArrowUpIcon
               className={cx("aui-composer-send-icon", styles.composerIconSm)}
             />
-          </ComposerPrimitive.Send>
+          </TooltipIconButton>
         </AuiIf>
         <AuiIf
           condition={(s) =>
@@ -1078,6 +1085,7 @@ const UserActionBar: FC = () => {
 };
 
 const EditComposer: FC = () => {
+  const command = useLocalCommandGuard();
   return (
     <MessagePrimitive.Root
       data-slot="aui_edit-composer-wrapper"
@@ -1085,6 +1093,7 @@ const EditComposer: FC = () => {
     >
       <ComposerPrimitive.Root
         className={cx("aui-edit-composer-root", styles.editComposerRoot)}
+        onSubmit={command.onSubmit}
       >
         <ComposerPrimitive.Input
           className={cx("aui-edit-composer-input", styles.editComposerInput)}
@@ -1104,17 +1113,16 @@ const EditComposer: FC = () => {
           >
             Cancel
           </ComposerPrimitive.Cancel>
-          <ComposerPrimitive.Send
-            render={
-              <Button
-                variant="filled"
-                size="compact-sm"
-                className={styles.editComposerButton}
-              />
-            }
+          <Button
+            variant="filled"
+            size="compact-sm"
+            type="button"
+            className={styles.editComposerButton}
+            disabled={!command.canSend}
+            onClick={command.sendOrCommand}
           >
             Update
-          </ComposerPrimitive.Send>
+          </Button>
         </div>
       </ComposerPrimitive.Root>
     </MessagePrimitive.Root>

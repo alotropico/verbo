@@ -7,12 +7,22 @@ import {
 } from "../shared/chat-ipc";
 import { IPC_CHANNELS } from "../shared/ipc-channels";
 import type { ChatSettings } from "../shared/config";
+import type { LocalCommandResult } from "../shared/local-commands";
+import type {
+  ContextMeters,
+  MemoryChange,
+  MemoryInclusion,
+  MemoryRecord,
+  MemoryScope,
+  MemoryUsage,
+} from "../shared/memory";
 import type { SettingsRecovery } from "../shared/settings-recovery";
 
 const assistantAI: AssistantAI = {
   streamChat(request: ChatRequest, onEvent: (event: ChatEvent) => void) {
     const { port1, port2 } = new MessageChannel();
-    const onMessage = (event: MessageEvent<ChatEvent>) => onEvent(event.data);
+    const onMessage = (event: MessageEvent<ChatEvent>): void =>
+      onEvent(event.data);
 
     port1.addEventListener("message", onMessage);
     port1.start();
@@ -68,6 +78,56 @@ const verbo = {
       ipcRenderer.invoke(IPC_CHANNELS.settingsGet),
     set: (settings: ChatSettings): Promise<ChatSettings> =>
       ipcRenderer.invoke(IPC_CHANNELS.settingsSet, settings),
+  },
+  memory: {
+    list: (query?: {
+      scope?: MemoryScope;
+      threadId?: string;
+    }): Promise<{
+      entries: MemoryRecord[];
+      usage: MemoryUsage;
+      changes: MemoryChange[];
+    }> => ipcRenderer.invoke(IPC_CHANNELS.memoryList, query ?? {}),
+    add: (input: {
+      text: string;
+      scope: MemoryScope;
+      inclusion: MemoryInclusion;
+      threadId?: string;
+    }): Promise<
+      (
+        | { ok: true; summary: string; entry?: MemoryRecord }
+        | { ok: false; code: string; summary: string }
+      ) & { usage: MemoryUsage }
+    > => ipcRenderer.invoke(IPC_CHANNELS.memoryAdd, input),
+    update: (input: {
+      id: string;
+      text?: string;
+      inclusion?: MemoryInclusion;
+    }): Promise<
+      (
+        | { ok: true; summary: string; entry?: MemoryRecord }
+        | { ok: false; code: string; summary: string }
+      ) & { usage: MemoryUsage }
+    > => ipcRenderer.invoke(IPC_CHANNELS.memoryUpdate, input),
+    remove: (
+      id: string,
+    ): Promise<
+      (
+        | { ok: true; summary: string }
+        | { ok: false; code: string; summary: string }
+      ) & { usage: MemoryUsage }
+    > => ipcRenderer.invoke(IPC_CHANNELS.memoryRemove, { id }),
+  },
+  commands: {
+    run: (input: {
+      text: string;
+      threadId?: string;
+    }): Promise<LocalCommandResult> =>
+      ipcRenderer.invoke(IPC_CHANNELS.commandsRun, input),
+  },
+  context: {
+    estimate: (input?: { threadId?: string }): Promise<ContextMeters> =>
+      ipcRenderer.invoke(IPC_CHANNELS.contextEstimate, input ?? {}),
   },
 };
 

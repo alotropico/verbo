@@ -1,5 +1,6 @@
 import { ActionIcon } from "@mantine/core";
 import type { ReactElement } from "react";
+import { ContextMeters } from "@/components/ContextMeters";
 import { ThreadList } from "@/components/assistant-ui/elements/thread-list.aui";
 import { cx } from "@/lib/cx";
 import { VerboMark } from "@/components/VerboMark";
@@ -32,6 +33,7 @@ export function ThreadListSidebar({
         <ThreadList />
       </div>
       <footer className={styles.footer}>
+        <ContextMeters />
         <span className={styles.shortcut}>
           <kbd>Ctrl</kbd> + <kbd>B</kbd> to fold away
         </span>

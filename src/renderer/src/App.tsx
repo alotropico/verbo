@@ -1,5 +1,6 @@
 import { Thread } from "@/components/assistant-ui/elements/thread.aui";
 import { ThreadListSidebar } from "@/components/assistant-ui/elements/threadlist-sidebar.aui";
+import { ContextMeters } from "@/components/ContextMeters";
 import { OllamaStatusBanner } from "@/components/OllamaStatusBanner";
 import { SettingsPanel } from "@/components/SettingsPanel";
 import { VerboRuntimeProvider } from "@/runtime/VerboRuntimeProvider";
@@ -55,6 +56,7 @@ function VerboShell(): ReactElement {
 
   const toggleSidebar = isMobile ? toggleMobile : toggleDesktop;
   const showHeaderToggle = isMobile || !desktopOpened;
+  const sidebarHidden = isMobile ? !mobileOpened : !desktopOpened;
 
   return (
     <AppShell
@@ -81,6 +83,7 @@ function VerboShell(): ReactElement {
             </ActionIcon>
           ) : null}
           <ShellTitle />
+          {sidebarHidden ? <ContextMeters compact /> : null}
           <OllamaStatusBanner />
           <SettingsPanel />
         </header>

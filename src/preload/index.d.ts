@@ -1,7 +1,21 @@
 import type { AssistantAI } from "../shared/chat-ipc";
 import type { ChatSettings } from "../shared/config";
+import type { LocalCommandResult } from "../shared/local-commands";
+import type {
+  ContextMeters,
+  MemoryChange,
+  MemoryInclusion,
+  MemoryRecord,
+  MemoryScope,
+  MemoryUsage,
+} from "../shared/memory";
 import type { SettingsRecovery } from "../shared/settings-recovery";
 import type { RemoteThreadMetadata } from "../shared/storage-ipc";
+
+type MemoryMutation = (
+  | { ok: true; summary: string; entry?: MemoryRecord }
+  | { ok: false; code: string; summary: string }
+) & { usage: MemoryUsage };
 
 type VerboApi = {
   storage: {
@@ -47,6 +61,34 @@ type VerboApi = {
   settings: {
     get: () => Promise<SettingsRecovery>;
     set: (settings: ChatSettings) => Promise<ChatSettings>;
+  };
+  memory: {
+    list: (query?: { scope?: MemoryScope; threadId?: string }) => Promise<{
+      entries: MemoryRecord[];
+      usage: MemoryUsage;
+      changes: MemoryChange[];
+    }>;
+    add: (input: {
+      text: string;
+      scope: MemoryScope;
+      inclusion: MemoryInclusion;
+      threadId?: string;
+    }) => Promise<MemoryMutation>;
+    update: (input: {
+      id: string;
+      text?: string;
+      inclusion?: MemoryInclusion;
+    }) => Promise<MemoryMutation>;
+    remove: (id: string) => Promise<MemoryMutation>;
+  };
+  commands: {
+    run: (input: {
+      text: string;
+      threadId?: string;
+    }) => Promise<LocalCommandResult>;
+  };
+  context: {
+    estimate: (input?: { threadId?: string }) => Promise<ContextMeters>;
   };
 };
 

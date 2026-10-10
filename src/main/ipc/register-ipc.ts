@@ -9,6 +9,14 @@ import {
   welcomeLineSchema,
 } from "../../shared/storage-ipc";
 import {
+  contextEstimateSchema,
+  memoryAddArgsSchema,
+  memoryBrowserSchema,
+  memoryCommandSchema,
+  memoryRemoveArgsSchema,
+  memoryUpdateArgsSchema,
+} from "../../shared/memory";
+import {
   appendMessage,
   archiveThread,
   deleteThread,
@@ -27,6 +35,12 @@ import {
 } from "../services/settings-store";
 import { generateThreadTitle } from "../services/thread-title";
 import { generateWelcomeLine } from "../services/welcome-line";
+import { registryForDatabase } from "../capabilities/catalog";
+import { getDatabase } from "../db/database";
+import { createMemoryStore } from "../db/memory";
+import { estimateContextMeters } from "../runtime/context-estimate";
+import { executeLocalCommand } from "../runtime/local-command";
+import { readPromptEval } from "../runtime/prompt-eval";
 import { registerAssistantStreamIpc } from "./chat-stream";
 
 function assertTrustedWindow(
@@ -140,5 +154,74 @@ export function registerIpc(mainWindow: BrowserWindow): void {
   ipcMain.handle(IPC_CHANNELS.settingsSet, (event, settings: unknown) => {
     assertTrustedWindow(event, mainWindow);
     return saveSettings(chatSettingsSchema.parse(settings));
+  });
+
+  ipcMain.handle(IPC_CHANNELS.memoryList, (event, payload: unknown) => {
+    assertTrustedWindow(event, mainWindow);
+    const query = memoryBrowserSchema.parse(payload ?? {});
+    const store = createMemoryStore(getDatabase());
+    return {
+      entries: store.list({ ...query, limit: 100 }).entries,
+      usage: store.usage(),
+      changes: store.recentChanges(),
+    };
+  });
+
+  ipcMain.handle(IPC_CHANNELS.memoryAdd, (event, payload: unknown) => {
+    assertTrustedWindow(event, mainWindow);
+    const data = memoryAddArgsSchema.parse(payload);
+    const store = createMemoryStore(getDatabase());
+    const result = store.add({
+      text: data.text,
+      scope: data.scope,
+      inclusion: data.inclusion,
+      ...(data.threadId ? { threadId: data.threadId } : {}),
+      actor: "ui",
+    });
+    return { ...result, usage: store.usage() };
+  });
+
+  ipcMain.handle(IPC_CHANNELS.memoryUpdate, (event, payload: unknown) => {
+    assertTrustedWindow(event, mainWindow);
+    const data = memoryUpdateArgsSchema.parse(payload);
+    const store = createMemoryStore(getDatabase());
+    const result = store.update({
+      id: data.id,
+      ...(data.text !== undefined ? { text: data.text } : {}),
+      ...(data.inclusion !== undefined ? { inclusion: data.inclusion } : {}),
+      actor: "ui",
+    });
+    return { ...result, usage: store.usage() };
+  });
+
+  ipcMain.handle(IPC_CHANNELS.memoryRemove, (event, payload: unknown) => {
+    assertTrustedWindow(event, mainWindow);
+    const data = memoryRemoveArgsSchema.parse(payload);
+    const store = createMemoryStore(getDatabase());
+    const result = store.remove(data.id, "ui");
+    return { ...result, usage: store.usage() };
+  });
+
+  ipcMain.handle(IPC_CHANNELS.commandsRun, (event, payload: unknown) => {
+    assertTrustedWindow(event, mainWindow);
+    const data = memoryCommandSchema.parse(payload);
+    const database = getDatabase();
+    return executeLocalCommand({
+      text: data.text,
+      ...(data.threadId ? { threadId: data.threadId } : {}),
+      store: createMemoryStore(database),
+      registry: registryForDatabase(database),
+    });
+  });
+
+  ipcMain.handle(IPC_CHANNELS.contextEstimate, (event, payload: unknown) => {
+    assertTrustedWindow(event, mainWindow);
+    const data = contextEstimateSchema.parse(payload ?? {});
+    return estimateContextMeters({
+      database: getDatabase(),
+      ...(data.threadId ? { threadId: data.threadId } : {}),
+      numCtx: loadSettings().numCtx,
+      lastPromptEval: readPromptEval(),
+    });
   });
 }

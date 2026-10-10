@@ -6,8 +6,11 @@ import {
   type ChatEvent,
 } from "../../shared/chat-ipc";
 import { chatSettingsSchema } from "../../shared/storage-ipc";
+import { modelRoute } from "../../shared/local-commands";
 import { persistedThreadIdSchema } from "../../shared/thread-identity";
+import { registryForDatabase } from "../capabilities/catalog";
 import { getDatabase } from "../db/database";
+import { createMemoryStore } from "../db/memory";
 import { assertTurnThread } from "../db/history";
 import {
   expandHistoryWithTurnEvents,
@@ -16,6 +19,7 @@ import {
 } from "../db/turn-events";
 import { streamOllamaTurn } from "../services/ollama-turn-stream";
 import { loadSettings } from "../services/settings-store";
+import { executeLocalCommand } from "../runtime/local-command";
 import { ollamaRequestGate } from "../runtime/ollama-gate";
 import { toOllamaMessages } from "../runtime/ollama-wire";
 import { runTurn, type TurnUpdate } from "../runtime/turn";
@@ -40,7 +44,7 @@ const chatRequestSchema = z
   .strict();
 
 export function registerAssistantStreamIpc(mainWindow: BrowserWindow): void {
-  const handleStream = (event: IpcMainEvent, request: unknown) => {
+  const handleStream = (event: IpcMainEvent, request: unknown): void => {
     const [port] = event.ports;
     if (!port) return;
 
@@ -53,7 +57,7 @@ export function registerAssistantStreamIpc(mainWindow: BrowserWindow): void {
     }
 
     port.start();
-    const send = (message: ChatEvent) => port.postMessage(message);
+    const send = (message: ChatEvent): void => port.postMessage(message);
     const parsed = chatRequestSchema.safeParse(request);
 
     if (!parsed.success) {
@@ -86,6 +90,20 @@ export function registerAssistantStreamIpc(mainWindow: BrowserWindow): void {
     }
 
     const settings = chatRequest.settings ?? loadSettings();
+    const database = getDatabase();
+    if (modelRoute(latest.content) === "local") {
+      const result = executeLocalCommand({
+        text: latest.content,
+        threadId: chatRequest.threadId,
+        store: createMemoryStore(database),
+        registry: registryForDatabase(database),
+      });
+      send({ type: "delta", text: result.summary });
+      send({ type: "done" });
+      port.close();
+      return;
+    }
+    const memory = createMemoryStore(database).snapshot(chatRequest.threadId);
     const history = expandHistoryWithTurnEvents(
       getDatabase(),
       chatRequest.messages.slice(0, -1),
@@ -94,7 +112,7 @@ export function registerAssistantStreamIpc(mainWindow: BrowserWindow): void {
     port.once("close", () => abortController.abort());
     const turnId = randomUUID();
     let seq = 0;
-    const persist = (kind: TurnEventKind, payload: unknown) => {
+    const persist = (kind: TurnEventKind, payload: unknown): void => {
       seq += 1;
       recordTurnEvent(getDatabase(), {
         id: `${turnId}:${seq}`,
@@ -107,7 +125,7 @@ export function registerAssistantStreamIpc(mainWindow: BrowserWindow): void {
       });
     };
 
-    const onUpdate = (update: TurnUpdate) => {
+    const onUpdate = (update: TurnUpdate): void => {
       if (update.type === "trimmed" && update.removedCount > 0) {
         send({ type: "context_trimmed", removedCount: update.removedCount });
       }
@@ -152,6 +170,8 @@ export function registerAssistantStreamIpc(mainWindow: BrowserWindow): void {
       userText: latest.content,
       history,
       numCtx: settings.numCtx,
+      memory,
+      registry: registryForDatabase(database),
       context: {
         actor: "model",
         threadId: chatRequest.threadId,

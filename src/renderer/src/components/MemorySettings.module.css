@@ -1,0 +1,43 @@
+.addActions {
+  align-items: flex-end;
+  display: flex;
+  gap: var(--mantine-spacing-sm);
+}
+
+.addForm {
+  display: flex;
+  flex-direction: column;
+  gap: var(--mantine-spacing-sm);
+}
+
+.changes {
+  color: var(--muted-foreground);
+  font-size: var(--mantine-font-size-sm);
+  margin: 0;
+  padding-inline-start: var(--mantine-spacing-md);
+}
+
+.entry {
+  display: flex;
+  flex-direction: column;
+  gap: var(--mantine-spacing-xs);
+}
+
+.entryActions {
+  align-items: center;
+  display: flex;
+  gap: var(--mantine-spacing-xs);
+}
+
+.error {
+  color: var(--destructive);
+}
+
+.list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--mantine-spacing-sm);
+  list-style: none;
+  margin: var(--mantine-spacing-xs) 0 0;
+  padding: 0;
+}
