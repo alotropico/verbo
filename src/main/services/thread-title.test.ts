@@ -6,6 +6,7 @@ vi.mock('./ollama', () => ({
 }))
 
 import { completeOllamaChat } from './ollama'
+import { chatPlaceholderTitle } from '../../shared/thread-title'
 import { generateThreadTitle } from './thread-title'
 
 const completeOllamaChatMock = vi.mocked(completeOllamaChat)
@@ -31,10 +32,10 @@ describe('generateThreadTitle', () => {
     expect(settings.think).toBe(false)
   })
 
-  it('keeps Chat {id} when the model returns nothing', async () => {
+  it('keeps the id mark when the model returns nothing', async () => {
     completeOllamaChatMock.mockResolvedValue('   ')
     await expect(
       generateThreadTitle('__LOCALID_abc', [{ role: 'user', content: 'Hi' }], DEFAULT_CHAT_SETTINGS)
-    ).resolves.toBe('Chat abc')
+    ).resolves.toBe(chatPlaceholderTitle('__LOCALID_abc'))
   })
 })
