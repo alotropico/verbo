@@ -23,7 +23,7 @@ type VerboApi = {
     }) => Promise<void>
   }
   ollama: {
-    welcomeLine: (payload: { phrase: string }) => Promise<string>
+    welcomeLine: (payload: { verb: string; modifier: string }) => Promise<string>
     status: () => Promise<
       | {
           ok: true

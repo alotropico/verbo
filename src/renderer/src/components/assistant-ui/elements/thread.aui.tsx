@@ -507,9 +507,8 @@ const ThreadWelcome: FC = () => {
 
   useEffect(() => {
     let cancelled = false;
-    const phrase = `${verb} ${modifier}`;
     void window.verbo.ollama
-      .welcomeLine({ phrase })
+      .welcomeLine({ verb, modifier })
       .then((next) => {
         if (!cancelled && next) setLine(next);
       })

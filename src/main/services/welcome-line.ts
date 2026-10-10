@@ -1,4 +1,5 @@
 import type { ChatSettings } from '../../shared/config'
+import type { WelcomeLineRequest } from '../../shared/storage-ipc'
 import { completeOllamaChat } from './ollama'
 
 export const WELCOME_LINE_LIMIT = 140
@@ -11,8 +12,12 @@ const WELCOME_LINE_SYSTEM_PROMPT = [
   'Output only the sentence.'
 ].join(' ')
 
-export function welcomeLinePrompt(phrase: string): string {
-  return `Tell me something that makes people be ${phrase}. Write one grammatical sentence that ends with a period.`
+export function welcomeLinePrompt({ verb, modifier }: WelcomeLineRequest): string {
+  return [
+    `Heading: "${verb} ${modifier}."`,
+    'Write the one sentence that belongs under that heading.',
+    'Do not repeat the heading. End with a period.'
+  ].join(' ')
 }
 
 function rewriteWelcomeLinePrompt(draft: string): string {
@@ -59,7 +64,7 @@ async function requestWelcomeLine(
     ],
     {
       ...settings,
-      think: true
+      think: false
     },
     signal
   )
@@ -67,12 +72,12 @@ async function requestWelcomeLine(
 }
 
 export async function generateWelcomeLine(
-  phrase: string,
+  subject: WelcomeLineRequest,
   settings: ChatSettings
 ): Promise<string> {
   try {
     const signal = AbortSignal.timeout(60_000)
-    const first = await requestWelcomeLine(welcomeLinePrompt(phrase), settings, signal)
+    const first = await requestWelcomeLine(welcomeLinePrompt(subject), settings, signal)
     if (first.endsWith('.') && first.length <= WELCOME_LINE_LIMIT) return first
     const second = await requestWelcomeLine(rewriteWelcomeLinePrompt(first), settings, signal)
     return second.endsWith('.') && second.length <= WELCOME_LINE_LIMIT ? second : ''

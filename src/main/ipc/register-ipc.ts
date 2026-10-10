@@ -102,7 +102,7 @@ export function registerIpc(mainWindow: BrowserWindow): void {
   ipcMain.handle(IPC_CHANNELS.ollamaWelcomeLine, async (event, payload: unknown) => {
     assertTrustedWindow(event, mainWindow)
     const data = welcomeLineSchema.parse(payload)
-    return generateWelcomeLine(data.phrase, loadSettings())
+    return generateWelcomeLine(data, loadSettings())
   })
 
   ipcMain.handle(IPC_CHANNELS.ollamaStatus, async (event) => {

@@ -45,7 +45,7 @@ const verbo = {
   },
   ollama: {
     status: () => ipcRenderer.invoke(IPC_CHANNELS.ollamaStatus),
-    welcomeLine: (payload: { phrase: string }): Promise<string> =>
+    welcomeLine: (payload: { verb: string; modifier: string }): Promise<string> =>
       ipcRenderer.invoke(IPC_CHANNELS.ollamaWelcomeLine, payload)
   },
   settings: {

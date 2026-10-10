@@ -30,8 +30,11 @@ export const messageAppendSchema = z.object({
 })
 
 export const welcomeLineSchema = z.object({
-  phrase: z.string().trim().min(1).max(160)
+  verb: z.string().trim().min(1).max(40),
+  modifier: z.string().trim().min(1).max(80)
 })
+
+export type WelcomeLineRequest = z.infer<typeof welcomeLineSchema>
 
 export const generateTitleSchema = z.object({
   threadId: threadIdSchema,
