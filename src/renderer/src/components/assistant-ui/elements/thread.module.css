@@ -222,17 +222,11 @@
 }
 
 .scrollToBottom {
-  align-self: end;
-  backdrop-filter: blur(rem(16px));
-  background: var(--surface-raised);
-  border: rem(1px) solid var(--surface-edge);
-  border-radius: var(--radius-lg);
+  background: transparent;
+  border: none;
   bottom: rem(16px);
-  box-shadow: var(--shadow-soft);
-  grid-area: 1 / 1;
-  justify-self: end;
-  margin-inline-end: rem(16px);
-  position: sticky;
+  inset-inline-end: rem(16px);
+  position: fixed;
   z-index: 10;
 }
 
