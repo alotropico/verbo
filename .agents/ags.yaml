@@ -1,0 +1,20 @@
+format: 2
+host: verbo
+agsVersion: 6.0.1
+reporting: true
+skills:
+  enabled: [css-authoring-conventions, css-cleanup, typescript-react, write-commit-diff]
+  disabled: []
+rules:
+  enabled: []
+  disabled: []
+checks:
+  # package.json script that runs the type check. Empty means not configured.
+  type: ""
+  # package.json script that runs the linter. Empty means not configured.
+  lint: ""
+  # package.json script that checks formatting without writing files. Empty means not configured.
+  prettier: ""
+local: {}
+integrations:
+  officialSkills: false

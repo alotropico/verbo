@@ -1,0 +1,44 @@
+format: 1
+sources:
+  - url: "ags:be0df423271e60d2fd7c972b707fd0ed18fc76ca/rules/code-idioms.md"
+    revision: "be0df423271e60d2fd7c972b707fd0ed18fc76ca"
+    sourcePath: "rules/code-idioms.md"
+    localPath: "references/typescript-idioms.md; references/react-implementation.md"
+    use: "copied"
+    retrieved: "2026-10-05"
+    license: "Existing AGS material; retained repository terms"
+    notices: []
+  - url: "https://github.com/magnus919/agent-skills/blob/9b34a87ee729f109019ac604681e5796349ea1b2/react/references/component-and-state.md"
+    revision: "9b34a87ee729f109019ac604681e5796349ea1b2"
+    sourcePath: "react/references/component-and-state.md"
+    localPath: "references/client-performance.md; references/react-implementation.md"
+    use: "adapted"
+    retrieved: "2026-10-05"
+    license: "MIT"
+    notices: ["LICENSE-magnus.txt"]
+  - url: "https://github.com/vercel-labs/agent-skills/blob/063bee94c3f4df8453406c830b0a7df0f2860278/skills/react-best-practices/rules/async-parallel.md"
+    revision: "063bee94c3f4df8453406c830b0a7df0f2860278"
+    sourcePath: "skills/react-best-practices/rules/async-parallel.md"
+    localPath: "references/client-performance.md"
+    use: "consulted"
+    retrieved: "2026-10-05"
+    license: "MIT declared by skill frontmatter; repository license/notice file absent at revision"
+    notices: []
+  - url: "https://github.com/vercel-labs/agent-skills/blob/063bee94c3f4df8453406c830b0a7df0f2860278/skills/react-best-practices/rules/rerender-derived-state-no-effect.md"
+    revision: "063bee94c3f4df8453406c830b0a7df0f2860278"
+    sourcePath: "skills/react-best-practices/rules/rerender-derived-state-no-effect.md"
+    localPath: "references/client-performance.md"
+    use: "consulted"
+    retrieved: "2026-10-05"
+    license: "MIT declared by skill frontmatter; repository license/notice file absent at revision"
+    notices: []
+  - url: "https://react.dev/learn/you-might-not-need-an-effect"
+    edition: "Living React documentation"
+    sourcePath: "https://react.dev/learn/you-might-not-need-an-effect"
+    localPath: "references/client-performance.md"
+    use: "consulted"
+    retrieved: "2026-10-05"
+    license: "Documentation consulted only; no copied prose/code"
+    notices: []
+    handling: "Independent procedures/facts; no source prose or code copied."
+recommendations: ["Preserved every AGS example/clause and backend TypeScript applicability.","Accepted bounded derivation/cleanup decisions from Magnus with MIT notice.","Vercel copying/adaptation blocked by absent repository notice/license text; no copied examples, scores or server/Next.js doctrine."]
