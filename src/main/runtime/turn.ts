@@ -1,4 +1,5 @@
 import {
+  actionResultSchema,
   DEFAULT_TURN_LIMITS,
   type ActionResult,
 } from "../../shared/action-contract";
@@ -8,10 +9,15 @@ import {
   type ActionContext,
   type CapabilityRegistry,
 } from "../capabilities/registry";
-import { aggregateOllamaToolStream } from "../services/ollama-tool-stream";
+import {
+  aggregateOllamaToolStream,
+  type AggregatedToolCall,
+} from "../services/ollama-tool-stream";
 import {
   buildTurnContext,
+  contextTokens,
   type ContextMessage,
+  type ContextToolCall,
   type ContextToolMessage,
 } from "./context-builder";
 import { CHAT_REQUEST_PRIORITY, type RequestGate } from "./request-gate";
@@ -26,25 +32,81 @@ export type TurnOutcome = {
   toolRequests: number;
   results: ActionResult[];
   summary?: string;
+  removedCount: number;
 };
 
-type Model = (messages: ContextMessage[]) => Promise<unknown[]>;
+export type TurnUpdate =
+  | { type: "trimmed"; removedCount: number }
+  | { type: "text"; text: string }
+  | {
+      type: "assistant_tools";
+      content: string;
+      toolCalls: ContextToolCall[];
+    }
+  | {
+      type: "tool_result";
+      toolName: string;
+      content: string;
+      result: ActionResult;
+      call: ContextToolCall;
+    }
+  | { type: "stop"; stop: TurnStop; content: string; summary?: string };
+
+type ModelHooks = {
+  onText: (snapshot: string) => void;
+  signal?: AbortSignal;
+};
+
+type Model = (
+  messages: ContextMessage[],
+  hooks: ModelHooks,
+) => Promise<unknown[]>;
 
 function toolKey(name: string, args: unknown): string {
   return `${name}:${JSON.stringify(args)}`;
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function isAbort(error: unknown): boolean {
+  return error instanceof Error && error.name === "AbortError";
+}
+
+function malformedCall(name: string): ActionResult {
+  return actionResultSchema.parse({
+    action: name || "tool",
+    status: "error",
+    code: "malformed_tool_call",
+    summary: "The tool call could not be read.",
+  });
+}
+
+function assignedCall(
+  call: AggregatedToolCall,
+  rounds: number,
+): ContextToolCall {
+  return {
+    id: call.id || `call-${rounds}-${call.index}`,
+    name: call.name,
+    arguments: call.arguments,
+  };
+}
+
 export async function runTurn(input: {
   userText: string;
-  history: Array<{ role: "user" | "assistant"; content: string }>;
+  history: ContextMessage[];
   numCtx: number;
   context: ActionContext;
   gate: RequestGate;
   model: Model;
   registry?: CapabilityRegistry;
   signal?: AbortSignal;
+  onUpdate?: (update: TurnUpdate) => void;
 }): Promise<TurnOutcome> {
   const registry = input.registry ?? createProductionRegistry();
+  const budget = Math.floor(input.numCtx * 0.75);
   const built = buildTurnContext({
     history: input.history,
     userText: input.userText,
@@ -52,14 +114,22 @@ export async function runTurn(input: {
     numCtx: input.numCtx,
   });
   if (!built.ok) {
-    return {
+    const outcome: TurnOutcome = {
       stop: "capacity",
       content: "",
       rounds: 0,
       toolRequests: 0,
       results: [],
       summary: built.summary,
+      removedCount: 0,
     };
+    input.onUpdate?.({
+      type: "stop",
+      stop: outcome.stop,
+      content: "",
+      summary: outcome.summary,
+    });
+    return outcome;
   }
 
   const messages = built.messages;
@@ -67,110 +137,132 @@ export async function runTurn(input: {
   const seen = new Set<string>();
   let rounds = 0;
   let toolRequests = 0;
+  input.onUpdate?.({ type: "trimmed", removedCount: built.removedCount });
+
+  const finish = (
+    stop: TurnStop,
+    content: string,
+    summary?: string,
+  ): TurnOutcome => {
+    const outcome: TurnOutcome = {
+      stop,
+      content,
+      rounds,
+      toolRequests,
+      results,
+      summary,
+      removedCount: built.removedCount,
+    };
+    input.onUpdate?.({ type: "stop", stop, content, summary });
+    return outcome;
+  };
 
   while (rounds < DEFAULT_TURN_LIMITS.maxRounds) {
     if (input.signal?.aborted) {
-      return {
-        stop: "cancelled",
-        content: "",
-        rounds,
-        toolRequests,
-        results,
-        summary: "The turn was cancelled.",
-      };
+      return finish("cancelled", "", "The turn was cancelled.");
     }
     rounds += 1;
-    const chunks = await input.gate.schedule(CHAT_REQUEST_PRIORITY, () =>
-      input.model(messages),
-    );
+    let chunks: unknown[];
+    try {
+      chunks = await input.gate.schedule(CHAT_REQUEST_PRIORITY, () =>
+        input.model(messages, {
+          onText: (text) => input.onUpdate?.({ type: "text", text }),
+          signal: input.signal,
+        }),
+      );
+    } catch (error) {
+      if (input.signal?.aborted || isAbort(error)) {
+        return finish("cancelled", "", "The turn was cancelled.");
+      }
+      throw error;
+    }
     if (input.signal?.aborted) {
-      return {
-        stop: "cancelled",
-        content: "",
-        rounds,
-        toolRequests,
-        results,
-        summary: "The turn was cancelled.",
-      };
+      return finish("cancelled", "", "The turn was cancelled.");
     }
     const aggregated = aggregateOllamaToolStream(chunks);
+    if (aggregated.content) {
+      input.onUpdate?.({ type: "text", text: aggregated.content });
+    }
     if (aggregated.toolCalls.length === 0) {
-      return {
-        stop: "completed",
-        content: aggregated.content,
-        rounds,
-        toolRequests,
-        results,
-      };
+      return finish("completed", aggregated.content);
     }
 
+    const toolCalls = aggregated.toolCalls.map((call) =>
+      assignedCall(call, rounds),
+    );
+    input.onUpdate?.({
+      type: "assistant_tools",
+      content: aggregated.content,
+      toolCalls,
+    });
+    messages.push({
+      role: "assistant",
+      content: aggregated.content,
+      toolCalls,
+    });
+
     let paused = false;
-    messages.push({ role: "assistant", content: aggregated.content });
-    for (const call of aggregated.toolCalls) {
+    for (const call of toolCalls) {
       if (toolRequests >= DEFAULT_TURN_LIMITS.maxToolRequests) {
-        return {
-          stop: "limit",
-          content: aggregated.content,
-          rounds,
-          toolRequests,
-          results,
-          summary: "The turn reached the tool request limit.",
-        };
+        return finish(
+          "limit",
+          aggregated.content,
+          "The turn reached the tool request limit.",
+        );
       }
       const key = toolKey(call.name, call.arguments);
       if (seen.has(key)) {
-        return {
-          stop: "no_progress",
-          content: aggregated.content,
-          rounds,
-          toolRequests,
-          results,
-          summary: "The same tool request was repeated without new work.",
-        };
+        return finish(
+          "no_progress",
+          aggregated.content,
+          "The same tool request was repeated without new work.",
+        );
       }
       seen.add(key);
       toolRequests += 1;
-      const args = isRecord(call.arguments) ? call.arguments : {};
-      const result = dispatchModelTool(
-        registry,
-        call.name,
-        args,
-        input.context,
-      );
+      const result =
+        call.name && isRecord(call.arguments)
+          ? dispatchModelTool(
+              registry,
+              call.name,
+              call.arguments,
+              input.context,
+            )
+          : malformedCall(call.name);
       results.push(result);
       const toolMessage: ContextToolMessage = {
         role: "tool",
-        toolName: call.name,
+        toolName: call.name || "tool",
         content: JSON.stringify(result),
       };
       messages.push(toolMessage);
+      input.onUpdate?.({
+        type: "tool_result",
+        toolName: toolMessage.toolName,
+        content: toolMessage.content,
+        result,
+        call,
+      });
+      if (contextTokens(messages) > budget) {
+        return finish(
+          "capacity",
+          aggregated.content,
+          "The required instructions, user message, and tool results do not fit the context budget.",
+        );
+      }
       if (result.status === "requires_confirmation") {
         paused = true;
         break;
       }
     }
     if (paused) {
-      return {
-        stop: "paused",
-        content: aggregated.content,
-        rounds,
-        toolRequests,
-        results,
-        summary: "A mutation is waiting for confirmation.",
-      };
+      return finish(
+        "paused",
+        aggregated.content,
+        "A mutation is waiting for confirmation.",
+      );
     }
   }
 
-  return {
-    stop: "limit",
-    content: "",
-    rounds,
-    toolRequests,
-    results,
-    summary: "The turn reached the round limit.",
-  };
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
+  return finish("limit", "", "The turn reached the round limit.");
 }

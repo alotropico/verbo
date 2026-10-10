@@ -76,6 +76,46 @@ describe("turn context", () => {
     });
     expect(built).toMatchObject({ ok: false, code: "capacity" });
   });
+
+  it("drops an older tool round without keeping its result alone", () => {
+    const built = buildTurnContext({
+      history: [
+        {
+          role: "assistant",
+          content: "",
+          toolCalls: [
+            {
+              id: "call-1",
+              name: "capabilities.list",
+              arguments: { path: "environment" },
+            },
+          ],
+        },
+        {
+          role: "tool",
+          toolName: "capabilities.list",
+          content: "x".repeat(400),
+        },
+        { role: "assistant", content: "kept-recent" },
+      ],
+      userText: "next",
+      toolEvents: [],
+      numCtx: 160,
+    });
+    expect(built.ok).toBe(true);
+    if (!built.ok) return;
+    const text = JSON.stringify(built.messages);
+    expect(text).toContain("kept-recent");
+    expect(built.messages.some((message) => message.role === "tool")).toBe(
+      false,
+    );
+    expect(
+      built.messages.some(
+        (message) => message.role === "assistant" && message.toolCalls,
+      ),
+    ).toBe(false);
+    expect(built.removedCount).toBe(2);
+  });
 });
 
 describe("turn runner", () => {
@@ -126,6 +166,7 @@ describe("turn runner", () => {
     expect(outcome.rounds).toBe(2);
     expect(outcome.toolRequests).toBe(1);
     expect(seen[1]).toContain("environment.platform");
+    expect(seen[1]).toContain("toolCalls");
     expect(seen[0]).not.toContain("renderer system");
   });
 

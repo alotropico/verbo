@@ -5,13 +5,10 @@ import {
   type ActorKind,
 } from "../../shared/action-contract";
 
-export const MODEL_TOOL_NAMES = [
-  "capabilities.list",
-  "capabilities.describe",
-  "actions.invoke",
-] as const;
-
-export type ModelToolName = (typeof MODEL_TOOL_NAMES)[number];
+export {
+  PERMANENT_MODEL_TOOLS as MODEL_TOOL_NAMES,
+  type PermanentModelTool as ModelToolName,
+} from "../../shared/model-tools";
 
 const LIST_LIMIT = 20;
 const DESCRIBE_LIMIT = 8;
