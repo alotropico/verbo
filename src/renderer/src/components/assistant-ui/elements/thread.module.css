@@ -303,7 +303,7 @@
   background: color-mix(in oklab, var(--foreground) 2%, transparent);
   border: rem(1px) solid var(--sidebar-border);
   color: var(--muted-foreground);
-  font-size: rem(11px);
+  font-size: rem(12px);
   font-weight: 400;
   height: rem(36px);
   padding-inline: rem(12px);

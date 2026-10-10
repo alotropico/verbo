@@ -190,7 +190,7 @@
 .mono {
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono',
     'Courier New', monospace;
-  font-size: rem(11px);
+  font-size: rem(12px);
   letter-spacing: -0.025em;
 }
 
