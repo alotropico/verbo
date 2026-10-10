@@ -498,22 +498,41 @@ const WELCOME_MODIFIERS = [
 ] as const;
 
 const pickWelcomeWord = (words: readonly string[]): string =>
-  words[Math.floor(Math.random() * words.length)] ?? words[0];
+  words[Math.floor(Math.random() * words.length)] ?? words[0]!;
+
+const TypingDots: FC<{ label?: string }> = ({ label }) => (
+  <span
+    className={styles.typingDots}
+    {...(label
+      ? { role: "status" as const, "aria-label": label }
+      : { "aria-hidden": true })}
+  >
+    <span className={styles.typingDot} />
+    <span className={cx(styles.typingDot, styles.typingDotSecond)} />
+    <span className={cx(styles.typingDot, styles.typingDotThird)} />
+  </span>
+);
 
 const ThreadWelcome: FC = () => {
   const [verb] = useState(() => pickWelcomeWord(WELCOME_VERBS));
   const [modifier] = useState(() => pickWelcomeWord(WELCOME_MODIFIERS));
-  const [line, setLine] = useState("...");
+  const [line, setLine] = useState<string | null>(null);
+  const [linePending, setLinePending] = useState(true);
 
   useEffect(() => {
     let cancelled = false;
+    setLine(null);
+    setLinePending(true);
     void window.verbo.ollama
       .welcomeLine({ verb, modifier })
       .then((next) => {
         if (!cancelled && next) setLine(next);
       })
       .catch(() => {
-        // Placeholder stays when the main process cannot reach Ollama.
+        // Dots stop when the main process cannot reach Ollama.
+      })
+      .finally(() => {
+        if (!cancelled) setLinePending(false);
       });
     return () => {
       cancelled = true;
@@ -530,7 +549,9 @@ const ThreadWelcome: FC = () => {
       >
         {verb} <em className={styles.welcomeEmphasis}>{modifier}.</em>
       </h1>
-      <p className={styles.welcomeDescription}>{line}</p>
+      <p className={styles.welcomeDescription}>
+        {line ?? (linePending ? <TypingDots label="Writing a line" /> : null)}
+      </p>
     </div>
   );
 };
@@ -870,7 +891,7 @@ const AssistantMessage: FC = () => {
                     className={styles.workingIndicator}
                     aria-label="Assistant is working"
                   >
-                    {"●"}
+                    <TypingDots />
                   </span>
                 );
               default:
