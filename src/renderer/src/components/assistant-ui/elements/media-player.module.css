@@ -1,0 +1,146 @@
+.audioRoot {
+  display: flex;
+  width: 100%;
+  max-width: rem(448px);
+  align-items: center;
+  gap: rem(12px);
+  border-radius: rem(16px);
+  padding: rem(12px);
+}
+
+.artwork {
+  width: rem(40px);
+  height: rem(40px);
+  flex-shrink: 0;
+  border-radius: var(--radius);
+  object-fit: cover;
+}
+
+.playButton {
+  display: flex;
+  width: rem(36px);
+  height: rem(36px);
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  border-radius: rem(9999px);
+}
+
+.playButton:disabled {
+  cursor: default;
+  opacity: 0.4;
+}
+
+.playIconOffset {
+  margin-left: rem(2px);
+}
+
+.iconSm {
+  width: rem(16px);
+  height: rem(16px);
+}
+
+.metaCol {
+  display: flex;
+  min-width: 0;
+  flex-grow: 1;
+  flex-basis: rem(64px);
+  flex-direction: column;
+  gap: rem(6px);
+}
+
+.title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: rem(13.5px);
+  font-weight: 500;
+}
+
+.seek {
+  width: 100%;
+  cursor: pointer;
+  accent-color: var(--foreground);
+}
+
+.seek:disabled {
+  cursor: default;
+}
+
+.timeMuted {
+  color: var(--muted-foreground);
+  font-variant-numeric: tabular-nums;
+}
+
+.hiddenAudio {
+  display: none;
+}
+
+.errorText {
+  font-size: rem(12px);
+  color: var(--muted-foreground);
+}
+
+.videoRoot {
+  display: flex;
+  width: 100%;
+  max-width: rem(576px);
+  flex-direction: column;
+  gap: rem(8px);
+}
+
+.videoField {
+  overflow: hidden;
+  border-radius: calc(var(--radius) + rem(4px));
+}
+
+.aspectSquare {
+  aspect-ratio: 1 / 1;
+}
+
+.aspect4x3 {
+  aspect-ratio: 4 / 3;
+}
+
+.aspectVideo {
+  aspect-ratio: 16 / 9;
+}
+
+.aspect9x16 {
+  aspect-ratio: 9 / 16;
+}
+
+.videoEl {
+  display: block;
+  max-width: 100%;
+}
+
+.videoElContain {
+  height: 100%;
+  width: 100%;
+  object-fit: contain;
+}
+
+.videoFooter {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: rem(8px);
+  padding-inline: rem(4px);
+}
+
+.videoTitle {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: rem(13.5px);
+  font-weight: 500;
+}
+
+.durationShrink {
+  flex-shrink: 0;
+  color: var(--muted-foreground);
+  font-variant-numeric: tabular-nums;
+}

@@ -1,0 +1,39 @@
+.scrollRow {
+  margin-block: -rem(4px);
+  width: 100%;
+  overflow-x: auto;
+  padding-block: rem(4px);
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.scrollRow::-webkit-scrollbar {
+  display: none;
+}
+
+.inner {
+  display: flex;
+  min-height: rem(32px);
+  width: max-content;
+  max-width: 100%;
+  align-items: center;
+  gap: rem(8px);
+  padding-inline: rem(2px);
+}
+
+.suggestion {
+  font-size: rem(14px);
+  font-weight: 400;
+  white-space: nowrap;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .suggestion {
+    transition: none;
+  }
+}
+
+.label {
+  margin-inline-start: rem(4px);
+  color: var(--muted-foreground);
+}

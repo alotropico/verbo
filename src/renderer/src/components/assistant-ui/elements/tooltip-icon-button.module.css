@@ -1,0 +1,9 @@
+.root {
+  width: rem(24px);
+  height: rem(24px);
+  padding: rem(4px);
+}
+
+.root:active {
+  transform: scale(0.9);
+}

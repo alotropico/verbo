@@ -1,0 +1,55 @@
+.headerRow {
+  align-items: center;
+  display: flex;
+  gap: var(--mantine-spacing-xs);
+  height: rem(88px);
+  justify-content: space-between;
+  padding-inline: rem(20px) rem(14px);
+}
+
+.identity {
+  align-items: center;
+  display: flex;
+  gap: rem(9px);
+}
+
+.mark {
+  color: var(--primary);
+  filter: drop-shadow(
+    0 0 rem(8px) color-mix(in oklab, var(--primary) 30%, transparent)
+  );
+  height: rem(30px);
+  width: rem(30px);
+}
+
+.brand {
+  font-size: rem(23px);
+  font-weight: 500;
+  letter-spacing: -0.055em;
+}
+
+.brandDot {
+  color: var(--primary);
+}
+
+.content {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+  padding: 0 rem(14px);
+}
+
+.footer {
+  border-top: rem(1px) solid var(--sidebar-border);
+  display: flex;
+  flex-direction: column;
+  gap: var(--mantine-spacing-xs);
+  margin-inline: rem(20px);
+  padding-block: rem(18px) rem(20px);
+}
+
+.shortcut {
+  color: color-mix(in oklab, var(--muted-foreground) 75%, transparent);
+  font-size: rem(10px);
+}

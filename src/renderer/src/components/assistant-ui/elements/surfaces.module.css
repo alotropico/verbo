@@ -1,0 +1,216 @@
+.paper,
+.floating {
+  background: var(--popover);
+  border: rem(1px) solid var(--border);
+}
+
+.field {
+  background: color-mix(in oklab, var(--foreground) 6%, transparent);
+}
+
+@media (forced-colors: active) {
+  .field {
+    border: rem(1px) solid CanvasText;
+  }
+}
+
+.fieldInteractive {
+  background: color-mix(in oklab, var(--foreground) 6%, transparent);
+  transition: background-color 150ms;
+}
+
+.fieldInteractive:hover {
+  background: color-mix(in oklab, var(--foreground) 9%, transparent);
+}
+
+@media (forced-colors: active) {
+  .fieldInteractive {
+    border: rem(1px) solid CanvasText;
+  }
+}
+
+.pressable {
+  transition: transform 150ms cubic-bezier(0.23, 1, 0.32, 1);
+}
+
+.pressable:active {
+  transform: scale(0.96);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pressable {
+    transition: none;
+  }
+}
+
+.ghostButton {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: rem(9999px);
+  color: var(--muted-foreground);
+  outline: none;
+  transition:
+    background-color 150ms,
+    color 150ms,
+    transform 150ms;
+}
+
+.ghostButton:hover {
+  background: var(--accent);
+  color: var(--foreground);
+}
+
+.ghostButton:active {
+  transform: scale(0.96);
+}
+
+.ghostButton:focus-visible {
+  box-shadow: 0 0 0 rem(1px) color-mix(in oklab, var(--foreground) 20%, transparent);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ghostButton {
+    transition: none;
+  }
+}
+
+.inkButton {
+  background: var(--foreground);
+  color: var(--background);
+  transition:
+    opacity 150ms,
+    transform 150ms;
+  transition-timing-function: cubic-bezier(0.23, 1, 0.32, 1);
+}
+
+.inkButton:hover {
+  opacity: 0.9;
+}
+
+.inkButton:active {
+  transform: scale(0.96);
+}
+
+@media (forced-colors: active) {
+  .inkButton {
+    border: rem(1px) solid CanvasText;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .inkButton {
+    transition: none;
+  }
+}
+
+.iconSwap {
+  grid-area: 1 / 1;
+  transition:
+    opacity 200ms,
+    transform 200ms,
+    filter 200ms;
+  transition-timing-function: cubic-bezier(0.2, 0, 0, 1);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .iconSwap {
+    transition: none;
+  }
+}
+
+.iconSwapIn {
+  transform: scale(1);
+  opacity: 1;
+  filter: blur(0);
+}
+
+.iconSwapOut {
+  transform: scale(0.25);
+  opacity: 0;
+  filter: blur(rem(4px));
+}
+
+.labelSwap {
+  grid-column-start: 1;
+  grid-row-start: 1;
+  display: flex;
+  width: max-content;
+  align-items: center;
+  gap: rem(6px);
+  line-height: 1;
+  transition:
+    opacity 300ms,
+    filter 300ms;
+  transition-timing-function: cubic-bezier(0.23, 1, 0.32, 1);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .labelSwap {
+    transition: none;
+  }
+}
+
+.labelSwapIn {
+  opacity: 1;
+  filter: blur(0);
+}
+
+.labelSwapOut {
+  pointer-events: none;
+  user-select: none;
+  opacity: 0;
+  filter: blur(rem(2px));
+}
+
+.collapsePanel {
+  height: var(--collapsible-panel-height);
+  overflow: hidden;
+  transition: height 200ms cubic-bezier(0.32, 0.72, 0, 1);
+}
+
+.collapsePanel[data-ending-style] {
+  height: 0;
+}
+
+.collapsePanel[data-starting-style] {
+  height: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .collapsePanel {
+    transition: none;
+  }
+}
+
+.live {
+  color: var(--chart-1);
+}
+
+.mono {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono',
+    'Courier New', monospace;
+  font-size: rem(11px);
+  letter-spacing: -0.025em;
+}
+
+.codeScroll {
+  overflow-x: auto;
+}
+
+.codeSurface {
+  width: max-content;
+  min-width: 100%;
+}
+
+.swapLabelGrid {
+  display: grid;
+  overflow-x: clip;
+  transition: width 300ms cubic-bezier(0.23, 1, 0.32, 1);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .swapLabelGrid {
+    transition: none;
+  }
+}

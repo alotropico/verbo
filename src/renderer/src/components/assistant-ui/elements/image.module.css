@@ -1,0 +1,282 @@
+.root {
+  position: relative;
+  overflow: hidden;
+  border-radius: var(--radius-lg);
+}
+
+.root[data-variant='outline'] {
+  border: rem(1px) solid var(--border);
+}
+
+.root[data-variant='muted'] {
+  background: color-mix(in oklab, var(--muted) 50%, transparent);
+}
+
+.root[data-size='sm'] {
+  max-width: rem(256px);
+}
+
+.root[data-size='default'] {
+  max-width: rem(384px);
+}
+
+.root[data-size='lg'] {
+  max-width: rem(512px);
+}
+
+.root[data-size='full'] {
+  width: 100%;
+}
+
+.previewContainer {
+  position: relative;
+}
+
+.previewMinH {
+  min-height: rem(128px);
+}
+
+.aspectSquare {
+  aspect-ratio: 1 / 1;
+}
+
+.aspect4x3 {
+  aspect-ratio: 4 / 3;
+}
+
+.aspectVideo {
+  aspect-ratio: 16 / 9;
+}
+
+.aspect9x16 {
+  aspect-ratio: 9 / 16;
+}
+
+.loadingOverlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: color-mix(in oklab, var(--muted) 50%, transparent);
+}
+
+.loadingIcon {
+  width: rem(32px);
+  height: rem(32px);
+  color: var(--muted-foreground);
+  animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+.errorPanel {
+  display: flex;
+  min-height: rem(128px);
+  align-items: center;
+  justify-content: center;
+  padding: rem(16px);
+  background: color-mix(in oklab, var(--muted) 50%, transparent);
+}
+
+.errorPanelFixed {
+  position: absolute;
+  inset: 0;
+}
+
+.errorIcon {
+  width: rem(32px);
+  height: rem(32px);
+  color: var(--muted-foreground);
+}
+
+.imgFixed {
+  display: block;
+  height: 100%;
+  width: 100%;
+}
+
+.imgCover {
+  object-fit: cover;
+}
+
+.imgContain {
+  object-fit: contain;
+}
+
+.imgAuto {
+  display: block;
+  height: auto;
+  width: 100%;
+  object-fit: contain;
+}
+
+.imgHidden {
+  visibility: hidden;
+}
+
+.source {
+  display: flex;
+  align-items: center;
+  gap: rem(8px);
+  border-top: rem(1px) solid var(--border);
+  padding-inline: rem(8px);
+  padding-block: rem(6px);
+  font-size: rem(12px);
+  color: var(--muted-foreground);
+}
+
+.sourceIcon {
+  width: rem(16px);
+  height: rem(16px);
+  flex-shrink: 0;
+  border-radius: var(--radius-sm);
+}
+
+.sourceIconFallback {
+  display: flex;
+  width: rem(16px);
+  height: rem(16px);
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-sm);
+  background: var(--muted);
+  font-size: rem(10px);
+  font-weight: 500;
+}
+
+.sourceLink {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sourceLink:hover {
+  color: var(--foreground);
+}
+
+.filename {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding-inline: rem(8px);
+  padding-block: rem(6px);
+  font-size: rem(12px);
+  color: var(--muted-foreground);
+}
+
+.zoomTrigger {
+  cursor: zoom-in;
+}
+
+.zoomOverlay {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgb(0 0 0 / 80%);
+  animation: fade-in 200ms ease-out;
+}
+
+.zoomContent {
+  max-height: 90%;
+  max-width: 90%;
+  cursor: zoom-out;
+  object-fit: contain;
+  animation: imageZoomIn 200ms ease-out;
+}
+
+@keyframes imageZoomIn {
+  from {
+    opacity: 0;
+    transform: scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.zoomClose {
+  position: absolute;
+  inset-inline-end: rem(16px);
+  top: rem(16px);
+  color: var(--muted-foreground);
+}
+
+.zoomClose:hover {
+  color: var(--foreground);
+}
+
+.closeIcon {
+  width: rem(20px);
+  height: rem(20px);
+}
+
+.generating {
+  display: flex;
+  min-height: rem(128px);
+  align-items: center;
+  justify-content: center;
+  padding: rem(16px);
+  background: color-mix(in oklab, var(--muted) 50%, transparent);
+}
+
+.spinner {
+  width: rem(32px);
+  height: rem(32px);
+  color: var(--muted-foreground);
+  animation: spin 1s linear infinite;
+}
+
+.filterError {
+  display: flex;
+  min-height: rem(128px);
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: rem(8px);
+  padding: rem(16px);
+  text-align: center;
+  background: color-mix(in oklab, var(--muted) 50%, transparent);
+}
+
+.filterTitle {
+  font-size: rem(14px);
+  font-weight: 500;
+}
+
+.filterReason {
+  font-size: rem(12px);
+  color: var(--muted-foreground);
+}
+
+.actions {
+  display: flex;
+  align-items: center;
+  gap: rem(4px);
+  padding: rem(4px);
+}
+
+.actionButton {
+  color: var(--muted-foreground);
+}
+
+.actionButton:disabled {
+  opacity: 0.5;
+}
+
+.actionIcon {
+  width: rem(16px);
+  height: rem(16px);
+}
+
+.actionIconSpin {
+  animation: spin 1s linear infinite;
+}
+
+.cancelledOpacity {
+  opacity: 0.6;
+}

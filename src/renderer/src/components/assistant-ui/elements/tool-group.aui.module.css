@@ -1,0 +1,170 @@
+.root {
+  width: 100%;
+}
+
+.root[data-variant='outline'] {
+  border-radius: var(--radius-lg);
+  border: rem(1px) solid var(--border);
+  padding-block: rem(12px);
+}
+
+.root[data-variant='muted'] {
+  border-radius: var(--radius-lg);
+  border: rem(1px) solid color-mix(in oklab, var(--muted-foreground) 30%, transparent);
+  background: color-mix(in oklab, var(--muted) 30%, transparent);
+  padding-block: rem(12px);
+}
+
+.trigger {
+  display: flex;
+  transform-origin: left;
+  align-items: center;
+  gap: rem(8px);
+  font-size: rem(14px);
+  transition: color 150ms, transform 150ms;
+}
+
+.trigger:active {
+  transform: scale(0.98);
+}
+
+.root[data-variant='ghost'] .trigger {
+  padding-block: rem(6px);
+  color: var(--muted-foreground);
+}
+
+.root[data-variant='ghost'] .trigger:hover {
+  color: var(--foreground);
+}
+
+.root[data-variant='outline'] .trigger,
+.root[data-variant='muted'] .trigger {
+  width: 100%;
+  padding-inline: rem(16px);
+}
+
+.loader {
+  width: rem(12px);
+  height: rem(12px);
+  flex-shrink: 0;
+  animation: spin 0.6s linear infinite;
+}
+
+.label {
+  display: inline-block;
+  text-align: start;
+  font-size: rem(12px);
+  line-height: 1;
+  font-weight: 500;
+}
+
+.root[data-variant='ghost'] .label {
+  font-weight: 400;
+}
+
+.root[data-variant='outline'] .label,
+.root[data-variant='muted'] .label {
+  flex-grow: 1;
+}
+
+.chevron {
+  width: rem(12px);
+  height: rem(12px);
+  flex-shrink: 0;
+  transform: rotate(-90deg);
+  transition: transform var(--animation-duration) cubic-bezier(0.32, 0.72, 0, 1);
+}
+
+.trigger[data-open] .chevron,
+.trigger[data-panel-open] .chevron {
+  transform: rotate(0);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .chevron {
+    transition: none;
+  }
+}
+
+.content {
+  position: relative;
+  overflow: hidden;
+  font-size: rem(14px);
+  outline: none;
+}
+
+.content[data-open] {
+  animation: collapsible-down var(--animation-duration) cubic-bezier(0.32, 0.72, 0, 1);
+}
+
+.content[data-closed] {
+  animation: collapsible-up var(--animation-duration) cubic-bezier(0.32, 0.72, 0, 1);
+  animation-fill-mode: forwards;
+  pointer-events: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .content[data-open],
+  .content[data-closed] {
+    animation: none;
+  }
+}
+
+.contentInner {
+  margin-top: rem(8px);
+  display: flex;
+  flex-direction: column;
+  gap: rem(8px);
+}
+
+.root[data-variant='ghost'] .contentInner {
+  margin-top: rem(4px);
+  gap: rem(4px);
+}
+
+.root[data-variant='outline'] .contentInner,
+.root[data-variant='muted'] .contentInner {
+  margin-top: rem(12px);
+  border-top: rem(1px) solid var(--border);
+  padding-inline: rem(16px);
+  padding-top: rem(12px);
+}
+
+.contentInner > * {
+  animation: toolGroupChildIn var(--animation-duration) cubic-bezier(0.32, 0.72, 0, 1);
+}
+
+.contentInner > *:nth-child(2) {
+  animation-delay: 40ms;
+}
+
+.contentInner > *:nth-child(3) {
+  animation-delay: 80ms;
+}
+
+.contentInner > *:nth-child(4) {
+  animation-delay: 120ms;
+}
+
+.contentInner > *:nth-child(n + 5) {
+  animation-delay: 160ms;
+}
+
+@keyframes toolGroupChildIn {
+  from {
+    opacity: 0;
+    transform: translateY(-rem(4px));
+    filter: blur(rem(2px));
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+    filter: blur(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .contentInner > * {
+    animation: none;
+  }
+}
