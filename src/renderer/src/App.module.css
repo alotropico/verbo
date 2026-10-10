@@ -1,0 +1,115 @@
+.shell {
+  isolation: isolate;
+  height: 100dvh;
+  color: var(--foreground);
+
+  &::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    opacity: 0.25;
+    z-index: -1;
+    background: var(--background);
+    background-image:
+      url("data:image/svg+xml,%3Csvg viewBox='0 0 1746 1746' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.65' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)'/%3E%3C/svg%3E"),
+      radial-gradient(
+        circle at 0% 99%,
+        hsla(192, 10%, 31%, 1) 0%,
+        transparent 67%
+      ),
+      radial-gradient(
+        circle at 46% 94%,
+        hsla(200, 9%, 36%, 1) 0%,
+        transparent 81%
+      ),
+      radial-gradient(
+        circle at 89% 8%,
+        hsla(265, 14%, 16%, 1) 0%,
+        transparent 150%
+      ),
+      radial-gradient(
+        circle at 89% 8%,
+        hsla(206, 100%, 9%, 1) 0%,
+        transparent 150%
+      ),
+      radial-gradient(
+        circle at 93% 95%,
+        hsla(196, 17%, 20%, 1) 0%,
+        transparent 66%
+      ),
+      radial-gradient(
+        circle at 89% 8%,
+        hsla(0, 0%, 60%, 1) 0%,
+        transparent 150%
+      ),
+      radial-gradient(
+        circle at 89% 8%,
+        hsla(55, 0%, 20%, 1) 0%,
+        transparent 150%
+      );
+    background-blend-mode:
+      overlay, normal, normal, normal, normal, normal, normal, normal;
+  }
+}
+
+.navbar {
+  background: var(--sidebar);
+  backdrop-filter: blur(rem(16px));
+  box-shadow: rem(8px) 0 rem(40px) rem(-24px) var(--shadow-color);
+  color: var(--sidebar-foreground);
+  border-inline-end: rem(1px) solid var(--sidebar-border);
+}
+
+.inset {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  min-width: 0;
+}
+
+.header {
+  background: color-mix(in oklab, var(--background) 14%, transparent);
+  border-bottom: rem(1px) solid var(--sidebar-border);
+  position: relative;
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: rem(16px);
+  padding: rem(8px) rem(24px);
+}
+
+.headerSpacer {
+  flex: 1;
+  min-width: 0;
+}
+
+.headerTitle {
+  min-width: 0;
+  flex: 1;
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--mantine-font-size-sm);
+  font-weight: var(--mantine-font-weight-medium);
+  letter-spacing: -0.01em;
+}
+
+.main {
+  min-height: 0;
+  flex: 1;
+  overflow: hidden;
+}
+
+@media (max-width: em(768px)) {
+  .navbar {
+    background: var(--surface-raised);
+    backdrop-filter: blur(rem(32px));
+  }
+
+  .header {
+    gap: var(--mantine-spacing-xs);
+    padding-inline: var(--mantine-spacing-md);
+  }
+}

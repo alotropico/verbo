@@ -1,0 +1,80 @@
+.input {
+  background: color-mix(in oklab, var(--background) 30%, transparent);
+  border-color: var(--surface-edge);
+  transition:
+    border-color 180ms,
+    box-shadow 180ms;
+}
+
+.input:focus,
+.input:focus-within {
+  border-color: color-mix(in oklab, var(--primary) 50%, transparent);
+  box-shadow: 0 0 0 rem(3px) color-mix(in oklab, var(--primary) 5%, transparent);
+}
+
+.label {
+  color: var(--muted-foreground);
+  font-size: rem(12px);
+  font-weight: 400;
+  margin-bottom: rem(8px);
+}
+
+.modalContent {
+  backdrop-filter: blur(rem(32px));
+  background:
+    linear-gradient(
+      145deg,
+      color-mix(in oklab, var(--foreground) 3%, transparent),
+      transparent 55%
+    ),
+    var(--surface-raised);
+  border: rem(1px) solid var(--surface-edge);
+  border-radius: rem(22px);
+  box-shadow:
+    inset 0 rem(1px) 0 var(--sidebar-border),
+    var(--shadow-floating);
+}
+
+.modalHeader {
+  background: transparent;
+  padding: rem(24px) rem(24px) rem(12px);
+}
+
+.modalTitle {
+  font-size: rem(23px);
+  font-weight: 400;
+  letter-spacing: -0.04em;
+}
+
+.modalBody {
+  padding: 0 rem(24px) rem(24px);
+}
+
+.dropdown,
+.tooltip {
+  backdrop-filter: blur(rem(24px));
+  background: var(--surface-raised);
+  border: rem(1px) solid var(--surface-edge);
+  box-shadow: var(--shadow-floating);
+  color: var(--foreground);
+}
+
+.option {
+  font-size: rem(12px);
+}
+
+.option[data-combobox-selected] {
+  background: var(--sidebar-accent);
+  color: var(--primary);
+}
+
+.tooltip {
+  font-size: rem(11px);
+  line-height: 1.6;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .input {
+    transition: none;
+  }
+}

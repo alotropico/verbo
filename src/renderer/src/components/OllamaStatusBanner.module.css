@@ -1,0 +1,47 @@
+.status {
+  align-items: center;
+  color: var(--muted-foreground);
+  display: flex;
+  flex-shrink: 0;
+  font-size: rem(12px);
+  gap: rem(8px);
+}
+
+.status:focus-visible {
+  border-radius: var(--radius-sm);
+  outline: rem(1px) solid var(--ring);
+  outline-offset: rem(5px);
+}
+
+.dot {
+  background: var(--muted-foreground);
+  border-radius: 50%;
+  height: rem(5px);
+  width: rem(5px);
+}
+
+.status[data-status="ok"] .dot {
+  background: var(--success);
+  box-shadow: 0 0 rem(10px) color-mix(in oklab, var(--success) 45%, transparent);
+}
+
+.status[data-status="error"] {
+  color: var(--destructive);
+}
+
+.status[data-status="error"] .dot {
+  background: var(--destructive);
+}
+
+.model {
+  border-inline-start: rem(1px) solid var(--surface-edge);
+  font-family: var(--font-mono);
+  font-size: rem(12px);
+  padding-inline-start: rem(8px);
+}
+
+@media (max-width: em(600px)) {
+  .model {
+    display: none;
+  }
+}
