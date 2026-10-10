@@ -651,6 +651,13 @@
   animation: enterFade 200ms both;
 }
 
+.assistantActionBar[data-floating="true"] {
+  bottom: rem(30px);
+  inset-inline-start: rem(4px);
+  margin-inline-start: 0;
+  position: absolute;
+}
+
 .feedbackButton[data-submitted="true"] {
   color: var(--foreground);
 }

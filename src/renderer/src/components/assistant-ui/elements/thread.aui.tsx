@@ -918,6 +918,7 @@ const AssistantActionBar: FC = () => {
     <ActionBarPrimitive.Root
       hideWhenRunning
       autohide="not-last"
+      autohideFloat="single-branch"
       className={cx("aui-assistant-action-bar-root", styles.assistantActionBar)}
     >
       <ActionBarPrimitive.Copy render={<TooltipIconButton tooltip="Copy" />}>
