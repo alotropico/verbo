@@ -1,0 +1,44 @@
+# Dependencies
+node_modules/
+
+# Build output
+out/
+dist/
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+pnpm-debug.log*
+
+# Environment
+.env
+.env.*
+!.env.example
+
+# Editor / OS
+.DS_Store
+Thumbs.db
+*.swp
+.idea/
+.vscode/*
+!.vscode/extensions.json
+!.vscode/launch.json
+!.vscode/settings.json
+
+# TypeScript / tooling cache
+.tmp/
+*.tsbuildinfo
+.eslintcache
+
+# Electron / Vite
+*.local
+
+# Test / coverage
+coverage/
+
+# User data (never commit local DB or settings from dev machines)
+*.sqlite
+*.sqlite-journal
+
+node_modules/
