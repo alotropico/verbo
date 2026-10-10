@@ -12,3 +12,7 @@ Read a rule before work that matches its condition:
 - `.agents/rules/tmp-conventions.md`: Creating, moving, or archiving files under .tmp/.
 - `.agents/rules/workspace-operations.md`: Pure file moves, renames, copies, or choosing optional navigation/indexing tools; ordinary repository search alone does not qualify.
 <!-- AGS:END -->
+
+## Theme and Mantine
+
+Semantic color/radius tokens live in `src/renderer/src/assets/globals.css`. Mantine consumes them through `src/renderer/src/theme/mantine.ts` (`ThemeProvider`). Renderer styles use CSS modules plus those tokens (`cx` from `@/lib/cx`). Do not add Tailwind. Use installed skills `mantine-form`, `mantine-combobox`, and `mantine-custom-components`; read `.agents/local/<skill-name>.md` first. Do not add a second palette.
