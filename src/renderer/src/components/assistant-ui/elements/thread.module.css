@@ -388,8 +388,7 @@
 }
 
 .composerInput {
-  min-height: rem(52px);
-  max-height: rem(192px);
+  height: fit-content !important;
   width: 100%;
   resize: none;
   border: none;
