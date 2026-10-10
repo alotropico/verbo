@@ -9,7 +9,10 @@ import { verboThreadListAdapter } from "./thread-list-adapter";
 
 function useThreadRuntime() {
   const modelAdapter = useMemo(
-    () => createChatModelAdapter(() => window.verbo.settings.get()),
+    () =>
+      createChatModelAdapter(
+        async () => (await window.verbo.settings.get()).settings,
+      ),
     [],
   );
   return useLocalRuntime(modelAdapter);

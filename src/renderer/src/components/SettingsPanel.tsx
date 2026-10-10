@@ -1,77 +1,129 @@
 import {
-  ALTERNATE_MODEL,
-  DEFAULT_MODEL,
-  type ChatSettings,
-} from "@shared/config";
+  contextChoices,
+  legacyTemperatureNotice,
+  sliderTemperature,
+  type SettingsRecovery,
+} from "@shared/settings-recovery";
 import { chatSettingsSchema } from "@shared/storage-ipc";
 import {
   ActionIcon,
-  Autocomplete,
   Button,
   Group,
   Modal,
-  NumberInput,
+  Select,
+  Slider,
   Stack,
   Switch,
+  Tabs,
   Text,
   Tooltip,
 } from "@mantine/core";
 import { schemaResolver, useForm } from "@mantine/form";
 import { useDisclosure } from "@mantine/hooks";
-import { useEffect, useState, type ReactElement, type ReactNode } from "react";
-import { CircleHelpIcon, SlidersHorizontalIcon } from "lucide-react";
+import { SlidersHorizontalIcon } from "lucide-react";
+import { useEffect, useState, type ReactElement } from "react";
+import { z } from "zod";
 import styles from "./SettingsPanel.module.css";
 
-const FIELD_HINTS = {
-  model:
-    "Ollama model tag used for chat replies. Pick a suggestion or type any installed name.",
-  think: "Ask the model to include its chain-of-thought before the answer.",
-  temperature:
-    "Sampling randomness. 0 is mostly deterministic; 2 is most random.",
-  numCtx: "Token window (num_ctx) sent to Ollama. Larger uses more memory.",
-} as const;
+type ModelFormValues = {
+  model: string;
+  think: boolean;
+  temperature: number;
+  numCtx: string;
+  keepAlive: string;
+};
 
-function FieldLabel({
-  children,
-  hint,
+type InstalledModels =
+  | { ok: true; models: string[] }
+  | { ok: false; error: string; models?: string[] };
+
+function modelFormSchema(contextValues: string[]) {
+  return z.object({
+    model: z.string().min(1).max(128),
+    think: z.boolean(),
+    temperature: z.number().min(0).max(1),
+    numCtx: z
+      .string()
+      .refine(
+        (value) => contextValues.includes(value),
+        "Choose a context size.",
+      ),
+    keepAlive: z.string().min(1).max(32),
+  });
+}
+
+function UnavailableTab({
+  title,
+  detail,
 }: {
-  children: ReactNode;
-  hint: string;
+  title: string;
+  detail: string;
 }): ReactElement {
   return (
-    <Group gap={6} wrap="nowrap" component="span">
-      <span>{children}</span>
-      <Tooltip
-        label={hint}
-        withArrow
-        multiline
-        maw={280}
-        events={{ hover: true, focus: true, touch: true }}
-      >
-        <ActionIcon size={18} variant="subtle" aria-label={hint}>
-          <CircleHelpIcon size={12} />
-        </ActionIcon>
-      </Tooltip>
-    </Group>
+    <Stack gap="xs">
+      <Text fw={500}>{title}</Text>
+      <Text size="sm" c="dimmed">
+        {detail}
+      </Text>
+    </Stack>
   );
 }
 
 function SettingsForm({
-  initial,
+  report,
   opened,
   onOpen,
   onClose,
+  onSaved,
 }: {
-  initial: ChatSettings;
+  report: SettingsRecovery;
   opened: boolean;
   onOpen: () => void;
   onClose: () => void;
+  onSaved: (report: SettingsRecovery) => void;
 }): ReactElement {
-  const form = useForm({
+  const { settings } = report;
+  const choices = contextChoices(settings.numCtx);
+  const [models, setModels] = useState<InstalledModels | null>(null);
+  const [confirmDiscard, setConfirmDiscard] = useState(false);
+  const form = useForm<ModelFormValues>({
     mode: "uncontrolled",
-    initialValues: initial,
-    validate: schemaResolver(chatSettingsSchema, { sync: true }),
+    initialValues: {
+      model: settings.model,
+      think: settings.think,
+      temperature: sliderTemperature(settings.temperature),
+      numCtx: String(settings.numCtx),
+      keepAlive: settings.keepAlive,
+    },
+    validate: schemaResolver(
+      modelFormSchema(choices.map((choice) => choice.value)),
+      { sync: true },
+    ),
   });
+  const temperature = form.useWatchValue("temperature");
+  const temperatureNotice = legacyTemperatureNotice(settings.temperature);
+  const modelMissing =
+    models?.ok === true && !models.models.includes(settings.model);
+  const modelData = [
+    ...(models?.ok ? models.models : [settings.model]),
+    ...(modelMissing ? [settings.model] : []),
+  ]
+    .filter((model, index, all) => all.indexOf(model) === index)
+    .map((model) => ({
+      value: model,
+      label:
+        modelMissing && model === settings.model
+          ? `${model} (not installed)`
+          : model,
+    }));
+
+  const requestClose = (): void => {
+    if (form.isDirty()) {
+      setConfirmDiscard(true);
+      return;
+    }
+    onClose();
+  };
 
   return (
     <>
@@ -81,7 +133,18 @@ function SettingsForm({
           size={32}
           type="button"
           aria-label="Settings"
-          onClick={onOpen}
+          onClick={() => {
+            onOpen();
+            void window.verbo.ollama.status().then((status) => {
+              if (status.ok) setModels({ ok: true, models: status.models });
+              else
+                setModels({
+                  ok: false,
+                  error: status.error,
+                  models: status.models,
+                });
+            });
+          }}
           className={styles.trigger}
         >
           <SlidersHorizontalIcon size={16} />
@@ -89,73 +152,180 @@ function SettingsForm({
       </Tooltip>
       <Modal
         opened={opened}
-        onClose={onClose}
-        title="Make it your own."
+        onClose={requestClose}
+        title="Settings"
         centered
-        size="sm"
+        trapFocus
+        closeOnEscape
+        returnFocus
+        classNames={{ content: styles.dialog, body: styles.body }}
+        size="900px"
         overlayProps={{ backgroundOpacity: 0.35, blur: 8 }}
         closeButtonProps={{ "aria-label": "Close settings" }}
       >
         <form
+          className={styles.form}
           onSubmit={form.onSubmit(async (values) => {
-            const next = await window.verbo.settings.set(values);
-            form.setInitialValues(next);
-            form.resetDirty(next);
+            const saved = chatSettingsSchema.parse({
+              ...values,
+              numCtx: Number(values.numCtx),
+            });
+            const next = await window.verbo.settings.set(saved);
+            const snapshot = { settings: next, issues: [] };
+            form.setInitialValues({
+              model: next.model,
+              think: next.think,
+              temperature: sliderTemperature(next.temperature),
+              numCtx: String(next.numCtx),
+              keepAlive: next.keepAlive,
+            });
+            form.resetDirty();
+            onSaved(snapshot);
             onClose();
           })}
         >
-          <Stack gap="lg">
+          <Tabs
+            defaultValue="model"
+            className={styles.tabs}
+            keepMounted={false}
+          >
+            <Tabs.List>
+              <Tabs.Tab value="model">Model</Tabs.Tab>
+              <Tabs.Tab value="memory">Memory</Tabs.Tab>
+              <Tabs.Tab value="files">Files</Tabs.Tab>
+              <Tabs.Tab value="voice">Voice</Tabs.Tab>
+              <Tabs.Tab value="actions">Actions</Tabs.Tab>
+            </Tabs.List>
+            <Tabs.Panel value="model" className={styles.panel}>
+              <Stack gap="md">
+                {report.issues.map((issue) => (
+                  <Text key={issue} className={styles.notice} size="sm">
+                    {issue}
+                  </Text>
+                ))}
+                {temperatureNotice ? (
+                  <Text className={styles.notice} size="sm">
+                    {temperatureNotice}
+                  </Text>
+                ) : null}
+                {models?.ok === false ? (
+                  <Text className={styles.notice} size="sm">
+                    Could not list installed models. {models.error}
+                  </Text>
+                ) : null}
+                <Select
+                  label="Model"
+                  description="Exact installed Ollama tag."
+                  data={modelData}
+                  allowDeselect={false}
+                  searchable
+                  nothingFoundMessage="No installed model"
+                  key={form.key("model")}
+                  {...form.getInputProps("model")}
+                  error={
+                    modelMissing
+                      ? `${settings.model} is not installed.`
+                      : form.errors.model
+                  }
+                />
+                <Switch
+                  label="Thinking mode"
+                  description="Ask the model to include its chain-of-thought before the answer."
+                  key={form.key("think")}
+                  {...form.getInputProps("think", { type: "checkbox" })}
+                />
+                <Select
+                  label="Context window"
+                  description="Presets from 2K to 128K. A saved custom size stays until you change it. High values use more memory."
+                  data={choices}
+                  allowDeselect={false}
+                  key={form.key("numCtx")}
+                  {...form.getInputProps("numCtx")}
+                />
+                <Stack gap={4}>
+                  <Text size="sm" fw={500}>
+                    Temperature {temperature.toFixed(1)}
+                  </Text>
+                  <Slider
+                    min={0}
+                    max={1}
+                    step={0.1}
+                    label={(value) => value.toFixed(1)}
+                    aria-label="Temperature"
+                    key={form.key("temperature")}
+                    {...form.getInputProps("temperature", { withError: false })}
+                  />
+                </Stack>
+              </Stack>
+            </Tabs.Panel>
+            <Tabs.Panel value="memory" className={styles.panel}>
+              <UnavailableTab
+                title="Memory"
+                detail="Memory entries are not available yet. This tab will edit them through the same actions as commands. Cancel does not undo a memory change that already completed."
+              />
+            </Tabs.Panel>
+            <Tabs.Panel value="files" className={styles.panel}>
+              <UnavailableTab
+                title="Files"
+                detail="File scopes are not available yet. A scope change will apply only through an explicit save."
+              />
+            </Tabs.Panel>
+            <Tabs.Panel value="voice" className={styles.panel}>
+              <UnavailableTab
+                title="Voice"
+                detail="The voice service is not connected. Typed chat still works. Voice preferences will stay staged until Save once the service is available."
+              />
+            </Tabs.Panel>
+            <Tabs.Panel value="actions" className={styles.panel}>
+              <UnavailableTab
+                title="Actions"
+                detail="The capability catalog is not available yet. Action history will appear here when actions run."
+              />
+            </Tabs.Panel>
+          </Tabs>
+          <Group justify="space-between" className={styles.footer}>
             <Text size="xs" c="dimmed">
-              A few small adjustments. A different way of thinking.
+              Save stores model settings for the next message. Cancel leaves
+              them unchanged.
             </Text>
-            <Autocomplete
-              label={<FieldLabel hint={FIELD_HINTS.model}>Model</FieldLabel>}
-              data={[DEFAULT_MODEL, ALTERNATE_MODEL]}
-              key={form.key("model")}
-              {...form.getInputProps("model")}
-            />
-            <Switch
-              label={
-                <FieldLabel hint={FIELD_HINTS.think}>Thinking mode</FieldLabel>
-              }
-              key={form.key("think")}
-              {...form.getInputProps("think", { type: "checkbox" })}
-            />
-            <NumberInput
-              label={
-                <FieldLabel hint={FIELD_HINTS.temperature}>
-                  Temperature
-                </FieldLabel>
-              }
-              min={0}
-              max={2}
-              step={0.1}
-              decimalScale={1}
-              key={form.key("temperature")}
-              {...form.getInputProps("temperature")}
-            />
-            <NumberInput
-              label={
-                <FieldLabel hint={FIELD_HINTS.numCtx}>
-                  Context window
-                </FieldLabel>
-              }
-              min={512}
-              max={131072}
-              step={512}
-              allowDecimal={false}
-              key={form.key("numCtx")}
-              {...form.getInputProps("numCtx")}
-            />
-            <Group justify="space-between" className={styles.footer}>
-              <Text size="xs" c="dimmed">
-                Applied to your next message
-              </Text>
-              <Button type="submit" size="xs" loading={form.submitting}>
-                Save changes
-              </Button>
-            </Group>
-          </Stack>
+            {confirmDiscard ? (
+              <Group gap="xs">
+                <Button
+                  type="button"
+                  size="xs"
+                  variant="default"
+                  onClick={() => setConfirmDiscard(false)}
+                >
+                  Keep editing
+                </Button>
+                <Button
+                  type="button"
+                  size="xs"
+                  onClick={() => {
+                    form.reset();
+                    setConfirmDiscard(false);
+                    onClose();
+                  }}
+                >
+                  Discard
+                </Button>
+              </Group>
+            ) : (
+              <Group gap="xs">
+                <Button
+                  type="button"
+                  size="xs"
+                  variant="default"
+                  onClick={requestClose}
+                >
+                  Cancel
+                </Button>
+                <Button type="submit" size="xs" loading={form.submitting}>
+                  Save
+                </Button>
+              </Group>
+            )}
+          </Group>
         </form>
       </Modal>
     </>
@@ -163,21 +333,22 @@ function SettingsForm({
 }
 
 export function SettingsPanel(): ReactElement | null {
-  const [settings, setSettings] = useState<ChatSettings | null>(null);
+  const [report, setReport] = useState<SettingsRecovery | null>(null);
   const [opened, { open, close }] = useDisclosure(false);
 
   useEffect(() => {
-    void window.verbo.settings.get().then(setSettings);
+    void window.verbo.settings.get().then(setReport);
   }, []);
 
-  if (!settings) return null;
+  if (!report) return null;
 
   return (
     <SettingsForm
-      initial={settings}
+      report={report}
       opened={opened}
       onOpen={open}
       onClose={close}
+      onSaved={setReport}
     />
   );
 }

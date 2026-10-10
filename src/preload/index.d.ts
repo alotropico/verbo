@@ -1,5 +1,6 @@
 import type { AssistantAI } from "../shared/chat-ipc";
 import type { ChatSettings } from "../shared/config";
+import type { SettingsRecovery } from "../shared/settings-recovery";
 import type { RemoteThreadMetadata } from "../shared/storage-ipc";
 
 type VerboApi = {
@@ -44,7 +45,7 @@ type VerboApi = {
     >;
   };
   settings: {
-    get: () => Promise<ChatSettings>;
+    get: () => Promise<SettingsRecovery>;
     set: (settings: ChatSettings) => Promise<ChatSettings>;
   };
 };

@@ -20,7 +20,11 @@ import {
   unarchiveThread,
 } from "../services/conversations";
 import { fetchOllamaStatus } from "../services/ollama";
-import { loadSettings, saveSettings } from "../services/settings-store";
+import {
+  loadSettings,
+  loadSettingsReport,
+  saveSettings,
+} from "../services/settings-store";
 import { generateThreadTitle } from "../services/thread-title";
 import { generateWelcomeLine } from "../services/welcome-line";
 import { registerAssistantStreamIpc } from "./chat-stream";
@@ -130,7 +134,7 @@ export function registerIpc(mainWindow: BrowserWindow): void {
 
   ipcMain.handle(IPC_CHANNELS.settingsGet, (event) => {
     assertTrustedWindow(event, mainWindow);
-    return loadSettings();
+    return loadSettingsReport();
   });
 
   ipcMain.handle(IPC_CHANNELS.settingsSet, (event, settings: unknown) => {

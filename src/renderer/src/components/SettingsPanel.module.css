@@ -1,3 +1,47 @@
+.dialog {
+  display: flex;
+  flex-direction: column;
+  height: min(rem(650px), calc(100dvh - rem(32px)));
+  max-width: min(rem(900px), calc(100vw - rem(32px)));
+  width: min(rem(900px), calc(100vw - rem(32px)));
+}
+
+.body {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.footer {
+  border-top: rem(1px) solid var(--sidebar-border);
+  margin-top: auto;
+  padding-top: var(--mantine-spacing-md);
+}
+
+.form {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.notice {
+  color: var(--destructive);
+}
+
+.panel {
+  overflow: auto;
+  padding-top: var(--mantine-spacing-md);
+}
+
+.tabs {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+}
+
 .trigger {
   border: rem(1px) solid var(--sidebar-border);
   border-radius: var(--radius);
@@ -6,10 +50,4 @@
 
 .trigger:hover {
   color: var(--foreground);
-}
-
-.footer {
-  border-top: rem(1px) solid var(--sidebar-border);
-  margin-top: var(--mantine-spacing-xs);
-  padding-top: var(--mantine-spacing-lg);
 }
