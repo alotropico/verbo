@@ -36,10 +36,11 @@ function fixtureRead(): Capability {
 }
 
 describe("capability registry", () => {
-  it("lists only production categories and environment.platform", () => {
+  it("lists production categories, platform, and memory actions", () => {
     const registry = createProductionRegistry();
     expect(registry.list().children.map((child) => child.id)).toEqual([
       "environment",
+      "memory",
     ]);
     expect(registry.list("environment").children).toEqual([
       {
@@ -47,6 +48,13 @@ describe("capability registry", () => {
         description: "Operating system name, version, and architecture.",
         kind: "read",
       },
+    ]);
+    expect(registry.list("memory").children.map((child) => child.id)).toEqual([
+      "memory.add",
+      "memory.get",
+      "memory.list",
+      "memory.remove",
+      "memory.update",
     ]);
     expect(JSON.stringify(registry.list())).not.toContain("files.read");
   });

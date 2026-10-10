@@ -41,6 +41,37 @@ const VERSION_3 = `
   CREATE INDEX IF NOT EXISTS idx_turn_events_message ON turn_events(message_id, seq);
 `;
 
+const VERSION_4 = `
+  CREATE TABLE IF NOT EXISTS memory_entries (
+    id TEXT PRIMARY KEY,
+    scope TEXT NOT NULL CHECK (scope IN ('global', 'thread')),
+    thread_id TEXT,
+    text TEXT NOT NULL,
+    inclusion TEXT NOT NULL CHECK (inclusion IN ('always', 'on_demand')),
+    source TEXT NOT NULL CHECK (source IN ('user', 'model', 'settings')),
+    origin_thread_id TEXT,
+    origin_turn_id TEXT,
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL,
+    FOREIGN KEY (thread_id) REFERENCES threads(id) ON DELETE CASCADE,
+    CHECK (
+      (scope = 'global' AND thread_id IS NULL) OR
+      (scope = 'thread' AND thread_id IS NOT NULL)
+    )
+  );
+  CREATE INDEX IF NOT EXISTS idx_memory_scope ON memory_entries(scope, inclusion);
+  CREATE INDEX IF NOT EXISTS idx_memory_thread ON memory_entries(thread_id);
+  CREATE TABLE IF NOT EXISTS memory_changes (
+    id TEXT PRIMARY KEY,
+    entry_id TEXT NOT NULL,
+    actor TEXT NOT NULL,
+    change TEXT NOT NULL,
+    summary TEXT NOT NULL,
+    created_at INTEGER NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS idx_memory_changes_created ON memory_changes(created_at);
+`;
+
 export const VERBO_MIGRATIONS: readonly MigrationStep[] = [
   { version: 1, up: (database) => database.exec(VERSION_1) },
   {
@@ -65,6 +96,7 @@ export const VERBO_MIGRATIONS: readonly MigrationStep[] = [
     },
   },
   { version: 3, up: (database) => database.exec(VERSION_3) },
+  { version: 4, up: (database) => database.exec(VERSION_4) },
 ];
 
 export function backupDatabase(

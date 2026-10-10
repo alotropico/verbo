@@ -34,7 +34,7 @@ describe("migration protection", () => {
     const database = new DatabaseSync(file);
     const backup = join(directory, "backup.sqlite");
     const version = migrateDatabase(database, VERBO_MIGRATIONS, () => backup);
-    expect(version).toBe(3);
+    expect(version).toBe(4);
     const stored = readV1Messages(database);
     expect(
       stored.find((message) => message.rowId === "row-notes-user-1b")?.text,
@@ -60,7 +60,14 @@ describe("migration protection", () => {
       migrateDatabase(database, VERBO_MIGRATIONS, () =>
         join(directory, "again.sqlite"),
       ),
-    ).toBe(3);
+    ).toBe(4);
+    expect(
+      database
+        .prepare(
+          `SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'memory_entries'`,
+        )
+        .get(),
+    ).toBeTruthy();
     const history = loadThreadHistory(database, "thread-notes");
     expect(history.headId).toBe("row-notes-assistant-2");
     expect(
@@ -83,8 +90,9 @@ describe("migration protection", () => {
     original.close();
     const database = new DatabaseSync(file);
     const backup = join(directory, "backup.sqlite");
+    const nextVersion = (VERBO_MIGRATIONS.at(-1)?.version ?? 0) + 1;
     const failing: MigrationStep = {
-      version: 4,
+      version: nextVersion,
       up: (db) => {
         db.exec(`ALTER TABLE threads ADD COLUMN broken TEXT`);
         throw new Error("boom");
@@ -96,7 +104,7 @@ describe("migration protection", () => {
     const version = database
       .prepare(`SELECT version FROM schema_version`)
       .get() as { version: number };
-    expect(version.version).toBe(3);
+    expect(version.version).toBe(nextVersion - 1);
     const columns = database.prepare(`PRAGMA table_info(threads)`).all() as {
       name: string;
     }[];
