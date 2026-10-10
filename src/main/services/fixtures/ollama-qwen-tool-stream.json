@@ -1,0 +1,103 @@
+{
+  "serverVersion": "0.40.2",
+  "model": "qwen3.5:4b-q4_K_M",
+  "capabilities": ["completion", "vision", "tools", "thinking"],
+  "capturedAt": "2026-10-10T21:08:56Z",
+  "notes": [
+    "Live stream on Ollama 0.40.2 sent each tool call as one complete object, ordered by function.index, with arguments already parsed.",
+    "The done chunk carries prompt_eval_count and eval_count and does not repeat tool_calls.",
+    "A follow-up role:tool message with tool_name was accepted. The model answered using the supplied files.list result.",
+    "think:true streams message.thinking separately from content.",
+    "The same model accepted a 1x1 PNG in message.images and returned text."
+  ],
+  "listCall": [
+    {
+      "model": "qwen3.5:4b-q4_K_M",
+      "message": {
+        "role": "assistant",
+        "content": "",
+        "tool_calls": [
+          {
+            "id": "call_y5qvu2kx",
+            "function": {
+              "index": 0,
+              "name": "capabilities.list",
+              "arguments": { "path": "files" }
+            }
+          }
+        ]
+      },
+      "done": false
+    },
+    {
+      "model": "qwen3.5:4b-q4_K_M",
+      "message": { "role": "assistant", "content": "" },
+      "done": true,
+      "done_reason": "stop",
+      "prompt_eval_count": 344,
+      "eval_count": 26
+    }
+  ],
+  "multiCall": [
+    {
+      "message": {
+        "role": "assistant",
+        "content": "",
+        "tool_calls": [
+          {
+            "id": "call_ge7255y8",
+            "function": {
+              "index": 0,
+              "name": "capabilities.list",
+              "arguments": { "path": "files" }
+            }
+          }
+        ]
+      },
+      "done": false
+    },
+    {
+      "message": {
+        "role": "assistant",
+        "content": "",
+        "tool_calls": [
+          {
+            "id": "call_cckvl0lb",
+            "function": {
+              "index": 1,
+              "name": "capabilities.describe",
+              "arguments": { "id": "files.list" }
+            }
+          }
+        ]
+      },
+      "done": false
+    },
+    {
+      "message": { "role": "assistant", "content": "" },
+      "done": true,
+      "done_reason": "stop",
+      "prompt_eval_count": 345,
+      "eval_count": 53
+    }
+  ],
+  "followUp": {
+    "toolMessage": {
+      "role": "tool",
+      "tool_name": "capabilities.list",
+      "content": "{\"path\":\"files\",\"children\":[{\"id\":\"files.list\",\"description\":\"List one directory\",\"kind\":\"read\"}]}"
+    },
+    "observedReply": "The list of children for the \"files\" capability category contains:\n- **files.list**: List one directory (Kind: read)"
+  },
+  "thinkingFragments": [
+    {
+      "message": { "role": "assistant", "content": "", "thinking": "Thinking" },
+      "done": false
+    },
+    {
+      "message": { "role": "assistant", "content": "", "thinking": " Process" },
+      "done": false
+    }
+  ],
+  "image": { "status": 200, "content": " red" }
+}

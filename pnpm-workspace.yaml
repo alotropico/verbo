@@ -2,6 +2,7 @@ allowBuilds:
   electron: true
   electron-winstaller: true
   esbuild: true
+  koffi: true
 minimumReleaseAgeExclude:
   - '@assistant-ui/core@0.3.25'
   - '@assistant-ui/react-markdown@0.14.20'

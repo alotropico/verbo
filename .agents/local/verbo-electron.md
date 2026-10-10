@@ -5,4 +5,5 @@
 - IPC: validate sender frame + webContents; Zod-parse payloads; no generic command execution.
 - Chat streams over `MessagePort` with serializable events only. Storage uses `ipcMain.handle` with fixed channels.
 - External links: `setWindowOpenHandler` → `shell.openExternal`; deny new Electron windows.
-- No tools/MCP/shell/filesystem from the model in MVP.
+- v2 authorizes exactly three model tools: `capabilities.list`, `capabilities.describe`, and `actions.invoke`. Electron main validates and executes them. The renderer has no tool executor and no auto-continuation. The MVP note that forbade model tools applied only before this authorized scope.
+- No shell, PowerShell, JavaScript evaluation, MCP, or generic filesystem IPC. File effects go through registered actions and the path engine.
