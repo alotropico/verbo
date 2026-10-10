@@ -6,6 +6,7 @@ import {
 import { useMemo, type ReactNode } from "react";
 import { createChatModelAdapter } from "./chat-model-adapter";
 import { verboThreadListAdapter } from "./thread-list-adapter";
+import { PERMANENT_MODEL_TOOLS } from "../../../shared/model-tools";
 
 function useThreadRuntime() {
   const modelAdapter = useMemo(
@@ -15,7 +16,9 @@ function useThreadRuntime() {
       ),
     [],
   );
-  return useLocalRuntime(modelAdapter);
+  return useLocalRuntime(modelAdapter, {
+    unstable_humanToolNames: [...PERMANENT_MODEL_TOOLS],
+  });
 }
 
 export function VerboRuntimeProvider({ children }: { children: ReactNode }) {

@@ -26,6 +26,21 @@ const VERSION_1 = `
   CREATE INDEX IF NOT EXISTS idx_messages_thread ON messages(thread_id);
 `;
 
+const VERSION_3 = `
+  CREATE TABLE IF NOT EXISTS turn_events (
+    id TEXT PRIMARY KEY,
+    thread_id TEXT NOT NULL,
+    message_id TEXT NOT NULL,
+    turn_id TEXT NOT NULL,
+    seq INTEGER NOT NULL,
+    kind TEXT NOT NULL,
+    payload_json TEXT NOT NULL,
+    created_at INTEGER NOT NULL,
+    FOREIGN KEY (thread_id) REFERENCES threads(id) ON DELETE CASCADE
+  );
+  CREATE INDEX IF NOT EXISTS idx_turn_events_message ON turn_events(message_id, seq);
+`;
+
 export const VERBO_MIGRATIONS: readonly MigrationStep[] = [
   { version: 1, up: (database) => database.exec(VERSION_1) },
   {
@@ -49,6 +64,7 @@ export const VERBO_MIGRATIONS: readonly MigrationStep[] = [
       `);
     },
   },
+  { version: 3, up: (database) => database.exec(VERSION_3) },
 ];
 
 export function backupDatabase(

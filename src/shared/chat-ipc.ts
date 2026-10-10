@@ -1,20 +1,47 @@
+import type { ActionResult } from "./action-contract";
 import type { ChatSettings } from "./config";
+
+export type ChatTurnStop =
+  "completed" | "paused" | "cancelled" | "limit" | "capacity" | "no_progress";
 
 export const ASSISTANT_STREAM_CHANNEL = "verbo:assistant-stream";
 
-export type ChatMessage =
-  { role: "user"; content: string } | { role: "assistant"; content: string };
+export type ChatMessage = {
+  id?: string;
+  role: "user" | "assistant";
+  content: string;
+};
 
 export type ChatRequest = {
   threadId: string;
   parentId?: string;
+  assistantMessageId: string;
   system?: string;
   messages: ChatMessage[];
   settings: ChatSettings;
 };
 
+export type ChatToolCall = {
+  id: string;
+  name: string;
+  arguments: unknown;
+};
+
 export type ChatEvent =
   | { type: "delta"; text: string }
+  | {
+      type: "tools";
+      content: string;
+      calls: ChatToolCall[];
+    }
+  | {
+      type: "tool_result";
+      toolCallId: string;
+      name: string;
+      args: unknown;
+      result: ActionResult;
+    }
+  | { type: "turn_status"; stop: ChatTurnStop; summary?: string }
   | { type: "done" }
   | { type: "error"; message: string }
   | { type: "context_trimmed"; removedCount: number };
