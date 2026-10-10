@@ -4,6 +4,7 @@ import {
   PERMANENT_OLLAMA_TOOLS,
   type OllamaWireMessage,
 } from "../runtime/ollama-wire";
+import { notePromptEval } from "../runtime/prompt-eval";
 
 function abortError(): Error {
   const error = new Error("The turn was cancelled.");
@@ -99,6 +100,12 @@ export async function streamOllamaTurn(
           "done" in chunk &&
           chunk.done === true
         ) {
+          if (
+            "prompt_eval_count" in chunk &&
+            typeof chunk.prompt_eval_count === "number"
+          ) {
+            notePromptEval(chunk.prompt_eval_count);
+          }
           return chunks;
         }
       }

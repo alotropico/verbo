@@ -1,3 +1,4 @@
+import type { MemorySnapshot } from "../../shared/memory";
 import { estimateTokens } from "../services/history-trim";
 
 export const CORE_INSTRUCTIONS =
@@ -35,7 +36,37 @@ export type TurnContextInput = {
   userText: string;
   toolEvents: ContextToolMessage[];
   numCtx: number;
+  /** Frozen for the turn. On-demand text is not copied in; counts only. */
+  memory?: MemorySnapshot;
+  /** Meter preview omits the pending user message. Turns include it. */
+  includeUser?: boolean;
 };
+
+export function composeSystemPrompt(memory?: MemorySnapshot): string {
+  if (
+    !memory ||
+    (memory.alwaysGlobal.length === 0 &&
+      memory.alwaysThread.length === 0 &&
+      memory.onDemandGlobalCount === 0 &&
+      memory.onDemandThreadCount === 0)
+  ) {
+    return CORE_INSTRUCTIONS;
+  }
+  const lines = [CORE_INSTRUCTIONS, "", "Always-on memory:"];
+  if (memory.alwaysGlobal.length === 0) lines.push("- none");
+  for (const text of memory.alwaysGlobal) lines.push(`- ${text}`);
+  if (memory.alwaysThread.length > 0) {
+    lines.push("", "Thread notes:");
+    for (const text of memory.alwaysThread) lines.push(`- ${text}`);
+  }
+  if (memory.onDemandGlobalCount > 0 || memory.onDemandThreadCount > 0) {
+    lines.push(
+      "",
+      `On-demand memories available: ${memory.onDemandGlobalCount} global, ${memory.onDemandThreadCount} in this thread. Their text stays out until memory.list or memory.get returns it.`,
+    );
+  }
+  return lines.join("\n");
+}
 
 export type TurnContext =
   | { ok: true; messages: ContextMessage[]; removedCount: number }
@@ -74,10 +105,13 @@ export function buildTurnContext(input: TurnContextInput): TurnContext {
   const budget = Math.floor(input.numCtx * 0.75);
   const core: ContextTextMessage = {
     role: "system",
-    content: CORE_INSTRUCTIONS,
+    content: composeSystemPrompt(input.memory),
   };
-  const latest: ContextTextMessage = { role: "user", content: input.userText };
-  const mandatory = [core, latest, ...input.toolEvents];
+  const latest: ContextTextMessage[] =
+    input.includeUser === false
+      ? []
+      : [{ role: "user", content: input.userText }];
+  const mandatory = [core, ...latest, ...input.toolEvents];
   const mandatoryTokens = contextTokens(mandatory);
   if (mandatoryTokens > budget) {
     return {
@@ -102,7 +136,7 @@ export function buildTurnContext(input: TurnContextInput): TurnContext {
 
   return {
     ok: true,
-    messages: [core, ...kept, latest, ...input.toolEvents],
+    messages: [core, ...kept, ...latest, ...input.toolEvents],
     removedCount: input.history.length - kept.length,
   };
 }

@@ -13,6 +13,7 @@ import {
   aggregateOllamaToolStream,
   type AggregatedToolCall,
 } from "../services/ollama-tool-stream";
+import type { MemorySnapshot } from "../../shared/memory";
 import {
   buildTurnContext,
   contextTokens,
@@ -98,6 +99,7 @@ export async function runTurn(input: {
   userText: string;
   history: ContextMessage[];
   numCtx: number;
+  memory?: MemorySnapshot;
   context: ActionContext;
   gate: RequestGate;
   model: Model;
@@ -112,6 +114,7 @@ export async function runTurn(input: {
     userText: input.userText,
     toolEvents: [],
     numCtx: input.numCtx,
+    ...(input.memory ? { memory: input.memory } : {}),
   });
   if (!built.ok) {
     const outcome: TurnOutcome = {

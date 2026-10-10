@@ -3,7 +3,11 @@ import { z } from "zod";
 import type { ActionResult } from "../../shared/action-contract";
 import { platformCapability } from "../capabilities/environment";
 import { createRegistry, type Capability } from "../capabilities/registry";
-import { buildTurnContext, CORE_INSTRUCTIONS } from "./context-builder";
+import {
+  buildTurnContext,
+  composeSystemPrompt,
+  CORE_INSTRUCTIONS,
+} from "./context-builder";
 import {
   BACKGROUND_REQUEST_PRIORITY,
   CHAT_REQUEST_PRIORITY,
@@ -116,6 +120,34 @@ describe("turn context", () => {
     ).toBe(false);
     expect(built.removedCount).toBe(2);
   });
+
+  it("keeps always-on memory while trimming history and leaves on-demand text out", () => {
+    const secret = "secret-on-demand-color";
+    const built = buildTurnContext({
+      history: [
+        { role: "user", content: "x".repeat(400) },
+        { role: "assistant", content: "kept-recent" },
+      ],
+      userText: "latest question",
+      toolEvents: [],
+      numCtx: 220,
+      memory: {
+        alwaysGlobal: ["Prefers short replies"],
+        alwaysThread: [],
+        onDemandGlobalCount: 1,
+        onDemandThreadCount: 0,
+      },
+    });
+    expect(built.ok).toBe(true);
+    if (!built.ok) return;
+    const text = JSON.stringify(built.messages);
+    expect(text).toContain("Prefers short replies");
+    expect(text).toContain("On-demand memories available: 1 global");
+    expect(text).not.toContain(secret);
+    expect(text).toContain("kept-recent");
+    expect(text).not.toContain("x".repeat(400));
+    expect(composeSystemPrompt()).toBe(CORE_INSTRUCTIONS);
+  });
 });
 
 describe("turn runner", () => {
@@ -168,6 +200,59 @@ describe("turn runner", () => {
     expect(seen[1]).toContain("environment.platform");
     expect(seen[1]).toContain("toolCalls");
     expect(seen[0]).not.toContain("renderer system");
+  });
+
+  it("freezes the memory snapshot for later rounds in the same turn", async () => {
+    const gate = createRequestGate();
+    const seen: string[] = [];
+    let calls = 0;
+    await runTurn({
+      userText: "Remember later",
+      history: [],
+      numCtx: 8192,
+      memory: {
+        alwaysGlobal: ["Prefers short replies"],
+        alwaysThread: [],
+        onDemandGlobalCount: 0,
+        onDemandThreadCount: 0,
+      },
+      context: { actor: "model", threadId: "thread-1" },
+      gate,
+      model: async (messages) => {
+        calls += 1;
+        const system = messages[0];
+        seen.push(system && "content" in system ? system.content : "");
+        if (calls === 1) {
+          return [
+            {
+              message: {
+                role: "assistant",
+                content: "",
+                tool_calls: [
+                  {
+                    function: {
+                      index: 0,
+                      name: "capabilities.list",
+                      arguments: { path: "environment" },
+                    },
+                  },
+                ],
+              },
+              done: true,
+            },
+          ];
+        }
+        return [
+          {
+            message: { role: "assistant", content: "Done." },
+            done: true,
+          },
+        ];
+      },
+    });
+    expect(seen).toHaveLength(2);
+    expect(seen[0]).toContain("Prefers short replies");
+    expect(seen[1]).toBe(seen[0]);
   });
 
   it("pauses on a mutation confirmation and does not start another model call", async () => {
