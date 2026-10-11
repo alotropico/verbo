@@ -40,6 +40,7 @@ describe("capability registry", () => {
     const registry = createProductionRegistry();
     expect(registry.list().children.map((child) => child.id)).toEqual([
       "environment",
+      "files",
       "memory",
     ]);
     expect(registry.list("environment").children).toEqual([
@@ -62,7 +63,9 @@ describe("capability registry", () => {
   it("keeps fixture actions off the production catalog", () => {
     const production = createProductionRegistry();
     const withFixture = createRegistry([platformCapability(), fixtureRead()]);
-    expect(production.list("files").code).toBe("unknown_path");
+    expect(production.list("files").children.map((child) => child.id)).toEqual([
+      "files.scopes",
+    ]);
     expect(withFixture.list("files").children[0]?.id).toBe("files.read");
     expect(
       withFixture.invoke("files.read", { path: "a" }, context).summary,

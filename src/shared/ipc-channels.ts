@@ -19,4 +19,7 @@ export const IPC_CHANNELS = {
   memoryRemove: "verbo:memory:remove",
   commandsRun: "verbo:commands:run",
   contextEstimate: "verbo:context:estimate",
+  filesList: "verbo:files:list",
+  filesPick: "verbo:files:pick",
+  filesCommit: "verbo:files:commit",
 } as const;

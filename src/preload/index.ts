@@ -9,6 +9,11 @@ import { IPC_CHANNELS } from "../shared/ipc-channels";
 import type { ChatSettings } from "../shared/config";
 import type { LocalCommandResult } from "../shared/local-commands";
 import type {
+  FileScopeProposal,
+  FileScopeRecord,
+  ScopeCommit,
+} from "../shared/files";
+import type {
   ContextMeters,
   MemoryChange,
   MemoryInclusion,
@@ -128,6 +133,22 @@ const verbo = {
   context: {
     estimate: (input?: { threadId?: string }): Promise<ContextMeters> =>
       ipcRenderer.invoke(IPC_CHANNELS.contextEstimate, input ?? {}),
+  },
+  files: {
+    list: (): Promise<{
+      scopes: FileScopeRecord[];
+      proposal: FileScopeProposal;
+    }> => ipcRenderer.invoke(IPC_CHANNELS.filesList),
+    pick: (): Promise<
+      | { ok: true; pickId: string; path: string; suggestedAlias: string }
+      | { ok: false; code: string; summary: string }
+    > => ipcRenderer.invoke(IPC_CHANNELS.filesPick),
+    commit: (
+      input: ScopeCommit,
+    ): Promise<
+      | { ok: true; summary: string; scopes: FileScopeRecord[] }
+      | { ok: false; code: string; summary: string }
+    > => ipcRenderer.invoke(IPC_CHANNELS.filesCommit, input),
   },
 };
 

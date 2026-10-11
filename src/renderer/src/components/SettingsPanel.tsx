@@ -5,6 +5,7 @@ import {
   type SettingsRecovery,
 } from "@shared/settings-recovery";
 import { chatSettingsSchema } from "@shared/storage-ipc";
+import type { FileScopeProposal, FileScopeRecord } from "@shared/files";
 import {
   ActionIcon,
   Button,
@@ -21,8 +22,21 @@ import {
 import { schemaResolver, useForm } from "@mantine/form";
 import { useDisclosure } from "@mantine/hooks";
 import { SlidersHorizontalIcon } from "lucide-react";
-import { useEffect, useState, type ReactElement } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type ReactElement,
+} from "react";
 import { z } from "zod";
+import { FileSettings } from "./FileSettings";
+import {
+  draftsFromScopes,
+  filesDraftDirty,
+  scopeCommitFromDrafts,
+  type FileScopeDraft,
+} from "./file-scope-draft";
 import { MemorySettings } from "./MemorySettings";
 import styles from "./SettingsPanel.module.css";
 
@@ -88,6 +102,12 @@ function SettingsForm({
   const [models, setModels] = useState<InstalledModels | null>(null);
   const [confirmDiscard, setConfirmDiscard] = useState(false);
   const [tab, setTab] = useState("model");
+  const [savedScopes, setSavedScopes] = useState<FileScopeRecord[]>([]);
+  const [fileRows, setFileRows] = useState<FileScopeDraft[]>([]);
+  const [proposal, setProposal] = useState<FileScopeProposal | null>(null);
+  const [fileError, setFileError] = useState("");
+  const [filesReady, setFilesReady] = useState(false);
+  const fileEdit = useRef(false);
   const form = useForm<ModelFormValues>({
     mode: "uncontrolled",
     initialValues: {
@@ -119,19 +139,41 @@ function SettingsForm({
           : model,
     }));
 
+  const loadFiles = useCallback((): void => {
+    fileEdit.current = false;
+    void window.verbo.files
+      .list()
+      .then((result) => {
+        if (fileEdit.current) return;
+        setSavedScopes(result.scopes);
+        setFileRows(draftsFromScopes(result.scopes));
+        setProposal(result.proposal);
+        setFileError("");
+        setFilesReady(true);
+      })
+      .catch((caught: unknown) => {
+        setFileError(
+          caught instanceof Error ? caught.message : "Could not load folders.",
+        );
+      });
+  }, [setFileError, setFileRows, setFilesReady, setProposal, setSavedScopes]);
+
   useEffect(() => {
     const openSettings = (event: Event): void => {
       const detail = (event as CustomEvent<{ tab?: string }>).detail;
       setTab(detail?.tab ?? "memory");
+      loadFiles();
       onOpen();
     };
     window.addEventListener("verbo:open-settings", openSettings);
     return () =>
       window.removeEventListener("verbo:open-settings", openSettings);
-  }, [onOpen]);
+  }, [loadFiles, onOpen]);
+
+  const scopesDirty = filesReady && filesDraftDirty(savedScopes, fileRows);
 
   const requestClose = (): void => {
-    if (form.isDirty()) {
+    if (form.isDirty() || scopesDirty) {
       setConfirmDiscard(true);
       return;
     }
@@ -148,6 +190,7 @@ function SettingsForm({
           aria-label="Settings"
           onClick={() => {
             onOpen();
+            loadFiles();
             void window.verbo.ollama.status().then((status) => {
               if (status.ok) setModels({ ok: true, models: status.models });
               else
@@ -179,6 +222,19 @@ function SettingsForm({
         <form
           className={styles.form}
           onSubmit={form.onSubmit(async (values) => {
+            if (scopesDirty) {
+              const committed = await window.verbo.files.commit(
+                scopeCommitFromDrafts(fileRows),
+              );
+              if (!committed.ok) {
+                setFileError(committed.summary);
+                setTab("files");
+                return;
+              }
+              setSavedScopes(committed.scopes);
+              setFileRows(draftsFromScopes(committed.scopes));
+              setFileError("");
+            }
             const saved = chatSettingsSchema.parse({
               ...values,
               numCtx: Number(values.numCtx),
@@ -276,10 +332,22 @@ function SettingsForm({
               <MemorySettings />
             </Tabs.Panel>
             <Tabs.Panel value="files" className={styles.panel}>
-              <UnavailableTab
-                title="Files"
-                detail="File scopes are not available yet. A scope change will apply only through an explicit save."
-              />
+              {filesReady ? (
+                <FileSettings
+                  proposal={proposal}
+                  rows={fileRows}
+                  error={fileError}
+                  onChange={(rows) => {
+                    fileEdit.current = true;
+                    setFileRows(rows);
+                  }}
+                  onError={setFileError}
+                />
+              ) : (
+                <Text size="sm" c="dimmed">
+                  {fileError || "Loading folders."}
+                </Text>
+              )}
             </Tabs.Panel>
             <Tabs.Panel value="voice" className={styles.panel}>
               <UnavailableTab
@@ -296,7 +364,7 @@ function SettingsForm({
           </Tabs>
           <Group justify="space-between" className={styles.footer}>
             <Text size="xs" c="dimmed">
-              Save stores model settings for the next message. Cancel leaves
+              Save stores model settings and folder registrations. Cancel leaves
               them unchanged.
             </Text>
             {confirmDiscard ? (
@@ -314,6 +382,8 @@ function SettingsForm({
                   size="xs"
                   onClick={() => {
                     form.reset();
+                    setFileRows(draftsFromScopes(savedScopes));
+                    setFileError("");
                     setConfirmDiscard(false);
                     onClose();
                   }}

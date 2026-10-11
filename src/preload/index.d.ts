@@ -2,6 +2,11 @@ import type { AssistantAI } from "../shared/chat-ipc";
 import type { ChatSettings } from "../shared/config";
 import type { LocalCommandResult } from "../shared/local-commands";
 import type {
+  FileScopeProposal,
+  FileScopeRecord,
+  ScopeCommit,
+} from "../shared/files";
+import type {
   ContextMeters,
   MemoryChange,
   MemoryInclusion,
@@ -89,6 +94,22 @@ type VerboApi = {
   };
   context: {
     estimate: (input?: { threadId?: string }) => Promise<ContextMeters>;
+  };
+  files: {
+    list: () => Promise<{
+      scopes: FileScopeRecord[];
+      proposal: FileScopeProposal;
+    }>;
+    pick: () => Promise<
+      | { ok: true; pickId: string; path: string; suggestedAlias: string }
+      | { ok: false; code: string; summary: string }
+    >;
+    commit: (
+      input: ScopeCommit,
+    ) => Promise<
+      | { ok: true; summary: string; scopes: FileScopeRecord[] }
+      | { ok: false; code: string; summary: string }
+    >;
   };
 };
 

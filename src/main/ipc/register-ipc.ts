@@ -1,4 +1,9 @@
-import { ipcMain, type BrowserWindow, type IpcMainInvokeEvent } from "electron";
+import {
+  ipcMain,
+  dialog,
+  type BrowserWindow,
+  type IpcMainInvokeEvent,
+} from "electron";
 import {
   IPC_CHANNELS,
   messageAppendSchema,
@@ -16,6 +21,7 @@ import {
   memoryRemoveArgsSchema,
   memoryUpdateArgsSchema,
 } from "../../shared/memory";
+import { displayFinalPath, scopeCommitSchema } from "../../shared/files";
 import {
   appendMessage,
   archiveThread,
@@ -36,8 +42,13 @@ import {
 import { generateThreadTitle } from "../services/thread-title";
 import { generateWelcomeLine } from "../services/welcome-line";
 import { registryForDatabase } from "../capabilities/catalog";
+import { createScopeStore, type ScopeAddition } from "../db/scopes";
 import { getDatabase } from "../db/database";
 import { createMemoryStore } from "../db/memory";
+import { ensureProposedDefaultDirectory } from "../files/default-scope";
+import { aliasFromFolderName, isProtectedLocation } from "../files/path-policy";
+import { consumePick, rememberPick } from "../files/picked-folders";
+import { describeExistingPath } from "../files/windows-containment";
 import { estimateContextMeters } from "../runtime/context-estimate";
 import { executeLocalCommand } from "../runtime/local-command";
 import { readPromptEval } from "../runtime/prompt-eval";
@@ -222,6 +233,102 @@ export function registerIpc(mainWindow: BrowserWindow): void {
       ...(data.threadId ? { threadId: data.threadId } : {}),
       numCtx: loadSettings().numCtx,
       lastPromptEval: readPromptEval(),
+    });
+  });
+
+  ipcMain.handle(IPC_CHANNELS.filesList, (event) => {
+    assertTrustedWindow(event, mainWindow);
+    const store = createScopeStore(getDatabase());
+    return { scopes: store.list(), proposal: store.proposal() };
+  });
+
+  ipcMain.handle(IPC_CHANNELS.filesPick, async (event) => {
+    assertTrustedWindow(event, mainWindow);
+    const chosen = await dialog.showOpenDialog(mainWindow, {
+      title: "Choose a folder Verbo may use",
+      properties: ["openDirectory"],
+    });
+    const selected = chosen.filePaths[0];
+    if (chosen.canceled || !selected) {
+      return {
+        ok: false as const,
+        code: "cancelled",
+        summary: "No folder selected.",
+      };
+    }
+    const described = describeExistingPath(selected);
+    if (!described.ok || !described.directory) {
+      return {
+        ok: false as const,
+        code: described.ok ? "not_directory" : described.code,
+        summary: "Choose a folder.",
+      };
+    }
+    if (isProtectedLocation(described.finalPath)) {
+      return {
+        ok: false as const,
+        code: "protected",
+        summary: "That location is protected.",
+      };
+    }
+    const path = displayFinalPath(described.finalPath);
+    return {
+      ok: true as const,
+      pickId: rememberPick(path),
+      path,
+      suggestedAlias: aliasFromFolderName(path),
+    };
+  });
+
+  ipcMain.handle(IPC_CHANNELS.filesCommit, (event, payload: unknown) => {
+    assertTrustedWindow(event, mainWindow);
+    const data = scopeCommitSchema.parse(payload);
+    const store = createScopeStore(getDatabase());
+    const additions: ScopeAddition[] = [];
+    for (const pick of data.picks) {
+      const path = consumePick(pick.pickId);
+      if (!path) {
+        return {
+          ok: false as const,
+          code: "pick_expired",
+          summary: "Choose the folder again.",
+        };
+      }
+      additions.push({
+        alias: pick.alias,
+        path,
+        read: pick.read,
+        write: pick.write,
+        defaultSave: pick.defaultSave,
+      });
+    }
+    const removed = new Set(data.removeIds);
+    const aliases = new Set(
+      store
+        .list()
+        .filter((scope) => !removed.has(scope.id))
+        .map((scope) => {
+          const update = data.updates.find((item) => item.id === scope.id);
+          return (update?.alias ?? scope.alias).toLowerCase();
+        }),
+    );
+    if (
+      data.acceptDefault &&
+      !aliases.has("documents") &&
+      !additions.some((item) => item.alias.toLowerCase() === "documents")
+    ) {
+      additions.push({
+        alias: "documents",
+        path: ensureProposedDefaultDirectory(),
+        read: true,
+        write: true,
+        defaultSave: true,
+      });
+    }
+    return store.apply({
+      removeIds: data.removeIds,
+      updates: data.updates,
+      additions,
     });
   });
 }

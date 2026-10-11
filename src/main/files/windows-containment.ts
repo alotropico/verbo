@@ -8,6 +8,9 @@ const FILE_FLAG_BACKUP_SEMANTICS = 0x02000000;
 const ERROR_FILE_NOT_FOUND = 2;
 const ERROR_PATH_NOT_FOUND = 3;
 
+const FILE_ATTRIBUTE_DIRECTORY = 0x10;
+const INVALID_FILE_ATTRIBUTES = 0xffffffff;
+
 const kernel32 = koffi.load("kernel32.dll");
 const CreateFileW = kernel32.func(
   "void* __stdcall CreateFileW(str16 lpFileName, uint32 dwDesiredAccess, uint32 dwShareMode, void* lpSecurityAttributes, uint32 dwCreationDisposition, uint32 dwFlagsAndAttributes, void* hTemplateFile)",
@@ -17,6 +20,9 @@ const GetFinalPathNameByHandleW = kernel32.func(
   "uint32 __stdcall GetFinalPathNameByHandleW(void* hFile, _Out_ uint16_t *lpFilePath, uint32 cchFilePath, uint32 dwFlags)",
 );
 const GetLastError = kernel32.func("uint32 __stdcall GetLastError()");
+const GetFileAttributesW = kernel32.func(
+  "uint32 __stdcall GetFileAttributesW(str16 lpFileName)",
+);
 
 export type ContainmentCode =
   "outside" | "device" | "unc" | "invalid" | "root" | "unopenable";
@@ -175,6 +181,29 @@ export function resolveContainedPath(
     parent = next;
   }
   return { ok: false, code: "missing" in opened ? "outside" : "unopenable" };
+}
+
+export function describeExistingPath(
+  candidate: string,
+):
+  | { ok: true; finalPath: string; directory: boolean }
+  | { ok: false; code: ContainmentCode | "missing" } {
+  const special = rejectSpecialPath(candidate);
+  if (special) return { ok: false, code: special };
+  const opened = openPath(candidate);
+  if ("missing" in opened) return { ok: false, code: "missing" };
+  if (!("handle" in opened)) return { ok: false, code: "unopenable" };
+  const finalPath = opened.finalPath;
+  closeOpened(opened);
+  const attributes = GetFileAttributesW(finalPath) as number;
+  if (attributes === INVALID_FILE_ATTRIBUTES) {
+    return { ok: false, code: "unopenable" };
+  }
+  return {
+    ok: true,
+    finalPath,
+    directory: (attributes & FILE_ATTRIBUTE_DIRECTORY) !== 0,
+  };
 }
 
 export function naivePrefixContains(

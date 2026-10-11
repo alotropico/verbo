@@ -72,6 +72,35 @@ const VERSION_4 = `
   CREATE INDEX IF NOT EXISTS idx_memory_changes_created ON memory_changes(created_at);
 `;
 
+const VERSION_5 = `
+  CREATE TABLE IF NOT EXISTS file_scopes (
+    id TEXT PRIMARY KEY,
+    alias TEXT NOT NULL COLLATE NOCASE UNIQUE,
+    canonical_path TEXT NOT NULL,
+    can_read INTEGER NOT NULL CHECK (can_read IN (0, 1)),
+    can_write INTEGER NOT NULL CHECK (can_write IN (0, 1)),
+    is_default INTEGER NOT NULL CHECK (is_default IN (0, 1)),
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL,
+    CHECK (can_write = 0 OR can_read = 1)
+  );
+  CREATE TABLE IF NOT EXISTS file_read_grants (
+    id TEXT PRIMARY KEY,
+    kind TEXT NOT NULL CHECK (kind IN ('file', 'directory')),
+    canonical_path TEXT NOT NULL,
+    thread_id TEXT,
+    created_at INTEGER NOT NULL,
+    expires_at INTEGER NOT NULL,
+    FOREIGN KEY (thread_id) REFERENCES threads(id) ON DELETE CASCADE
+  );
+  CREATE INDEX IF NOT EXISTS idx_file_grants_expires ON file_read_grants(expires_at);
+  CREATE TABLE IF NOT EXISTS file_scope_generation (
+    id INTEGER PRIMARY KEY CHECK (id = 1),
+    version INTEGER NOT NULL
+  );
+  INSERT OR IGNORE INTO file_scope_generation (id, version) VALUES (1, 1);
+`;
+
 export const VERBO_MIGRATIONS: readonly MigrationStep[] = [
   { version: 1, up: (database) => database.exec(VERSION_1) },
   {
@@ -97,6 +126,7 @@ export const VERBO_MIGRATIONS: readonly MigrationStep[] = [
   },
   { version: 3, up: (database) => database.exec(VERSION_3) },
   { version: 4, up: (database) => database.exec(VERSION_4) },
+  { version: 5, up: (database) => database.exec(VERSION_5) },
 ];
 
 export function backupDatabase(

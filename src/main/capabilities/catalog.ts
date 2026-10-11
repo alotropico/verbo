@@ -1,5 +1,7 @@
 import { createMemoryStore, type MemoryStore } from "../db/memory";
+import { createScopeStore, type ScopeStore } from "../db/scopes";
 import type { DatabaseSync } from "node:sqlite";
+import { filesCapabilities } from "./files";
 import { memoryCapabilities } from "./memory";
 import { platformCapability } from "./environment";
 import { createRegistry, type CapabilityRegistry } from "./registry";
@@ -7,6 +9,7 @@ import { createRegistry, type CapabilityRegistry } from "./registry";
 /** Production catalog. Tests add fixture actions on their own registry. */
 export function createProductionRegistry(
   resolveStore?: () => MemoryStore,
+  resolveScopes?: () => ScopeStore,
 ): CapabilityRegistry {
   let store: MemoryStore | undefined;
   const resolve =
@@ -20,11 +23,18 @@ export function createProductionRegistry(
       store ??= resolve();
       return store;
     }),
+    ...filesCapabilities(() => {
+      if (!resolveScopes) throw new Error("File scopes are not configured.");
+      return resolveScopes();
+    }),
   ]);
 }
 
 export function registryForDatabase(
   database: DatabaseSync,
 ): CapabilityRegistry {
-  return createProductionRegistry(() => createMemoryStore(database));
+  return createProductionRegistry(
+    () => createMemoryStore(database),
+    () => createScopeStore(database),
+  );
 }
