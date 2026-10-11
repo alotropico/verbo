@@ -8,7 +8,11 @@ const FILE_FLAG_BACKUP_SEMANTICS = 0x02000000;
 const ERROR_FILE_NOT_FOUND = 2;
 const ERROR_PATH_NOT_FOUND = 3;
 
+const FILE_ATTRIBUTE_READONLY = 0x1;
+const FILE_ATTRIBUTE_HIDDEN = 0x2;
+const FILE_ATTRIBUTE_SYSTEM = 0x4;
 const FILE_ATTRIBUTE_DIRECTORY = 0x10;
+const FILE_ATTRIBUTE_REPARSE_POINT = 0x400;
 const INVALID_FILE_ATTRIBUTES = 0xffffffff;
 
 const kernel32 = koffi.load("kernel32.dll");
@@ -203,6 +207,24 @@ export function describeExistingPath(
     ok: true,
     finalPath,
     directory: (attributes & FILE_ATTRIBUTE_DIRECTORY) !== 0,
+  };
+}
+
+export type WindowsFileFlags = {
+  readOnly: boolean;
+  hidden: boolean;
+  system: boolean;
+  reparse: boolean;
+};
+
+export function windowsFileFlags(candidate: string): WindowsFileFlags | null {
+  const attributes = GetFileAttributesW(candidate) as number;
+  if (attributes === INVALID_FILE_ATTRIBUTES) return null;
+  return {
+    readOnly: (attributes & FILE_ATTRIBUTE_READONLY) !== 0,
+    hidden: (attributes & FILE_ATTRIBUTE_HIDDEN) !== 0,
+    system: (attributes & FILE_ATTRIBUTE_SYSTEM) !== 0,
+    reparse: (attributes & FILE_ATTRIBUTE_REPARSE_POINT) !== 0,
   };
 }
 

@@ -10,6 +10,7 @@ import { createRegistry, type CapabilityRegistry } from "./registry";
 export function createProductionRegistry(
   resolveStore?: () => MemoryStore,
   resolveScopes?: () => ScopeStore,
+  resolveDatabase?: () => DatabaseSync,
 ): CapabilityRegistry {
   let store: MemoryStore | undefined;
   const resolve =
@@ -23,10 +24,17 @@ export function createProductionRegistry(
       store ??= resolve();
       return store;
     }),
-    ...filesCapabilities(() => {
-      if (!resolveScopes) throw new Error("File scopes are not configured.");
-      return resolveScopes();
-    }),
+    ...filesCapabilities(
+      () => {
+        if (!resolveScopes) throw new Error("File scopes are not configured.");
+        return resolveScopes();
+      },
+      () => {
+        if (!resolveDatabase)
+          throw new Error("File database is not configured.");
+        return resolveDatabase();
+      },
+    ),
   ]);
 }
 
@@ -36,5 +44,6 @@ export function registryForDatabase(
   return createProductionRegistry(
     () => createMemoryStore(database),
     () => createScopeStore(database),
+    () => database,
   );
 }

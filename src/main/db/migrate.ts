@@ -101,6 +101,57 @@ const VERSION_5 = `
   INSERT OR IGNORE INTO file_scope_generation (id, version) VALUES (1, 1);
 `;
 
+const VERSION_6 = `
+  CREATE TABLE IF NOT EXISTS file_query_snapshots (
+    id TEXT PRIMARY KEY,
+    thread_id TEXT NOT NULL,
+    fingerprint TEXT NOT NULL,
+    scope_generation INTEGER NOT NULL,
+    root_path TEXT NOT NULL,
+    sort_by TEXT NOT NULL,
+    sort_direction TEXT NOT NULL,
+    complete INTEGER NOT NULL CHECK (complete IN (0, 1)),
+    examined INTEGER NOT NULL,
+    warnings_json TEXT NOT NULL,
+    created_at INTEGER NOT NULL,
+    expires_at INTEGER NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS idx_file_query_snapshots_expires
+    ON file_query_snapshots(expires_at);
+  CREATE TABLE IF NOT EXISTS file_query_items (
+    snapshot_id TEXT NOT NULL,
+    ordinal INTEGER NOT NULL,
+    display_path TEXT NOT NULL,
+    absolute_path TEXT NOT NULL,
+    kind TEXT NOT NULL,
+    extension TEXT NOT NULL,
+    size INTEGER,
+    modified_at INTEGER,
+    created_at INTEGER,
+    read_only INTEGER NOT NULL,
+    is_link INTEGER NOT NULL,
+    snippet TEXT,
+    line_number INTEGER,
+    match_count INTEGER,
+    PRIMARY KEY (snapshot_id, ordinal),
+    FOREIGN KEY (snapshot_id) REFERENCES file_query_snapshots(id) ON DELETE CASCADE
+  );
+  CREATE TABLE IF NOT EXISTS file_query_dirs (
+    snapshot_id TEXT NOT NULL,
+    absolute_path TEXT NOT NULL,
+    modified_at INTEGER NOT NULL,
+    PRIMARY KEY (snapshot_id, absolute_path),
+    FOREIGN KEY (snapshot_id) REFERENCES file_query_snapshots(id) ON DELETE CASCADE
+  );
+  CREATE TABLE IF NOT EXISTS file_query_cursors (
+    token TEXT PRIMARY KEY,
+    snapshot_id TEXT NOT NULL,
+    page_offset INTEGER NOT NULL,
+    expires_at INTEGER NOT NULL,
+    FOREIGN KEY (snapshot_id) REFERENCES file_query_snapshots(id) ON DELETE CASCADE
+  );
+`;
+
 export const VERBO_MIGRATIONS: readonly MigrationStep[] = [
   { version: 1, up: (database) => database.exec(VERSION_1) },
   {
@@ -127,6 +178,7 @@ export const VERBO_MIGRATIONS: readonly MigrationStep[] = [
   { version: 3, up: (database) => database.exec(VERSION_3) },
   { version: 4, up: (database) => database.exec(VERSION_4) },
   { version: 5, up: (database) => database.exec(VERSION_5) },
+  { version: 6, up: (database) => database.exec(VERSION_6) },
 ];
 
 export function backupDatabase(

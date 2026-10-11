@@ -64,7 +64,11 @@ describe("capability registry", () => {
     const production = createProductionRegistry();
     const withFixture = createRegistry([platformCapability(), fixtureRead()]);
     expect(production.list("files").children.map((child) => child.id)).toEqual([
+      "files.list",
       "files.scopes",
+      "files.search",
+      "files.stat",
+      "files.summary",
     ]);
     expect(withFixture.list("files").children[0]?.id).toBe("files.read");
     expect(

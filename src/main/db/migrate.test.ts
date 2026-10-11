@@ -34,7 +34,7 @@ describe("migration protection", () => {
     const database = new DatabaseSync(file);
     const backup = join(directory, "backup.sqlite");
     const version = migrateDatabase(database, VERBO_MIGRATIONS, () => backup);
-    expect(version).toBe(5);
+    expect(version).toBe(6);
     const stored = readV1Messages(database);
     expect(
       stored.find((message) => message.rowId === "row-notes-user-1b")?.text,
@@ -60,7 +60,14 @@ describe("migration protection", () => {
       migrateDatabase(database, VERBO_MIGRATIONS, () =>
         join(directory, "again.sqlite"),
       ),
-    ).toBe(5);
+    ).toBe(6);
+    expect(
+      database
+        .prepare(
+          `SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'file_query_snapshots'`,
+        )
+        .get(),
+    ).toBeTruthy();
     expect(
       database
         .prepare(
