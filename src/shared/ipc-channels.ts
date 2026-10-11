@@ -22,4 +22,6 @@ export const IPC_CHANNELS = {
   filesList: "verbo:files:list",
   filesPick: "verbo:files:pick",
   filesCommit: "verbo:files:commit",
+  operationsReview: "verbo:operations:review",
+  operationsConfirm: "verbo:operations:confirm",
 } as const;

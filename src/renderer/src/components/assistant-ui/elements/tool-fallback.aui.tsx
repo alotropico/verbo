@@ -37,6 +37,7 @@ import {
   CollapsibleContent,
   CollapsibleTrigger,
 } from "./collapsible-root";
+import { OperationReviewCard } from "./operation-review";
 import { Button, Textarea } from "@mantine/core";
 
 const ANIMATION_DURATION = 200;
@@ -263,6 +264,7 @@ function ToolFallbackResult({
       className={cx("aui-tool-fallback-result", className)}
       {...props}
     >
+      <OperationReviewCard result={result} />
       <p className={cx("aui-tool-fallback-result-header", styles.resultHeader)}>
         Result:
       </p>

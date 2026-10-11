@@ -1,4 +1,9 @@
+import type { ActionResult } from "../shared/action-contract";
 import type { AssistantAI } from "../shared/chat-ipc";
+import type {
+  OperationReview,
+  OperationReviewFailure,
+} from "../shared/file-mutation";
 import type { ChatSettings } from "../shared/config";
 import type { LocalCommandResult } from "../shared/local-commands";
 import type {
@@ -110,6 +115,16 @@ type VerboApi = {
       | { ok: true; summary: string; scopes: FileScopeRecord[] }
       | { ok: false; code: string; summary: string }
     >;
+  };
+  operations: {
+    review: (input: {
+      operationId: string;
+      threadId: string;
+    }) => Promise<OperationReview | OperationReviewFailure>;
+    confirm: (input: {
+      operationId: string;
+      threadId: string;
+    }) => Promise<ActionResult | OperationReviewFailure>;
   };
 };
 

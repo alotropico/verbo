@@ -21,6 +21,11 @@ import type {
   MemoryScope,
   MemoryUsage,
 } from "../shared/memory";
+import type { ActionResult } from "../shared/action-contract";
+import type {
+  OperationReview,
+  OperationReviewFailure,
+} from "../shared/file-mutation";
 import type { SettingsRecovery } from "../shared/settings-recovery";
 
 const assistantAI: AssistantAI = {
@@ -149,6 +154,18 @@ const verbo = {
       | { ok: true; summary: string; scopes: FileScopeRecord[] }
       | { ok: false; code: string; summary: string }
     > => ipcRenderer.invoke(IPC_CHANNELS.filesCommit, input),
+  },
+  operations: {
+    review: (input: {
+      operationId: string;
+      threadId: string;
+    }): Promise<OperationReview | OperationReviewFailure> =>
+      ipcRenderer.invoke(IPC_CHANNELS.operationsReview, input),
+    confirm: (input: {
+      operationId: string;
+      threadId: string;
+    }): Promise<ActionResult | OperationReviewFailure> =>
+      ipcRenderer.invoke(IPC_CHANNELS.operationsConfirm, input),
   },
 };
 

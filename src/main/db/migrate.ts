@@ -152,6 +152,64 @@ const VERSION_6 = `
   );
 `;
 
+const VERSION_7 = `
+  CREATE TABLE IF NOT EXISTS operation_plans (
+    id TEXT PRIMARY KEY,
+    thread_id TEXT NOT NULL,
+    turn_id TEXT,
+    session_id TEXT NOT NULL,
+    actor TEXT NOT NULL,
+    action_id TEXT NOT NULL,
+    fingerprint TEXT NOT NULL,
+    scope_generation INTEGER NOT NULL,
+    status TEXT NOT NULL,
+    approval TEXT NOT NULL,
+    risk_json TEXT NOT NULL,
+    summary TEXT NOT NULL,
+    error_code TEXT,
+    error_summary TEXT,
+    cancel_requested INTEGER NOT NULL DEFAULT 0 CHECK (cancel_requested IN (0, 1)),
+    created_at INTEGER NOT NULL,
+    expires_at INTEGER NOT NULL,
+    decided_at INTEGER,
+    finished_at INTEGER
+  );
+  CREATE INDEX IF NOT EXISTS idx_operation_plans_expires
+    ON operation_plans(expires_at);
+  CREATE TABLE IF NOT EXISTS operation_items (
+    id TEXT PRIMARY KEY,
+    operation_id TEXT NOT NULL,
+    item_index INTEGER NOT NULL,
+    kind TEXT NOT NULL,
+    source_path TEXT,
+    destination_path TEXT,
+    source_display TEXT,
+    destination_display TEXT,
+    content TEXT,
+    format TEXT,
+    before_json TEXT NOT NULL,
+    after_json TEXT,
+    expected_json TEXT NOT NULL,
+    status TEXT NOT NULL,
+    error_code TEXT,
+    error_summary TEXT,
+    UNIQUE (operation_id, item_index),
+    FOREIGN KEY (operation_id) REFERENCES operation_plans(id) ON DELETE CASCADE
+  );
+  CREATE TABLE IF NOT EXISTS action_audit (
+    id TEXT PRIMARY KEY,
+    actor TEXT NOT NULL,
+    action_id TEXT NOT NULL,
+    thread_id TEXT NOT NULL,
+    request_summary TEXT NOT NULL,
+    result_summary TEXT NOT NULL,
+    result_status TEXT NOT NULL,
+    result_code TEXT,
+    operation_id TEXT,
+    created_at INTEGER NOT NULL
+  );
+`;
+
 export const VERBO_MIGRATIONS: readonly MigrationStep[] = [
   { version: 1, up: (database) => database.exec(VERSION_1) },
   {
@@ -179,6 +237,7 @@ export const VERBO_MIGRATIONS: readonly MigrationStep[] = [
   { version: 4, up: (database) => database.exec(VERSION_4) },
   { version: 5, up: (database) => database.exec(VERSION_5) },
   { version: 6, up: (database) => database.exec(VERSION_6) },
+  { version: 7, up: (database) => database.exec(VERSION_7) },
 ];
 
 export function backupDatabase(

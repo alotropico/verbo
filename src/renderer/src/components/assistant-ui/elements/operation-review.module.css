@@ -1,0 +1,40 @@
+.card {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--foreground);
+  display: grid;
+  gap: rem(8px);
+  margin-bottom: rem(8px);
+  padding: rem(10px);
+}
+
+.diff {
+  color: var(--muted-foreground);
+  font-size: rem(12px);
+  margin: 0;
+  overflow: auto;
+  white-space: pre-wrap;
+}
+
+.item {
+  display: grid;
+  gap: rem(2px);
+}
+
+.list {
+  display: grid;
+  gap: rem(6px);
+  margin: 0;
+  max-height: rem(240px);
+  overflow: auto;
+  padding: 0;
+}
+
+.risk {
+  color: var(--destructive);
+  margin: 0;
+}
+
+.summary {
+  margin: 0;
+}

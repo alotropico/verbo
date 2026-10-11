@@ -5,6 +5,7 @@ import { registerIpc } from './ipc/register-ipc'
 import { closeDatabase, getDatabase } from './db/database'
 import { createScopeStore } from './db/scopes'
 import { ensureInstalledFileScopes } from './files/installed-scopes'
+import { reconcileOperations } from './files/mutation-plan'
 
 nativeTheme.themeSource = 'dark'
 
@@ -65,6 +66,7 @@ app.whenReady().then(() => {
   })
 
   const database = getDatabase()
+  reconcileOperations(database)
   ensureInstalledFileScopes(createScopeStore(database), app.getAppPath())
   createWindow()
 

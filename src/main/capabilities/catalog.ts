@@ -1,6 +1,7 @@
 import { createMemoryStore, type MemoryStore } from "../db/memory";
 import { createScopeStore, type ScopeStore } from "../db/scopes";
 import type { DatabaseSync } from "node:sqlite";
+import { fileMutationCapabilities } from "./file-mutations";
 import { filesCapabilities } from "./files";
 import { memoryCapabilities } from "./memory";
 import { platformCapability } from "./environment";
@@ -25,6 +26,17 @@ export function createProductionRegistry(
       return store;
     }),
     ...filesCapabilities(
+      () => {
+        if (!resolveScopes) throw new Error("File scopes are not configured.");
+        return resolveScopes();
+      },
+      () => {
+        if (!resolveDatabase)
+          throw new Error("File database is not configured.");
+        return resolveDatabase();
+      },
+    ),
+    ...fileMutationCapabilities(
       () => {
         if (!resolveScopes) throw new Error("File scopes are not configured.");
         return resolveScopes();

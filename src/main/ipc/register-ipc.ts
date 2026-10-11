@@ -22,7 +22,9 @@ import {
   memoryRemoveArgsSchema,
   memoryUpdateArgsSchema,
 } from "../../shared/memory";
+import { approvalReviewSchema } from "../../shared/action-contract";
 import { displayFinalPath, scopeCommitSchema } from "../../shared/files";
+import type { OperationReview } from "../../shared/file-mutation";
 import {
   appendMessage,
   archiveThread,
@@ -50,6 +52,8 @@ import {
   DEFAULT_SCOPE_ALIAS,
   ensureProposedDefaultDirectory,
 } from "../files/default-scope";
+import { operationSession } from "../files/mutation-ports";
+import { decideOperation, reviewOperation } from "../files/mutation-plan";
 import { aliasFromFolderName, isProtectedLocation } from "../files/path-policy";
 import { consumePick, rememberPick } from "../files/picked-folders";
 import { describeExistingPath } from "../files/windows-containment";
@@ -340,4 +344,77 @@ export function registerIpc(mainWindow: BrowserWindow): void {
       additions,
     });
   });
+
+  ipcMain.handle(IPC_CHANNELS.operationsReview, (event, payload: unknown) => {
+    assertTrustedWindow(event, mainWindow);
+    const data = approvalReviewSchema.parse(payload);
+    const database = getDatabase();
+    return reviewOperation({
+      database,
+      scopes: createScopeStore(database),
+      operationId: data.operationId,
+      threadId: data.threadId,
+      sessionId: operationSession(),
+    });
+  });
+
+  ipcMain.handle(
+    IPC_CHANNELS.operationsConfirm,
+    async (event, payload: unknown) => {
+      assertTrustedWindow(event, mainWindow);
+      const data = approvalReviewSchema.parse(payload);
+      const database = getDatabase();
+      const scopes = createScopeStore(database);
+      const review = reviewOperation({
+        database,
+        scopes,
+        operationId: data.operationId,
+        threadId: data.threadId,
+        sessionId: operationSession(),
+      });
+      if (!review.ok) return review;
+      if (review.status !== "pending") {
+        return {
+          ok: false,
+          code: "replayed",
+          summary: "That operation is no longer waiting.",
+        };
+      }
+      const { response } = await dialog.showMessageBox(mainWindow, {
+        type: "question",
+        buttons: ["Deny", "Approve"],
+        defaultId: 0,
+        cancelId: 0,
+        noLink: true,
+        title: "Confirm file change",
+        message: review.summary,
+        detail: confirmationDetail(review),
+      });
+      return decideOperation({
+        database,
+        scopes,
+        operationId: data.operationId,
+        threadId: data.threadId,
+        sessionId: operationSession(),
+        decision: response === 1 ? "approve" : "deny",
+      });
+    },
+  );
+}
+
+function confirmationDetail(review: OperationReview): string {
+  const lines = [
+    ...review.risks,
+    ...review.items
+      .slice(0, 40)
+      .map((item) =>
+        [item.kind, item.from, item.to].filter((part) => part).join(" "),
+      ),
+  ];
+  if (review.items.length > 40) {
+    lines.push(
+      `${review.items.length - 40} more items are listed in the chat card.`,
+    );
+  }
+  return lines.join("\n").slice(0, 4000);
 }
