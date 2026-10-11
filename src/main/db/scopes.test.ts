@@ -218,9 +218,27 @@ describe("file scopes and path policy", () => {
         purpose: "read",
         actor: "model",
         scopes: [],
-        grants: store.activeGrants(),
+        grants: [],
+      }),
+    ).toMatchObject({ ok: true, path: { read: true, write: false } });
+    expect(
+      resolveFileReference({
+        reference: sibling,
+        purpose: "write",
+        actor: "model",
+        scopes: [],
+        grants: [],
       }),
     ).toMatchObject({ ok: false, code: "outside_scope" });
+    expect(
+      resolveFileReference({
+        reference: "C:\\Windows",
+        purpose: "read",
+        actor: "model",
+        scopes: [],
+        grants: [],
+      }),
+    ).toMatchObject({ ok: false, code: "protected" });
     expect(
       resolveFileReference({
         reference: sibling,

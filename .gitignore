@@ -33,6 +33,7 @@ Thumbs.db
 
 # Electron / Vite
 *.local
+installation-scopes.local.json
 
 # Test / coverage
 coverage/

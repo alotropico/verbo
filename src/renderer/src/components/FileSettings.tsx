@@ -33,7 +33,7 @@ export function FileSettings({
 }): ReactElement {
   const [picking, setPicking] = useState(false);
   const visible = rows.filter((row) => !row.removed);
-  const documentsTaken = visible.some((row) => row.alias === "documents");
+  const defaultTaken = visible.some((row) => row.alias === "tmp");
 
   const patch = (key: string, change: Partial<FileScopeDraft>): void => {
     onChange(
@@ -51,9 +51,9 @@ export function FileSettings({
   return (
     <div className={styles.list}>
       <Text size="sm">
-        Folder aliases are saved with Save. The model sees aliases such as
-        notes:/, not a directory tree. Other folders stay unread until you
-        select them.
+        Folder aliases are saved with Save. The model can read other folders
+        through the backend. It can change files only inside a writable alias.
+        .tmp is the default save folder.
       </Text>
       {error ? (
         <Text className={styles.error} size="sm">
@@ -61,7 +61,7 @@ export function FileSettings({
         </Text>
       ) : null}
       <div className={styles.actions}>
-        {proposal && !proposal.saved && !documentsTaken ? (
+        {proposal && !proposal.saved && !defaultTaken ? (
           <Button
             type="button"
             size="xs"
@@ -72,7 +72,7 @@ export function FileSettings({
                 {
                   key: "proposed-default",
                   proposedDefault: true,
-                  alias: "documents",
+                  alias: proposal.alias,
                   path: proposal.path,
                   read: true,
                   write: true,
@@ -82,7 +82,7 @@ export function FileSettings({
               ]);
             }}
           >
-            Use Documents/Verbo
+            Use .tmp
           </Button>
         ) : null}
         <Button

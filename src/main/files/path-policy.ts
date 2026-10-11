@@ -3,6 +3,7 @@ import type { ActorKind } from "../../shared/action-contract";
 import { displayFinalPath, scopeAliasSchema } from "../../shared/files";
 import type { FileGrantRecord, FileScopeRecord } from "../../shared/files";
 import {
+  describeExistingPath,
   isFinalPathInside,
   resolveContainedPath,
   type ContainmentCode,
@@ -264,10 +265,22 @@ export function resolveFileReference(input: {
     };
   }
   if (input.actor === "model") {
-    return failure(
-      "outside_scope",
-      "That path is outside registered folders. A path in the message is not permission to open it.",
-    );
+    const described = describeExistingPath(parsed.path);
+    if (!described.ok) {
+      return failure(described.code, summaryFor(described.code));
+    }
+    if (isProtectedLocation(described.finalPath)) {
+      return failure("protected", summaryFor("protected"));
+    }
+    return {
+      ok: true,
+      path: {
+        display: displayFinalPath(described.finalPath),
+        absolute: described.finalPath,
+        read: true,
+        write: false,
+      },
+    };
   }
   return failure(
     "needs_selection",

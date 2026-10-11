@@ -1,13 +1,14 @@
 import { mkdirSync } from "node:fs";
-import { homedir } from "node:os";
 import { join } from "node:path";
 
-export function proposedDefaultDirectory(home = homedir()): string {
-  return join(home, "Documents", "Verbo");
+export const DEFAULT_SCOPE_ALIAS = "tmp";
+
+export function proposedDefaultDirectory(projectRoot: string): string {
+  return join(projectRoot, ".tmp");
 }
 
-export function ensureProposedDefaultDirectory(home = homedir()): string {
-  const directory = proposedDefaultDirectory(home);
+export function ensureProposedDefaultDirectory(projectRoot: string): string {
+  const directory = proposedDefaultDirectory(projectRoot);
   mkdirSync(directory, { recursive: true });
   return directory;
 }

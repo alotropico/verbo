@@ -65,7 +65,7 @@ export type FileGrantRecord = {
 };
 
 export type FileScopeProposal = {
-  alias: "documents";
+  alias: "tmp";
   path: string;
   saved: boolean;
 };

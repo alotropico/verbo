@@ -1,4 +1,5 @@
 import {
+  app,
   ipcMain,
   dialog,
   type BrowserWindow,
@@ -45,7 +46,10 @@ import { registryForDatabase } from "../capabilities/catalog";
 import { createScopeStore, type ScopeAddition } from "../db/scopes";
 import { getDatabase } from "../db/database";
 import { createMemoryStore } from "../db/memory";
-import { ensureProposedDefaultDirectory } from "../files/default-scope";
+import {
+  DEFAULT_SCOPE_ALIAS,
+  ensureProposedDefaultDirectory,
+} from "../files/default-scope";
 import { aliasFromFolderName, isProtectedLocation } from "../files/path-policy";
 import { consumePick, rememberPick } from "../files/picked-folders";
 import { describeExistingPath } from "../files/windows-containment";
@@ -239,7 +243,10 @@ export function registerIpc(mainWindow: BrowserWindow): void {
   ipcMain.handle(IPC_CHANNELS.filesList, (event) => {
     assertTrustedWindow(event, mainWindow);
     const store = createScopeStore(getDatabase());
-    return { scopes: store.list(), proposal: store.proposal() };
+    return {
+      scopes: store.list(),
+      proposal: store.proposal(app.getAppPath()),
+    };
   });
 
   ipcMain.handle(IPC_CHANNELS.filesPick, async (event) => {
@@ -314,12 +321,14 @@ export function registerIpc(mainWindow: BrowserWindow): void {
     );
     if (
       data.acceptDefault &&
-      !aliases.has("documents") &&
-      !additions.some((item) => item.alias.toLowerCase() === "documents")
+      !aliases.has(DEFAULT_SCOPE_ALIAS) &&
+      !additions.some(
+        (item) => item.alias.toLowerCase() === DEFAULT_SCOPE_ALIAS,
+      )
     ) {
       additions.push({
-        alias: "documents",
-        path: ensureProposedDefaultDirectory(),
+        alias: DEFAULT_SCOPE_ALIAS,
+        path: ensureProposedDefaultDirectory(app.getAppPath()),
         read: true,
         write: true,
         defaultSave: true,

@@ -3,6 +3,8 @@ import { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import { registerIpc } from './ipc/register-ipc'
 import { closeDatabase, getDatabase } from './db/database'
+import { createScopeStore } from './db/scopes'
+import { ensureInstalledFileScopes } from './files/installed-scopes'
 
 nativeTheme.themeSource = 'dark'
 
@@ -62,7 +64,8 @@ app.whenReady().then(() => {
     optimizer.watchWindowShortcuts(window)
   })
 
-  getDatabase()
+  const database = getDatabase()
+  ensureInstalledFileScopes(createScopeStore(database), app.getAppPath())
   createWindow()
 
   app.on('activate', () => {

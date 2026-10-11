@@ -1,5 +1,4 @@
 import { randomUUID } from "node:crypto";
-import { homedir } from "node:os";
 import type { DatabaseSync } from "node:sqlite";
 import type { ActorKind } from "../../shared/action-contract";
 import {
@@ -10,7 +9,10 @@ import {
   type FileScopeProposal,
   type FileScopeRecord,
 } from "../../shared/files";
-import { proposedDefaultDirectory } from "../files/default-scope";
+import {
+  DEFAULT_SCOPE_ALIAS,
+  proposedDefaultDirectory,
+} from "../files/default-scope";
 import { isProtectedLocation } from "../files/path-policy";
 import { describeExistingPath } from "../files/windows-containment";
 
@@ -64,7 +66,7 @@ export type ScopeSuccess = {
 
 export type ScopeStore = {
   list: () => FileScopeRecord[];
-  proposal: (home?: string) => FileScopeProposal;
+  proposal: (projectRoot?: string) => FileScopeProposal;
   generation: () => number;
   apply: (input: {
     removeIds: readonly string[];
@@ -183,12 +185,16 @@ export function createScopeStore(
 
   return {
     list,
-    proposal(home?: string): FileScopeProposal {
-      const path = proposedDefaultDirectory(home ?? homedir());
+    proposal(projectRoot = process.cwd()): FileScopeProposal {
+      const path = proposedDefaultDirectory(projectRoot);
       return {
-        alias: "documents",
+        alias: DEFAULT_SCOPE_ALIAS,
         path,
-        saved: list().some((scope) => scope.alias === "documents"),
+        saved: list().some(
+          (scope) =>
+            scope.alias === DEFAULT_SCOPE_ALIAS ||
+            scope.path.toLowerCase() === path.toLowerCase(),
+        ),
       };
     },
     generation(): number {

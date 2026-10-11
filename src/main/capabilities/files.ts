@@ -16,7 +16,7 @@ export function filesCapabilities(resolve: () => ScopeStore): Capability[] {
     {
       id: "files.scopes",
       description:
-        "List registered folder aliases and whether each allows read or write. Does not list files inside those folders.",
+        "List registered folder aliases and whether each allows read or write. Reads of other existing paths are allowed. Writes stay inside a writable alias. Does not list files inside those folders.",
       kind: "read",
       approval: "none",
       args: filesScopesArgsSchema,
