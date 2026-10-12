@@ -14,12 +14,24 @@
   background: var(--primary);
 }
 
+.pending {
+  animation: statusBlink 1.6s ease-in-out infinite;
+}
+
 .starting {
   background: var(--muted-foreground);
 }
 
-.statusButton,
+.statusButton {
+  color: var(--muted-foreground);
+  font-size: var(--mantine-font-size-xs);
+  font-weight: 400;
+  height: rem(24px);
+  padding-inline: rem(6px);
+}
+
 .statusLabel {
+  font-size: inherit;
   font-weight: 400;
 }
 
@@ -36,4 +48,17 @@
   display: grid;
   gap: rem(8px);
   max-width: rem(280px);
+}
+
+@keyframes statusBlink {
+  50% {
+    opacity: 0.2;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pending {
+    animation: none;
+    opacity: 0.55;
+  }
 }
