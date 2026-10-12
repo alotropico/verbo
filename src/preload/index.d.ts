@@ -12,6 +12,10 @@ import type {
   OperationReviewFailure,
 } from "../shared/file-mutation";
 import type { ChatSettings } from "../shared/config";
+import type {
+  FileSurfaceIntent,
+  FileSurfaceResult,
+} from "../shared/file-surface";
 import type { FileUiAction } from "../shared/file-query";
 import type { LocalCommandResult } from "../shared/local-commands";
 import type {
@@ -148,6 +152,10 @@ type VerboApi = {
       actionId: FileUiAction;
       args: Record<string, unknown>;
     }) => Promise<ActionResult>;
+    surface: (input: {
+      path: string;
+      intent: FileSurfaceIntent;
+    }) => Promise<FileSurfaceResult>;
     pick: () => Promise<
       | { ok: true; pickId: string; path: string; suggestedAlias: string }
       | { ok: false; code: string; summary: string }

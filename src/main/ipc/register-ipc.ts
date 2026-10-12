@@ -1,7 +1,9 @@
 import {
   app,
-  ipcMain,
+  clipboard,
   dialog,
+  ipcMain,
+  shell,
   type BrowserWindow,
   type IpcMainInvokeEvent,
 } from "electron";
@@ -27,6 +29,7 @@ import {
   approvalDecisionSchema,
   approvalReviewSchema,
 } from "../../shared/action-contract";
+import { fileSurfaceSchema } from "../../shared/file-surface";
 import { fileUiQuerySchema } from "../../shared/file-query";
 import { refreshModelVision } from "../runtime/model-vision";
 import {
@@ -71,6 +74,7 @@ import {
   DEFAULT_SCOPE_ALIAS,
   ensureProposedDefaultDirectory,
 } from "../files/default-scope";
+import { performFileSurface } from "../files/file-surface";
 import { operationSession } from "../files/mutation-ports";
 import { decideOperation, reviewOperation } from "../files/mutation-plan";
 import { aliasFromFolderName, isProtectedLocation } from "../files/path-policy";
@@ -282,6 +286,25 @@ export function registerIpc(mainWindow: BrowserWindow): void {
     return registryForDatabase(getDatabase()).invoke(data.actionId, data.args, {
       actor: "ui",
       threadId: data.threadId,
+    });
+  });
+
+  ipcMain.handle(IPC_CHANNELS.filesSurface, async (event, payload: unknown) => {
+    assertTrustedWindow(event, mainWindow);
+    const data = fileSurfaceSchema.parse(payload);
+    const store = createScopeStore(getDatabase());
+    return performFileSurface({
+      reference: data.path,
+      intent: data.intent,
+      scopes: store.list(),
+      grants: store.activeGrants(),
+      openPath: (absolute) => shell.openPath(absolute),
+      showItemInFolder: (absolute) => {
+        shell.showItemInFolder(absolute);
+      },
+      writeClipboard: (text) => {
+        clipboard.writeText(text);
+      },
     });
   });
 

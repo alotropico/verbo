@@ -1,0 +1,42 @@
+.row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: rem(6px);
+  padding-block: rem(8px) rem(2px);
+}
+
+.chip {
+  align-items: center;
+  background: color-mix(in oklab, var(--muted) 50%, transparent);
+  border: rem(1px) solid var(--border);
+  border-radius: var(--radius-md);
+  color: var(--foreground);
+  cursor: pointer;
+  display: inline-flex;
+  font: inherit;
+  font-size: rem(12px);
+  gap: rem(6px);
+  max-inline-size: 100%;
+  padding-block: rem(4px);
+  padding-inline: rem(8px);
+}
+
+.chip:hover {
+  background: color-mix(in oklab, var(--muted) 70%, transparent);
+}
+
+.icon {
+  flex: none;
+}
+
+.name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.notice {
+  color: var(--muted-foreground);
+  flex-basis: 100%;
+  font-size: rem(12px);
+}

@@ -8,6 +8,10 @@ import {
 import { IPC_CHANNELS } from "../shared/ipc-channels";
 import type { WindowControlsApi, WindowState } from "../shared/window-controls";
 import type { ChatSettings } from "../shared/config";
+import type {
+  FileSurfaceIntent,
+  FileSurfaceResult,
+} from "../shared/file-surface";
 import type { FileUiAction } from "../shared/file-query";
 import type { LocalCommandResult } from "../shared/local-commands";
 import type {
@@ -190,6 +194,11 @@ const verbo = {
       args: Record<string, unknown>;
     }): Promise<ActionResult> =>
       ipcRenderer.invoke(IPC_CHANNELS.filesQuery, input),
+    surface: (input: {
+      path: string;
+      intent: FileSurfaceIntent;
+    }): Promise<FileSurfaceResult> =>
+      ipcRenderer.invoke(IPC_CHANNELS.filesSurface, input),
     pick: (): Promise<
       | { ok: true; pickId: string; path: string; suggestedAlias: string }
       | { ok: false; code: string; summary: string }

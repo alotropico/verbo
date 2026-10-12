@@ -28,6 +28,7 @@ export const IPC_CHANNELS = {
   filesPick: "verbo:files:pick",
   filesCommit: "verbo:files:commit",
   filesQuery: "verbo:files:query",
+  filesSurface: "verbo:files:surface",
   attachmentsAdd: "verbo:attachments:add",
   attachmentsRemove: "verbo:attachments:remove",
   attachmentsPreview: "verbo:attachments:preview",

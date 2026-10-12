@@ -22,6 +22,7 @@ import {
   ToolGroupRoot,
   ToolGroupTrigger,
 } from "@/components/assistant-ui/elements/tool-group.aui";
+import { TouchedFiles } from "./touched-files";
 import { TooltipIconButton } from "./tooltip-icon-button";
 import { CommandNotice } from "@/components/CommandNotice";
 import { ContextMeters } from "@/components/ContextMeters";
@@ -1010,6 +1011,7 @@ const AssistantMessage: FC = () => {
           }}
         </MessagePrimitive.GroupedParts>
         <MessageError />
+        <TouchedFiles />
       </div>
 
       <div
