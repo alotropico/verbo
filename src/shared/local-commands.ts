@@ -1,3 +1,5 @@
+import { parseActionCommand, parseFilesCommand } from "./file-commands";
+
 export const LOCAL_COMMANDS = [
   {
     name: "help",
@@ -29,6 +31,24 @@ export const LOCAL_COMMANDS = [
     actionId: "memory.remove",
     blurb: "Remove a memory",
   },
+  {
+    name: "files",
+    syntax: "/files list|find|grep|stat|summary|read|next",
+    actionId: undefined,
+    blurb: "Query or read a file through the file actions",
+  },
+  {
+    name: "action",
+    syntax: "/action <id> <JSON>",
+    actionId: undefined,
+    blurb: "Run any registered action. Approval is not a command",
+  },
+  {
+    name: "new",
+    syntax: "/new",
+    actionId: undefined,
+    blurb: "Open a blank conversation. Stored chats stay in the list",
+  },
 ] as const;
 
 export type LocalCommandName = (typeof LOCAL_COMMANDS)[number]["name"];
@@ -37,6 +57,7 @@ export type LocalCommandResult = {
   status: "success" | "error";
   summary: string;
   openMemory?: boolean;
+  newThread?: boolean;
 };
 
 export type ParsedCommand =
@@ -46,6 +67,13 @@ export type ParsedCommand =
   | { handled: true; name: "memories" }
   | { handled: true; name: "remember"; text: string }
   | { handled: true; name: "forget"; id: string }
+  | {
+      handled: true;
+      name: "files" | "action";
+      actionId: string;
+      args: Record<string, unknown>;
+    }
+  | { handled: true; name: "new" }
   | { handled: true; name: "malformed"; summary: string };
 
 const known = new Set<string>(LOCAL_COMMANDS.map((command) => command.name));
@@ -100,6 +128,16 @@ export function parseLocalCommand(text: string): ParsedCommand {
     }
     return { handled: true, name: "memories" };
   }
+  if (name === "new") {
+    if (rest) {
+      return {
+        handled: true,
+        name: "malformed",
+        summary: "/new takes no arguments.",
+      };
+    }
+    return { handled: true, name: "new" };
+  }
   if (name === "remember") {
     if (!rest) {
       return {
@@ -109,6 +147,19 @@ export function parseLocalCommand(text: string): ParsedCommand {
       };
     }
     return { handled: true, name: "remember", text: rest };
+  }
+  if (name === "files" || name === "action") {
+    const parsed =
+      name === "files" ? parseFilesCommand(rest) : parseActionCommand(rest);
+    if (!parsed.ok) {
+      return { handled: true, name: "malformed", summary: parsed.summary };
+    }
+    return {
+      handled: true,
+      name,
+      actionId: parsed.call.actionId,
+      args: parsed.call.args,
+    };
   }
   const id = rest.split(/\s+/u)[0] ?? "";
   if (!id || rest.split(/\s+/u).length !== 1) {
@@ -124,4 +175,32 @@ export function parseLocalCommand(text: string): ParsedCommand {
 /** A leading slash is a local command, including unknown or malformed ones. */
 export function modelRoute(text: string): "local" | "model" {
   return parseLocalCommand(text).handled ? "local" : "model";
+}
+
+const VOICE_NEW_CHAT = new Set(["clear chat", "empty chat"]);
+
+/** Finalized standalone speech only. Quotes and extra words stay ordinary text. */
+export function parseVoiceCommand(
+  text: string,
+): { handled: false } | { handled: true; name: "new" } {
+  const trimmed = text.trim();
+  if (/["'“”‘’]/u.test(trimmed)) return { handled: false };
+  const normalized = trimmed.replace(/\s+/gu, " ").toLowerCase();
+  if (!VOICE_NEW_CHAT.has(normalized)) return { handled: false };
+  return { handled: true, name: "new" };
+}
+
+export function routeUtterance(
+  text: string,
+  source: "typed" | "voice" = "typed",
+): { kind: "model" } | { kind: "new-chat" } | { kind: "local" } {
+  if (source === "voice") {
+    return parseVoiceCommand(text).handled
+      ? { kind: "new-chat" }
+      : { kind: "model" };
+  }
+  const parsed = parseLocalCommand(text);
+  if (!parsed.handled) return { kind: "model" };
+  if (parsed.name === "new") return { kind: "new-chat" };
+  return { kind: "local" };
 }

@@ -19,6 +19,9 @@ export type ChatRequest = {
   system?: string;
   messages: ChatMessage[];
   settings: ChatSettings;
+  queueItemId?: string;
+  source?: "typed" | "voice";
+  attachmentIds?: string[];
 };
 
 export type ChatToolCall = {
@@ -42,6 +45,7 @@ export type ChatEvent =
       result: ActionResult;
     }
   | { type: "turn_status"; stop: ChatTurnStop; summary?: string }
+  | { type: "local_command"; newThread?: boolean; openMemory?: boolean }
   | { type: "done" }
   | { type: "error"; message: string }
   | { type: "context_trimmed"; removedCount: number };

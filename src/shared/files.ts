@@ -6,9 +6,46 @@ export const scopeAliasSchema = z
   .toLowerCase()
   .regex(/^[a-z][a-z0-9-]{1,31}$/u, "Use a short lowercase alias.");
 
+export function splitScopeAliases(value: string): string[] {
+  return value
+    .split(",")
+    .map((part) => part.trim().toLowerCase())
+    .filter((part) => part.length > 0);
+}
+
+export const scopeAliasListSchema = z
+  .string()
+  .trim()
+  .min(1)
+  .max(280)
+  .superRefine((value, context) => {
+    const parts = splitScopeAliases(value);
+    if (parts.length < 1 || parts.length > 8) {
+      context.addIssue({
+        code: "custom",
+        message: "Use one to eight aliases, separated by commas.",
+      });
+      return;
+    }
+    if (new Set(parts).size !== parts.length) {
+      context.addIssue({
+        code: "custom",
+        message: "That alias is repeated on this folder.",
+      });
+      return;
+    }
+    if (parts.some((part) => !scopeAliasSchema.safeParse(part).success)) {
+      context.addIssue({
+        code: "custom",
+        message: "Use short lowercase aliases, separated by commas.",
+      });
+    }
+  })
+  .transform((value) => splitScopeAliases(value).join(", "));
+
 export const scopeFlagSchema = z
   .object({
-    alias: scopeAliasSchema,
+    alias: scopeAliasListSchema,
     read: z.boolean(),
     write: z.boolean(),
     defaultSave: z.boolean(),
@@ -45,6 +82,7 @@ export type ScopeCommit = z.infer<typeof scopeCommitSchema>;
 export type FileScopeRecord = {
   id: string;
   alias: string;
+  aliases: string[];
   path: string;
   read: boolean;
   write: boolean;

@@ -254,6 +254,19 @@ export type OperationReview = {
   receipt: { succeeded: number; failed: number; notAttempted: number };
 };
 
+export function operationInventoryLine(review: OperationReview): string {
+  const aliases = new Set<string>();
+  for (const item of review.items) {
+    for (const path of [item.from, item.to]) {
+      const alias = path?.match(/^([A-Za-z][\w-]{1,31}):/u)?.[1];
+      if (alias) aliases.add(alias);
+    }
+  }
+  const count = `${review.count} item${review.count === 1 ? "" : "s"}`;
+  const where = aliases.size > 0 ? ` in ${[...aliases].sort().join(", ")}` : "";
+  return `${count}${where}`;
+}
+
 export type OperationReviewFailure = {
   ok: false;
   code: string;

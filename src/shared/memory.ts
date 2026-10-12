@@ -66,6 +66,7 @@ export const memoryCommandSchema = z
   .object({
     text: z.string().min(1).max(8000),
     threadId: memoryIdSchema.optional(),
+    source: z.enum(["typed", "voice"]).optional(),
   })
   .strict();
 

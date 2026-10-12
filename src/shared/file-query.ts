@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { persistedThreadIdSchema } from "./thread-identity";
 
 /**
  * Caps chosen so a page fits the 4000-character action detail and a walk
@@ -107,8 +108,42 @@ export const filesSummaryArgsSchema = z
   })
   .strict();
 
+export const filesNextArgsSchema = z
+  .object({
+    cursor: z.string().trim().min(16).max(80),
+    pageSize: z
+      .number()
+      .int()
+      .min(1)
+      .max(FILE_QUERY_LIMITS.maxPageSize)
+      .default(FILE_QUERY_LIMITS.defaultPageSize),
+  })
+  .strict();
+
 export type FilesListArgs = z.infer<typeof filesListArgsSchema>;
 export type FilesSearchArgs = z.infer<typeof filesSearchArgsSchema>;
 export type FilesStatArgs = z.infer<typeof filesStatArgsSchema>;
 export type FilesSummaryArgs = z.infer<typeof filesSummaryArgsSchema>;
 export type FileQuerySort = z.infer<typeof sortSchema>;
+
+export const FILE_UI_ACTIONS = [
+  "files.list",
+  "files.next",
+  "files.search",
+  "files.stat",
+  "files.summary",
+  "files.read",
+  "files.compare",
+  "files.hash",
+  "files.inspect_image",
+] as const;
+
+export type FileUiAction = (typeof FILE_UI_ACTIONS)[number];
+
+export const fileUiQuerySchema = z
+  .object({
+    threadId: persistedThreadIdSchema,
+    actionId: z.enum(FILE_UI_ACTIONS),
+    args: z.record(z.string(), z.unknown()),
+  })
+  .strict();
