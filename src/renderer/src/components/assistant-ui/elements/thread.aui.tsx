@@ -269,6 +269,7 @@ const ThreadRoot: FC<{ isEmpty: boolean; autoFocus: boolean }> = ({
               !isEmpty && styles.viewportFooterDocked,
             )}
           >
+            {!isEmpty && <div aria-hidden className={styles.threadFade} />}
             <VoiceSessionProvider>
               <ThreadFollowupSuggestions />
               <CommandNotice />

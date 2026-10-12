@@ -1,7 +1,7 @@
 .scrollRow {
   margin-block: -rem(4px);
   width: 100%;
-  overflow-x: auto;
+  overflow-x: hidden;
   padding-block: rem(4px);
   scrollbar-width: none;
   -ms-overflow-style: none;
@@ -12,13 +12,14 @@
 }
 
 .inner {
-  display: flex;
-  min-height: rem(32px);
-  width: max-content;
-  max-width: 100%;
   align-items: center;
+  display: flex;
+  flex-wrap: wrap;
   gap: rem(8px);
+  max-width: 100%;
+  min-height: rem(32px);
   padding-inline: rem(2px);
+  width: 100%;
 }
 
 .suggestion {

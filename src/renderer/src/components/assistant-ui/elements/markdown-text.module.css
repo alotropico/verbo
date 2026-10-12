@@ -302,7 +302,7 @@
 }
 
 .pre {
-  overflow-x: auto;
+  overflow-x: hidden;
   border-radius: 0 0 calc(var(--mantine-radius-default) + rem(8px))
     calc(var(--mantine-radius-default) + rem(8px));
   border: rem(1px) solid

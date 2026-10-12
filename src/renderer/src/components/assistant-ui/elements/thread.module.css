@@ -206,6 +206,32 @@
   padding-top: rem(12px);
 }
 
+.threadFade {
+  background: var(--background);
+  bottom: 0;
+  inset-inline: 0;
+  pointer-events: none;
+  position: absolute;
+  top: calc(rem(12px) - rem(72px));
+  -webkit-mask-image: linear-gradient(
+    to bottom,
+    transparent,
+    black rem(72px)
+  );
+  mask-image: linear-gradient(to bottom, transparent, black rem(72px));
+
+  &::before {
+    background-attachment: fixed;
+    background-blend-mode:
+      overlay, normal, normal, normal, normal, normal, normal, normal;
+    background-image: var(--shell-backdrop);
+    content: "";
+    inset: 0;
+    opacity: 0.25;
+    position: absolute;
+  }
+}
+
 @media (min-width: em(768px)) {
   .viewportFooter {
     padding-bottom: rem(24px);
@@ -240,7 +266,7 @@
   cursor: default;
   display: flex;
   flex-direction: column;
-  margin-bottom: rem(32px);
+  margin-bottom: rem(32px) 0;
   padding-inline: rem(4px);
   text-box-edge: cap alphabetic;
   text-box-trim: trim-both;
@@ -266,10 +292,12 @@
 
 .welcomeDescription {
   color: var(--muted-foreground);
-  font-size: rem(13px);
+  font-size: rem(15px);
   line-height: 1.7;
-  margin-block: rem(16px) 0;
+  height: calc(1.7 * 3em);
+  margin-block: rem(12px) 0;
   text-wrap: pretty;
+  max-width: 70ch;
 }
 
 .typingDots {
@@ -895,9 +923,5 @@
 
   .composerHintDetail {
     display: none;
-  }
-
-  .welcomeDescription {
-    max-width: rem(280px);
   }
 }

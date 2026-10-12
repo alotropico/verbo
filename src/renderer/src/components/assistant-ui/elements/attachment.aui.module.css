@@ -214,12 +214,12 @@
 }
 
 .composerAttachments {
-  display: flex;
-  width: 100%;
-  flex-direction: row;
   align-items: center;
+  display: flex;
+  flex-direction: row;
+  flex-wrap: wrap;
   gap: rem(8px);
-  overflow-x: auto;
+  width: 100%;
 }
 
 .composerAttachments:empty {

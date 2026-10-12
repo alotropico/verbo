@@ -195,7 +195,7 @@
 }
 
 .codeScroll {
-  overflow-x: auto;
+  overflow-x: hidden;
 }
 
 .codeSurface {
