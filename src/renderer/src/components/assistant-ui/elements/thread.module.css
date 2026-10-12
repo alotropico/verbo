@@ -632,6 +632,20 @@
   animation: zoomIn75 150ms ease-out both;
 }
 
+.abortNotice {
+  align-items: center;
+  color: var(--muted-foreground);
+  display: flex;
+  font-size: var(--mantine-font-size-sm);
+  gap: rem(8px);
+  margin: 0;
+}
+
+.abortNoticeIcon {
+  color: var(--destructive);
+  flex-shrink: 0;
+}
+
 .messageErrorRoot {
   margin-top: rem(8px);
   border-radius: var(--radius);

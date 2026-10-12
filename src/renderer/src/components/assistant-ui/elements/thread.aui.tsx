@@ -34,7 +34,12 @@ import {
 } from "@/components/VoiceSession";
 import { useVoiceListening } from "@/components/voice-session-context";
 import { getQueueEdit, subscribeQueueEdit } from "@/runtime/queue-edit";
+import {
+  readLatestExchange,
+  subscribeLatestExchange,
+} from "@/runtime/latest-exchange";
 import { useLocalCommandGuard } from "@/runtime/use-local-command";
+import { USER_ABORT_NOTICE } from "@shared/chat-ipc";
 import { ActionIcon, Button, Skeleton, Tooltip } from "@mantine/core";
 import { cx } from "@/lib/cx";
 import a11y from "@/lib/a11y.module.css";
@@ -73,6 +78,7 @@ import {
   RefreshCwIcon,
   SquareIcon,
   SparklesIcon,
+  TriangleAlertIcon,
   OrbitIcon,
   ThumbsDownIcon,
   ThumbsUpIcon,
@@ -961,7 +967,17 @@ const AssistantMessage: FC = () => {
                 );
               }
               case "text":
-                return <MarkdownText />;
+                return part.text === USER_ABORT_NOTICE ? (
+                  <p className={styles.abortNotice} role="status">
+                    <TriangleAlertIcon
+                      className={styles.abortNoticeIcon}
+                      aria-hidden
+                    />
+                    <span>{USER_ABORT_NOTICE}</span>
+                  </p>
+                ) : (
+                  <MarkdownText />
+                );
               case "reasoning":
                 return <Reasoning {...part} />;
               case "tool-call":
@@ -1016,6 +1032,14 @@ const AssistantMessage: FC = () => {
 };
 
 const AssistantActionBar: FC = () => {
+  const messageId = useAuiState((state) => state.message.id);
+  const interaction = useSyncExternalStore(
+    subscribeLatestExchange,
+    readLatestExchange,
+    () => null,
+  );
+  const exchange =
+    interaction?.assistantMessageId === messageId ? interaction : null;
   return (
     <ActionBarPrimitive.Root
       hideWhenRunning
@@ -1100,6 +1124,22 @@ const AssistantActionBar: FC = () => {
             <DownloadIcon className={styles.iconSize4} />
             Export as Markdown
           </ActionBarPrimitive.ExportMarkdown>
+          {exchange ? (
+            <ActionBarMorePrimitive.Item
+              className={cx(
+                "aui-action-bar-more-item",
+                styles.actionBarMoreItem,
+              )}
+              onClick={() => {
+                void navigator.clipboard.writeText(
+                  JSON.stringify(exchange, null, 2),
+                );
+              }}
+            >
+              <CopyIcon className={styles.iconSize4} />
+              Copy interaction
+            </ActionBarMorePrimitive.Item>
+          ) : null}
         </ActionBarMorePrimitive.Content>
       </ActionBarMorePrimitive.Root>
     </ActionBarPrimitive.Root>
