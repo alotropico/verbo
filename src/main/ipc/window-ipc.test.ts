@@ -13,9 +13,13 @@ const ipc = vi.hoisted(() => ({
   on: vi.fn<(channel: string, handler: CommandHandler) => void>(),
   removeHandler: vi.fn<(channel: string) => void>(),
   removeListener: vi.fn<(channel: string, handler: CommandHandler) => void>(),
+  writeText: vi.fn<(text: string) => void>(),
 }));
 
-vi.mock("electron", () => ({ ipcMain: ipc }));
+vi.mock("electron", () => ({
+  ipcMain: ipc,
+  clipboard: { writeText: ipc.writeText },
+}));
 
 type WindowFixture = {
   window: EventEmitter & {
@@ -91,6 +95,20 @@ describe("window controls IPC", () => {
     expect(read().maximized).toBe(false);
     command(IPC_CHANNELS.windowClose);
     expect(window.close).toHaveBeenCalledTimes(1);
+  });
+
+  it("copies text from the owning window", () => {
+    const { trusted } = createWindow();
+    const handler = ipc.on.mock.calls.find(
+      ([name]) => name === IPC_CHANNELS.clipboardWrite,
+    )?.[1] as ((event: IpcMainEvent, text: unknown) => void) | undefined;
+    if (!handler) throw new Error("Missing clipboard handler");
+    handler(trusted, "{\"ok\":true}");
+    expect(ipc.writeText).toHaveBeenCalledWith("{\"ok\":true}");
+    ipc.writeText.mockClear();
+    handler({ ...trusted, sender: {} } as IpcMainEvent, "nope");
+    handler(trusted, 12);
+    expect(ipc.writeText).not.toHaveBeenCalled();
   });
 
   it("rejects other windows and subframes for all operations", () => {

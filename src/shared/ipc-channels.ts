@@ -1,4 +1,5 @@
 export const IPC_CHANNELS = {
+  clipboardWrite: "verbo:clipboard:write",
   windowState: "verbo:window:state",
   windowMinimize: "verbo:window:minimize",
   windowToggleMaximize: "verbo:window:toggleMaximize",

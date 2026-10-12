@@ -77,6 +77,11 @@ const assistantAI: AssistantAI = {
 };
 
 const verbo = {
+  clipboard: {
+    writeText: (text: string): void => {
+      ipcRenderer.send(IPC_CHANNELS.clipboardWrite, text);
+    },
+  },
   window: {
     getState: () => ipcRenderer.invoke(IPC_CHANNELS.windowState),
     minimize: () => ipcRenderer.send(IPC_CHANNELS.windowMinimize),

@@ -32,7 +32,8 @@ import { VoiceDraftPanel, VoiceSessionButton } from "@/components/VoiceSession";
 import { useVoiceListening } from "@/components/voice-session-context";
 import { getQueueEdit, subscribeQueueEdit } from "@/runtime/queue-edit";
 import {
-  readLatestExchange,
+  interactionJson,
+  readThreadInteraction,
   subscribeLatestExchange,
 } from "@/runtime/latest-exchange";
 import { useLocalCommandGuard } from "@/runtime/use-local-command";
@@ -1025,15 +1026,44 @@ const AssistantMessage: FC = () => {
   );
 };
 
+function downloadText(filename: string, text: string): void {
+  const blob = new Blob([text], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = filename;
+  anchor.rel = "noopener";
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 40_000);
+}
+
 const AssistantActionBar: FC = () => {
   const messageId = useAuiState((state) => state.message.id);
+  const threadId = useAuiState((state) => state.threads.mainThreadId);
+  const isLast = useAuiState(
+    (state) => state.message.index === state.thread.messages.length - 1,
+  );
   const interaction = useSyncExternalStore(
     subscribeLatestExchange,
-    readLatestExchange,
+    () => readThreadInteraction(threadId),
     () => null,
   );
   const exchange =
-    interaction?.assistantMessageId === messageId ? interaction : null;
+    isLast && interaction?.assistantMessageId === messageId
+      ? interaction
+      : null;
+  const copyInteraction = (): void => {
+    const text = interactionJson(threadId);
+    if (!text) return;
+    window.verbo.clipboard.writeText(text);
+  };
+  const downloadInteraction = (): void => {
+    const text = interactionJson(threadId);
+    if (!text || !exchange) return;
+    downloadText(`interaction-${exchange.assistantMessageId}.json`, text);
+  };
   return (
     <ActionBarPrimitive.Root
       hideWhenRunning
@@ -1124,14 +1154,22 @@ const AssistantActionBar: FC = () => {
                 "aui-action-bar-more-item",
                 styles.actionBarMoreItem,
               )}
-              onClick={() => {
-                void navigator.clipboard.writeText(
-                  JSON.stringify(exchange, null, 2),
-                );
-              }}
+              onClick={copyInteraction}
             >
               <CopyIcon className={styles.iconSize4} />
               Copy interaction
+            </ActionBarMorePrimitive.Item>
+          ) : null}
+          {exchange ? (
+            <ActionBarMorePrimitive.Item
+              className={cx(
+                "aui-action-bar-more-item",
+                styles.actionBarMoreItem,
+              )}
+              onClick={downloadInteraction}
+            >
+              <DownloadIcon className={styles.iconSize4} />
+              Download interaction
             </ActionBarMorePrimitive.Item>
           ) : null}
         </ActionBarMorePrimitive.Content>

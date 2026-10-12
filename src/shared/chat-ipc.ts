@@ -67,7 +67,7 @@ export type ExchangeRound = {
   response: unknown[];
 };
 
-/** Latest turn only. Held in renderer localStorage, not the database. */
+/** Latest turn of one chat. Held in renderer localStorage, not the database. */
 export type LatestInteraction = {
   assistantMessageId: string;
   threadId: string;

@@ -69,6 +69,9 @@ type MemoryMutation = (
 ) & { usage: MemoryUsage };
 
 type VerboApi = {
+  clipboard: {
+    writeText: (text: string) => void;
+  };
   window: WindowControlsApi;
   storage: {
     list: () => Promise<{ threads: RemoteThreadMetadata[] }>;
