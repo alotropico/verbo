@@ -55,7 +55,7 @@ describe("turn context", () => {
       ],
       userText: "latest question",
       toolEvents: [],
-      numCtx: 176,
+      numCtx: 224,
     });
     expect(built.ok).toBe(true);
     if (!built.ok) return;
@@ -104,7 +104,7 @@ describe("turn context", () => {
       ],
       userText: "next",
       toolEvents: [],
-      numCtx: 176,
+      numCtx: 224,
     });
     expect(built.ok).toBe(true);
     if (!built.ok) return;
@@ -130,7 +130,7 @@ describe("turn context", () => {
       ],
       userText: "latest question",
       toolEvents: [],
-      numCtx: 236,
+      numCtx: 284,
       memory: {
         alwaysGlobal: ["Prefers short replies"],
         alwaysThread: [],
