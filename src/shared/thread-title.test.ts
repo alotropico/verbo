@@ -31,4 +31,14 @@ describe("sanitizeGeneratedTitle", () => {
   it("returns undefined for blank output", () => {
     expect(sanitizeGeneratedTitle("   \n  ")).toBeUndefined();
   });
+
+  it("keeps at most three words and 24 characters", () => {
+    expect(
+      sanitizeGeneratedTitle("Planning the weekend getaway together"),
+    ).toBe("Planning the weekend");
+    expect(sanitizeGeneratedTitle("One two three four")).toBe("One two three");
+    expect(
+      sanitizeGeneratedTitle("Supercalifragilisticexpialidocious notes"),
+    ).toBe("Supercalifragilisticexpi");
+  });
 });

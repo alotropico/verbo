@@ -4,7 +4,7 @@ const PLACEHOLDER_GLYPHS = "§¤¶†‡•◦∙∞≈≠±×÷√∆∑∏∫�
 const PLACEHOLDER_GLYPH_COUNT = 5;
 
 export const TITLE_SYSTEM_PROMPT =
-  "Reply with a short chat title only. 2-6 words. No quotes. No explanation.";
+  "Reply with a chat title only. At most 3 words. At most 24 characters. No quotes. No explanation.";
 
 function placeholderSeed(id: string): number {
   let hash = 0x811c9dc5;
@@ -37,9 +37,14 @@ export function sanitizeGeneratedTitle(raw: string): string | undefined {
       .find((line) => line.length > 0) ?? "";
   text = text.replace(/^["'`]+|["'`]+$/g, "").trim();
   text = text.replace(/^(title|name)\s*:\s*/i, "").trim();
-  if (!text) return undefined;
-  if (text.length > 80) {
-    return `${text.slice(0, 77)}…`;
+  const words = text.split(/\s+/).filter((word) => word.length > 0).slice(0, 3);
+  let title = "";
+  for (const word of words) {
+    const next = title.length > 0 ? `${title} ${word}` : word;
+    if (next.length > 24) break;
+    title = next;
   }
-  return text;
+  if (!title && words[0]) title = words[0].slice(0, 24);
+  if (!title) return undefined;
+  return title;
 }
