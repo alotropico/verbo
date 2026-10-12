@@ -4,6 +4,8 @@ import type { ChatSettings } from "./config";
 export type ChatTurnStop =
   "completed" | "paused" | "cancelled" | "limit" | "capacity" | "no_progress";
 
+export const USER_ABORT_NOTICE = "You stopped this reply.";
+
 export const ASSISTANT_STREAM_CHANNEL = "verbo:assistant-stream";
 
 export type ChatMessage = {
@@ -55,7 +57,22 @@ export type ChatEvent =
   | { type: "local_command"; newThread?: boolean; openMemory?: boolean }
   | { type: "done" }
   | { type: "error"; message: string }
-  | { type: "context_trimmed"; removedCount: number };
+  | { type: "context_trimmed"; removedCount: number }
+  | { type: "exchange"; interaction: LatestInteraction };
+
+/** One model round: context assembled for the turn, then the Ollama request and raw response chunks. */
+export type ExchangeRound = {
+  context: unknown;
+  request: unknown;
+  response: unknown[];
+};
+
+/** Latest turn only. Held in renderer localStorage, not the database. */
+export type LatestInteraction = {
+  assistantMessageId: string;
+  threadId: string;
+  rounds: ExchangeRound[];
+};
 
 export type AssistantAI = {
   streamChat(

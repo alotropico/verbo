@@ -23,8 +23,10 @@ import { appendStoredMessage } from "../db/history";
 import { loadHistory } from "../services/conversations";
 import {
   ASSISTANT_STREAM_CHANNEL,
+  USER_ABORT_NOTICE,
   type ChatEvent,
   type ChatMessage,
+  type ExchangeRound,
 } from "../../shared/chat-ipc";
 import { IPC_CHANNELS } from "../../shared/ipc-channels";
 import { chatSettingsSchema } from "../../shared/storage-ipc";
@@ -39,13 +41,18 @@ import {
   recordTurnEvent,
   type TurnEventKind,
 } from "../db/turn-events";
-import { streamOllamaTurn } from "../services/ollama-turn-stream";
+import {
+  ollamaChatBody,
+  streamOllamaTurn,
+} from "../services/ollama-turn-stream";
 import { loadSettings } from "../services/settings-store";
 import { executeLocalCommand } from "../runtime/local-command";
 import { ollamaRequestGate } from "../runtime/ollama-gate";
 import { turnDispatcher } from "../runtime/queue-service";
 import { refreshModelVision } from "../runtime/model-vision";
 import { toOllamaMessages, withUserImages } from "../runtime/ollama-wire";
+import type { ContextMessage } from "../runtime/context-builder";
+import type { ChatSettings } from "../../shared/config";
 import { runTurn, type TurnUpdate } from "../runtime/turn";
 import { createAssetStore } from "../files/asset-store";
 import type { QueuedTurn } from "../../shared/turn-queue";
@@ -76,6 +83,46 @@ const chatRequestSchema = z
     attachmentIds: z.array(z.string().uuid()).max(8).optional(),
   })
   .strict();
+
+function recordingModel(
+  settings: ChatSettings,
+  images: string[],
+  fallbackSignal: AbortSignal,
+  rounds: ExchangeRound[],
+) {
+  return (
+    messages: ContextMessage[],
+    hooks: { onText: (snapshot: string) => void; signal?: AbortSignal },
+  ): Promise<unknown[]> => {
+    const wire = withUserImages(toOllamaMessages(messages), images);
+    const request = ollamaChatBody(wire, settings);
+    return streamOllamaTurn(
+      wire,
+      settings,
+      hooks.signal ?? fallbackSignal,
+      hooks.onText,
+    ).then((response) => {
+      rounds.push({
+        context: structuredClone(messages),
+        request,
+        response,
+      });
+      return response;
+    });
+  };
+}
+
+function exchangeEvent(
+  assistantMessageId: string,
+  threadId: string,
+  rounds: ExchangeRound[],
+): ChatEvent | null {
+  if (rounds.length === 0) return null;
+  return {
+    type: "exchange",
+    interaction: { assistantMessageId, threadId, rounds },
+  };
+}
 
 function messageText(content: unknown): string {
   if (typeof content === "string") return content;
@@ -233,6 +280,14 @@ async function startPromotedTurn(
     join(app.getPath("userData"), "attachments"),
   );
   const attachmentIds = item.attachmentRefs.map((ref) => ref.id);
+  const rounds: ExchangeRound[] = [];
+  let tracedSent = false;
+  const emitTrace = (): void => {
+    if (tracedSent) return;
+    tracedSent = true;
+    const traced = exchangeEvent(assistantMessageId, item.threadId, rounds);
+    if (traced) emit(traced);
+  };
   try {
     const vision = await refreshModelVision(settings.model);
     if (abortController.signal.aborted) return;
@@ -279,14 +334,9 @@ async function startPromotedTurn(
           clearTimeout(timer);
         }
       },
-      model: (messages, hooks) =>
-        streamOllamaTurn(
-          withUserImages(toOllamaMessages(messages), images),
-          settings,
-          hooks.signal ?? abortController.signal,
-          hooks.onText,
-        ),
+      model: recordingModel(settings, images, abortController.signal, rounds),
     });
+    emitTrace();
     appendStoredMessage(database, item.threadId, item.id, {
       id: assistantMessageId,
       role: "assistant",
@@ -294,11 +344,18 @@ async function startPromotedTurn(
     });
     emit({ type: "done" });
   } catch (error) {
+    emitTrace();
     if (!abortController.signal.aborted) {
       dispatcher.fail(turnId);
       emit({
         type: "error",
         message: error instanceof Error ? error.message : "Stream failed",
+      });
+    } else {
+      emit({
+        type: "turn_status",
+        stop: "cancelled",
+        summary: USER_ABORT_NOTICE,
       });
     }
   } finally {
@@ -555,6 +612,7 @@ export function registerAssistantStreamIpc(mainWindow: BrowserWindow): void {
       const images = vision
         ? assets.imagePayloads(chatRequest.threadId, attachmentIds)
         : [];
+      const rounds: ExchangeRound[] = [];
       void runTurn({
         userText,
         history,
@@ -596,20 +654,31 @@ export function registerAssistantStreamIpc(mainWindow: BrowserWindow): void {
             clearTimeout(timer);
           }
         },
-        model: (messages, hooks) =>
-          streamOllamaTurn(
-            withUserImages(toOllamaMessages(messages), images),
-            settings,
-            hooks.signal ?? abortController.signal,
-            hooks.onText,
-          ),
+        model: recordingModel(
+          settings,
+          images,
+          abortController.signal,
+          rounds,
+        ),
       })
         .then(() => {
+          const traced = exchangeEvent(
+            chatRequest.assistantMessageId,
+            chatRequest.threadId,
+            rounds,
+          );
+          if (traced) emit(traced);
           emit({ type: "done" });
           closeLiveTurn(turnId);
           port.close();
         })
         .catch((error: unknown) => {
+          const traced = exchangeEvent(
+            chatRequest.assistantMessageId,
+            chatRequest.threadId,
+            rounds,
+          );
+          if (traced) emit(traced);
           if (!abortController.signal.aborted) {
             dispatcher.fail(turnId);
             emit({
@@ -617,6 +686,11 @@ export function registerAssistantStreamIpc(mainWindow: BrowserWindow): void {
               message: error instanceof Error ? error.message : "Stream failed",
             });
           } else {
+            emit({
+              type: "turn_status",
+              stop: "cancelled",
+              summary: USER_ABORT_NOTICE,
+            });
             emit({ type: "done" });
           }
           closeLiveTurn(turnId);

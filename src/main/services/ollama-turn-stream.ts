@@ -12,6 +12,24 @@ function abortError(): Error {
   return error;
 }
 
+export function ollamaChatBody(
+  messages: readonly OllamaWireMessage[],
+  settings: ChatSettings,
+) {
+  return {
+    model: settings.model,
+    messages,
+    tools: PERMANENT_OLLAMA_TOOLS,
+    stream: true as const,
+    think: settings.think,
+    keep_alive: settings.keepAlive,
+    options: {
+      temperature: settings.temperature,
+      num_ctx: settings.numCtx,
+    },
+  };
+}
+
 export async function streamOllamaTurn(
   messages: readonly OllamaWireMessage[],
   settings: ChatSettings,
@@ -22,18 +40,7 @@ export async function streamOllamaTurn(
   const response = await fetch(`${OLLAMA_BASE_URL}/api/chat`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      model: settings.model,
-      messages,
-      tools: PERMANENT_OLLAMA_TOOLS,
-      stream: true,
-      think: settings.think,
-      keep_alive: settings.keepAlive,
-      options: {
-        temperature: settings.temperature,
-        num_ctx: settings.numCtx,
-      },
-    }),
+    body: JSON.stringify(ollamaChatBody(messages, settings)),
     signal,
   });
 

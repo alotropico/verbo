@@ -412,4 +412,19 @@ describe("turn runner", () => {
     expect(outcome.toolRequests).toBe(1);
     expect(outcome.rounds).toBe(2);
   });
+
+  it("names an empty Ollama finish", async () => {
+    const gate = createRequestGate();
+    const outcome = await runTurn({
+      userText: "Hello",
+      history: [],
+      numCtx: 8192,
+      context: { actor: "model", threadId: "thread-1" },
+      gate,
+      model: async () => [{ message: { role: "assistant", content: "" }, done: true }],
+    });
+    expect(outcome.stop).toBe("completed");
+    expect(outcome.content).toBe("");
+    expect(outcome.summary).toBe("Ollama finished without a written reply.");
+  });
 });

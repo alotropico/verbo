@@ -11,6 +11,7 @@ import {
 } from "../capabilities/registry";
 import {
   aggregateOllamaToolStream,
+  type AggregatedOllamaStream,
   type AggregatedToolCall,
 } from "../services/ollama-tool-stream";
 import type { MemorySnapshot } from "../../shared/memory";
@@ -21,6 +22,7 @@ import {
   type ContextToolCall,
   type ContextToolMessage,
 } from "./context-builder";
+import { USER_ABORT_NOTICE } from "../../shared/chat-ipc";
 import { CHAT_REQUEST_PRIORITY, type RequestGate } from "./request-gate";
 
 export type TurnStop =
@@ -150,6 +152,7 @@ export async function runTurn(input: {
   const seen = new Set<string>();
   let rounds = 0;
   let toolRequests = 0;
+  let wrote = false;
   input.onUpdate?.({ type: "trimmed", removedCount: built.removedCount });
 
   const finish = (
@@ -172,7 +175,7 @@ export async function runTurn(input: {
 
   while (rounds < DEFAULT_TURN_LIMITS.maxRounds) {
     if (input.signal?.aborted) {
-      return finish("cancelled", "", "The turn was cancelled.");
+      return finish("cancelled", "", USER_ABORT_NOTICE);
     }
     rounds += 1;
     let chunks: unknown[];
@@ -185,19 +188,24 @@ export async function runTurn(input: {
       );
     } catch (error) {
       if (input.signal?.aborted || isAbort(error)) {
-        return finish("cancelled", "", "The turn was cancelled.");
+        return finish("cancelled", "", USER_ABORT_NOTICE);
       }
       throw error;
     }
     if (input.signal?.aborted) {
-      return finish("cancelled", "", "The turn was cancelled.");
+      return finish("cancelled", "", USER_ABORT_NOTICE);
     }
     const aggregated = aggregateOllamaToolStream(chunks);
+    if (aggregated.content.trim()) wrote = true;
     if (aggregated.content) {
       input.onUpdate?.({ type: "text", text: aggregated.content });
     }
     if (aggregated.toolCalls.length === 0) {
-      return finish("completed", aggregated.content);
+      return finish(
+        "completed",
+        aggregated.content,
+        wrote ? undefined : silentReply(aggregated),
+      );
     }
 
     const toolCalls = aggregated.toolCalls.map((call) =>
@@ -287,7 +295,7 @@ export async function runTurn(input: {
           result = await input.awaitDecision(result, call);
         } catch (error) {
           if (!(input.signal?.aborted || isAbort(error))) throw error;
-          if (pushTool(call, closed(call, "The turn was cancelled."))) {
+          if (pushTool(call, closed(call, USER_ABORT_NOTICE))) {
             return finish(
               "capacity",
               aggregated.content,
@@ -311,7 +319,7 @@ export async function runTurn(input: {
           return finish(
             "cancelled",
             aggregated.content,
-            "The turn was cancelled.",
+            USER_ABORT_NOTICE,
           );
         }
       }
@@ -326,4 +334,10 @@ export async function runTurn(input: {
   }
 
   return finish("limit", "", "The turn reached the round limit.");
+}
+
+function silentReply(aggregated: AggregatedOllamaStream): string {
+  if (aggregated.malformed > 0) return "Ollama's reply could not be read.";
+  if (!aggregated.done) return "Ollama closed the stream before a reply.";
+  return "Ollama finished without a written reply.";
 }

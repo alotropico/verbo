@@ -2,12 +2,17 @@ import { isAttachmentId } from "../../../shared/attachments";
 import { publishLocalCommandEffect } from "./command-status";
 import { takeQueueLease } from "./queue-lease";
 import type { ChatModelAdapter } from "@assistant-ui/react";
-import type { ChatEvent, ChatMessage } from "../../../shared/chat-ipc";
+import {
+  USER_ABORT_NOTICE,
+  type ChatEvent,
+  type ChatMessage,
+} from "../../../shared/chat-ipc";
 import {
   emptyChatProjection,
   projectChatEvent,
   visibleProjection,
 } from "../../../shared/chat-projection";
+import { rememberLatestExchange } from "./latest-exchange";
 
 export function createChatModelAdapter(
   getSettings: () => Promise<{
@@ -97,16 +102,32 @@ export function createChatModelAdapter(
       if (abortSignal.aborted) onAbort();
 
       let state = emptyChatProjection();
+      const yieldVisible = function* () {
+        const content = visibleProjection(state);
+        if (content.length > 0) yield { content };
+      };
       try {
         while (true) {
-          abortSignal.throwIfAborted();
           if (queue.length === 0) {
+            if (abortSignal.aborted) {
+              state = projectChatEvent(state, {
+                type: "turn_status",
+                stop: "cancelled",
+                summary: USER_ABORT_NOTICE,
+              });
+              yield* yieldVisible();
+              return;
+            }
             await new Promise<void>((resolve) => {
               wake = resolve;
             });
           }
           const event = queue.shift();
           if (!event) continue;
+          if (event.type === "exchange") {
+            rememberLatestExchange(event.interaction);
+            continue;
+          }
           if (event.type === "error") throw new Error(event.message);
           if (event.type === "local_command") {
             publishLocalCommandEffect(event);
@@ -114,8 +135,7 @@ export function createChatModelAdapter(
           }
           if (event.type === "done") return;
           state = projectChatEvent(state, event);
-          const content = visibleProjection(state);
-          if (content.length > 0) yield { content };
+          yield* yieldVisible();
         }
       } finally {
         abortSignal.removeEventListener("abort", onAbort);

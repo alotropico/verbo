@@ -78,4 +78,28 @@ describe("chat projection", () => {
       text: "The turn reached the tool request limit.",
     });
   });
+
+  it("shows a completed summary when the model wrote nothing", () => {
+    let state = emptyChatProjection();
+    state = projectChatEvent(state, {
+      type: "tools",
+      content: "",
+      calls: [
+        {
+          id: "call-1",
+          name: "capabilities.list",
+          arguments: {},
+        },
+      ],
+    });
+    state = projectChatEvent(state, {
+      type: "turn_status",
+      stop: "completed",
+      summary: "Ollama finished without a written reply.",
+    });
+    expect(visibleProjection(state).at(-1)).toEqual({
+      type: "text",
+      text: "Ollama finished without a written reply.",
+    });
+  });
 });

@@ -122,7 +122,8 @@ export function projectChatEvent(
       ...state,
       openText: state.openText,
       summary:
-        event.summary && visibleStops.has(event.stop)
+        event.summary &&
+        (visibleStops.has(event.stop) || event.stop === "completed")
           ? event.summary
           : undefined,
     };
