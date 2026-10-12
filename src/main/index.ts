@@ -1,4 +1,4 @@
-import { app, nativeTheme, shell, BrowserWindow, session } from "electron";
+import { app, dialog, nativeTheme, shell, BrowserWindow, session } from "electron";
 import { join } from "path";
 import { electronApp, optimizer, is } from "@electron-toolkit/utils";
 import { registerIpc } from "./ipc/register-ipc";
@@ -106,14 +106,22 @@ app.whenReady().then(async () => {
     optimizer.watchWindowShortcuts(window);
   });
 
-  const database = getDatabase();
-  reconcileOperations(database);
-  createAssetStore(
-    database,
-    join(app.getPath("userData"), "attachments"),
-  ).sweep(Date.now());
-  turnDispatcher();
-  ensureInstalledFileScopes(createScopeStore(database), app.getAppPath());
+  try {
+    const database = getDatabase();
+    reconcileOperations(database);
+    createAssetStore(
+      database,
+      join(app.getPath("userData"), "attachments"),
+    ).sweep(Date.now());
+    turnDispatcher();
+    const scopeRoot = app.isPackaged
+      ? app.getPath("userData")
+      : app.getAppPath();
+    ensureInstalledFileScopes(createScopeStore(database), scopeRoot);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Startup failed.";
+    dialog.showErrorBox("Verbo failed to start", message);
+  }
   await attachVoiceService(app.getAppPath(), (stop) => {
     stopVoiceService = stop;
   });
