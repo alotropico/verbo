@@ -26,11 +26,11 @@ import { TooltipIconButton } from "./tooltip-icon-button";
 import { CommandNotice } from "@/components/CommandNotice";
 import { PendingQueue } from "@/components/PendingQueue";
 import {
-  useVoiceListening,
   VoiceDraftPanel,
   VoiceSessionButton,
   VoiceSessionProvider,
 } from "@/components/VoiceSession";
+import { useVoiceListening } from "@/components/voice-session-context";
 import { useLocalCommandGuard } from "@/runtime/use-local-command";
 import { ActionIcon, Button, Skeleton, Tooltip } from "@mantine/core";
 import { cx } from "@/lib/cx";
@@ -493,23 +493,50 @@ const WELCOME_VERBS: readonly WelcomePart[] = [
 const WELCOME_MODIFIERS: readonly WelcomePart[] = [
   { word: "askance", gloss: "With a sideways or suspicious glance." },
   { word: "askew", gloss: "At an angle or out of alignment." },
-  { word: "at an ungodly hour", gloss: "At an inconveniently early or late time." },
+  {
+    word: "at an ungodly hour",
+    gloss: "At an inconveniently early or late time.",
+  },
   { word: "betwixt two silences", gloss: "Between two moments of quiet." },
-  { word: "beyond the pale", gloss: "Outside accepted standards of decent behavior." },
-  { word: "by dubious means", gloss: "Using methods of questionable legitimacy." },
+  {
+    word: "beyond the pale",
+    gloss: "Outside accepted standards of decent behavior.",
+  },
+  {
+    word: "by dubious means",
+    gloss: "Using methods of questionable legitimacy.",
+  },
   { word: "contrariwise", gloss: "In the opposite way or direction." },
-  { word: "in a borrowed hat", gloss: "Wearing a hat belonging to someone else." },
+  {
+    word: "in a borrowed hat",
+    gloss: "Wearing a hat belonging to someone else.",
+  },
   { word: "in a minor key", gloss: "With a subdued or melancholy tone." },
-  { word: "in dubious company", gloss: "Among people of questionable character." },
+  {
+    word: "in dubious company",
+    gloss: "Among people of questionable character.",
+  },
   { word: "obliquely", gloss: "At an angle or indirectly." },
   { word: "on a whim", gloss: "Following a sudden and unplanned impulse." },
   { word: "sideways at dusk", gloss: "Moving laterally as daylight fades." },
   { word: "sotto voce", gloss: "In a quiet or lowered voice." },
-  { word: "in the small hours", gloss: "During the hours just after midnight." },
+  {
+    word: "in the small hours",
+    gloss: "During the hours just after midnight.",
+  },
   { word: "under mild protest", gloss: "With some reluctance or objection." },
-  { word: "with dubious aplomb", gloss: "With suspicious confidence and composure." },
-  { word: "with undue gravitas", gloss: "With more solemnity than circumstances warrant." },
-  { word: "with undue ceremony", gloss: "With excessive formality for the occasion." },
+  {
+    word: "with dubious aplomb",
+    gloss: "With suspicious confidence and composure.",
+  },
+  {
+    word: "with undue gravitas",
+    gloss: "With more solemnity than circumstances warrant.",
+  },
+  {
+    word: "with undue ceremony",
+    gloss: "With excessive formality for the occasion.",
+  },
   { word: "without a map", gloss: "Without guidance or a clear direction." },
 ];
 

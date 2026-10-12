@@ -22,9 +22,8 @@ import {
 } from "@shared/voice-settings";
 import { MicIcon, SquareIcon, Volume2Icon, VolumeXIcon } from "lucide-react";
 import {
-  createContext,
-  useContext,
   useEffect,
+  useLayoutEffect,
   useRef,
   useState,
   type PropsWithChildren,
@@ -32,37 +31,11 @@ import {
 } from "react";
 import styles from "./VoiceSession.module.css";
 import threadStyles from "./assistant-ui/elements/thread.module.css";
-
-type VoiceSessionValue = {
-  active: boolean;
-  draft: string;
-  muted: boolean;
-  showDraft: boolean;
-  speaking: boolean;
-  status: string;
-  visible: boolean;
-  voiceId: string | null;
-  voices: VoiceInfo[];
-  discardDraft: () => void;
-  sendDraft: () => void;
-  setDraft: (text: string) => void;
-  setEditing: (editing: boolean) => void;
-  setVoiceId: (voiceId: string) => void;
-  stopSpeech: () => void;
-  toggle: () => void;
-  toggleMuted: () => void;
-  blurDraft: () => void;
-};
-
-const VoiceSessionContext = createContext<VoiceSessionValue | null>(null);
-
-function useVoiceSession(): VoiceSessionValue | null {
-  return useContext(VoiceSessionContext);
-}
-
-export function useVoiceListening(): boolean {
-  return useVoiceSession()?.active ?? false;
-}
+import {
+  VoiceSessionContext,
+  useVoiceSession,
+  type VoiceSessionValue,
+} from "./voice-session-context";
 
 function replyText(message: ThreadMessage): string {
   if (message.role !== "assistant") return "";
@@ -118,10 +91,6 @@ function VoiceSessionProvider({ children }: PropsWithChildren): ReactElement {
   const hearingRef = useRef(false);
   const quietAt = useRef<number | null>(null);
   const endpointTimer = useRef(0);
-  pausedRef.current = paused;
-  mutedRef.current = muted;
-  editingRef.current = editing;
-  draftRef.current = shownDraft;
 
   const replaceDraft = (text: string, id = threadRef.current): void => {
     draftRef.current = text;
@@ -420,21 +389,18 @@ function VoiceSessionProvider({ children }: PropsWithChildren): ReactElement {
   const stopSessionRef = useRef<() => void>(() => undefined);
   const renderedThread = useRef(threadId);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
+    pausedRef.current = paused;
+    mutedRef.current = muted;
+    editingRef.current = editing;
+    draftRef.current = shownDraft;
     applyRef.current = applyResult;
     speakRef.current = speakText;
     flushRef.current = flushDraft;
     considerRef.current = considerSend;
     stopSessionRef.current = stopSession;
     stopSpeechRef.current = stopSpeech;
-  }, [
-    applyResult,
-    considerSend,
-    flushDraft,
-    speakText,
-    stopSession,
-    stopSpeech,
-  ]);
+  });
   useEffect(() => () => stopSessionRef.current(), []);
   useEffect(() => {
     void window.verbo.voice.status().then((status) => {
