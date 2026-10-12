@@ -522,6 +522,26 @@ const WELCOME_VERBS: readonly WelcomePart[] = [
   { word: "Skulk", gloss: "Move stealthily to avoid being noticed." },
   { word: "Soliloquize", gloss: "Speak your thoughts aloud to yourself." },
   { word: "Traipse", gloss: "Walk about wearily or without purpose." },
+  { word: "Amble", gloss: "Walk slowly in an easygoing manner." },
+  { word: "Bumble", gloss: "Move about clumsily or without purpose." },
+  { word: "Chortle", gloss: "Laugh with cheerful, barely contained delight." },
+  { word: "Dissemble", gloss: "Conceal your true motives or feelings." },
+  { word: "Faff", gloss: "Waste time on unnecessary little tasks." },
+  { word: "Flounder", gloss: "Struggle clumsily to make any progress." },
+  { word: "Frolic", gloss: "Play or move about with exuberance." },
+  { word: "Gesticulate", gloss: "Use expressive gestures while speaking excitedly." },
+  { word: "Lollygag", gloss: "Spend time idly without doing much." },
+  { word: "Maunder", gloss: "Talk or wander without clear direction." },
+  { word: "Natter", gloss: "Chat at length about trivial things." },
+  { word: "Pootle", gloss: "Move about leisurely without much purpose." },
+  { word: "Shamble", gloss: "Walk awkwardly with slow, dragging steps." },
+  { word: "Simper", gloss: "Smile in a coy, affected manner." },
+  { word: "Swagger", gloss: "Walk with conspicuous confidence or arrogance." },
+  { word: "Tarry", gloss: "Stay longer or delay your departure." },
+  { word: "Waffle", gloss: "Talk vaguely without reaching a conclusion." },
+  { word: "Waddle", gloss: "Walk with short steps, swaying sideways." },
+  { word: "Witter", gloss: "Talk endlessly about unimportant little things." },
+  { word: "Yodel", gloss: "Sing while rapidly changing vocal registers." },
 ];
 
 const WELCOME_MODIFIERS: readonly WelcomePart[] = [
@@ -572,6 +592,71 @@ const WELCOME_MODIFIERS: readonly WelcomePart[] = [
     gloss: "With excessive formality for the occasion.",
   },
   { word: "without a map", gloss: "Without guidance or a clear direction." },
+  {
+    word: "against the grain",
+    gloss: "Contrary to prevailing habits or expectations.",
+  },
+  { word: "amid the hubbub", gloss: "Surrounded by noisy activity and chatter." },
+  { word: "as fate permits", gloss: "As circumstances or chance will allow." },
+  {
+    word: "at a rakish angle",
+    gloss: "Tilted with a jaunty, mischievous air.",
+  },
+  { word: "by candlelight", gloss: "Illuminated by the glow of candles." },
+  {
+    word: "for dubious reasons",
+    gloss: "For motives that invite some suspicion.",
+  },
+  {
+    word: "in a false mustache",
+    gloss: "Wearing an unconvincing disguise above your lip.",
+  },
+  {
+    word: "in a fit of pique",
+    gloss: "During a sudden burst of irritation.",
+  },
+  {
+    word: "in a fog of doubt",
+    gloss: "With uncertainty clouding your thoughts.",
+  },
+  {
+    word: "in full plumage",
+    gloss: "Dressed elaborately to attract admiring attention.",
+  },
+  {
+    word: "in high dudgeon",
+    gloss: "With pronounced indignation or offended pride.",
+  },
+  { word: "in odd socks", gloss: "Wearing socks that do not match." },
+  {
+    word: "in suspicious haste",
+    gloss: "With urgency that raises awkward questions.",
+  },
+  {
+    word: "on borrowed time",
+    gloss: "Beyond the expected or permitted duration.",
+  },
+  {
+    word: "under false colors",
+    gloss: "While pretending to be someone else.",
+  },
+  {
+    word: "with a crooked grin",
+    gloss: "With an uneven, slightly mischievous smile.",
+  },
+  {
+    word: "with feigned poise",
+    gloss: "With composure that is merely an act.",
+  },
+  {
+    word: "with mock solemnity",
+    gloss: "With exaggerated seriousness intended as a joke.",
+  },
+  {
+    word: "with rare panache",
+    gloss: "With unusually striking style and confidence.",
+  },
+  { word: "without fanfare", gloss: "Without ceremony, publicity, or special attention." },
 ];
 
 const pickWelcomePart = (parts: readonly WelcomePart[]): WelcomePart =>
