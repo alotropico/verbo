@@ -25,11 +25,18 @@ app.on("will-quit", () => {
 });
 
 function createWindow(): void {
+  const icon = join(
+    app.isPackaged ? process.resourcesPath : app.getAppPath(),
+    app.isPackaged ? "icons" : "build",
+    process.platform === "win32" ? "icon.ico" : "icon.png",
+  );
+  if (process.platform === "darwin") app.dock?.setIcon(icon);
   mainWindow = new BrowserWindow({
     width: 1200,
     height: 800,
     show: false,
     autoHideMenuBar: true,
+    icon,
     backgroundColor: "#16151a",
     webPreferences: {
       preload: join(__dirname, "../preload/index.js"),

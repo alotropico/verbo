@@ -1,12 +1,13 @@
 import type { ComponentProps, ReactElement } from "react";
+import mark from "@/assets/verbo-mark.json";
 
 export function VerboMark(props: ComponentProps<"svg">): ReactElement {
   return (
-    <svg viewBox="0 0 32 32" fill="none" aria-hidden="true" {...props}>
+    <svg viewBox={mark.viewBox} fill="none" aria-hidden="true" {...props}>
       <path
-        d="M5 8L13 25L21 8M18 18L23 8H28L20 25"
+        d={mark.path}
         stroke="currentColor"
-        strokeWidth="1.6"
+        strokeWidth={mark.strokeWidth}
         strokeLinecap="round"
         strokeLinejoin="round"
       />

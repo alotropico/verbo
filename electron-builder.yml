@@ -1,24 +1,40 @@
-appId: com.electron.app
-productName: app
+appId: com.alotropico.verbo
+productName: verbo
 directories:
   buildResources: build
 files:
+  - '!dist/**'
+  - '!.tmp/**'
   - '!**/.vscode/*'
   - '!src/*'
   - '!electron.vite.config.{js,ts,mjs,cjs}'
   - '!{.eslintcache,eslint.config.mjs,.prettierignore,.prettierrc.yaml,dev-app-update.yml,CHANGELOG.md,README.md}'
   - '!{.env,.env.*,.npmrc,pnpm-lock.yaml}'
   - '!{tsconfig.json,tsconfig.node.json,tsconfig.web.json}'
+  - '!voice-service/**'
+  - '!scripts/voice-*.mjs'
 asarUnpack:
   - 'resources/**'
+extraResources:
+  - from: build/icon.ico
+    to: icons/icon.ico
+  - from: build/icon.png
+    to: icons/icon.png
 win:
-  executableName: app
+  icon: build/icon.ico
+  executableName: verbo
+  target:
+    - nsis
+    - portable
+portable:
+  artifactName: ${productName}-${version}.${ext}
 nsis:
   artifactName: ${name}-${version}-setup.${ext}
   shortcutName: ${productName}
   uninstallDisplayName: ${productName}
   createDesktopShortcut: always
 mac:
+  icon: build/icon.icns
   entitlementsInherit: build/entitlements.mac.plist
   extendInfo:
     - NSCameraUsageDescription: Application requests access to the device's camera.
@@ -29,6 +45,7 @@ mac:
 dmg:
   artifactName: ${name}-${version}.${ext}
 linux:
+  icon: build/icons
   target:
     - AppImage
     - snap
