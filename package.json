@@ -12,6 +12,8 @@
     "typecheck:web": "tsc --noEmit -p tsconfig.web.json --composite false",
     "typecheck": "npm run typecheck:node && npm run typecheck:web",
     "start": "node scripts/start.mjs",
+    "voice:start": "node scripts/voice-start.mjs",
+    "voice:test": "node scripts/voice-test.mjs",
     "dev": "electron-vite dev",
     "test": "vitest run",
     "build": "npm run typecheck && electron-vite build",

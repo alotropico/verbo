@@ -42,4 +42,11 @@ coverage/
 *.sqlite
 *.sqlite-journal
 
+# Local voice runtime and downloaded speech assets
+voice-service/.venv/
+voice-service/.pytest_cache/
+voice-service/**/__pycache__/
+voice-service/assets/*
+!voice-service/assets/README.md
+
 node_modules/

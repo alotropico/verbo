@@ -2,6 +2,8 @@ import { spawn } from 'node:child_process'
 import { existsSync } from 'node:fs'
 import { delimiter, dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { bootDev } from './dev-boot.mjs'
+import { createLauncherShutdown, createVoiceSupervisor } from './voice-supervisor.mjs'
 
 const OLLAMA_URL = 'http://127.0.0.1:11434'
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
@@ -10,6 +12,18 @@ const DEFAULT_MODEL = 'qwen3.5:4b-q4_K_M'
 /** Child process only if this launcher started `ollama serve` (never kill a pre-existing server). */
 let ownedOllama = null
 let startedOllamaServe = false
+const voice = createVoiceOrUnavailable()
+
+function stopOwnedOllama() {
+  if (startedOllamaServe && ownedOllama && !ownedOllama.killed) {
+    ownedOllama.kill()
+  }
+}
+
+const shutdown = createLauncherShutdown({
+  stopVoice: () => voice.stopOwned(),
+  stopOllama: stopOwnedOllama
+})
 
 async function fetchJson(path, timeoutMs = 3000) {
   const response = await fetch(`${OLLAMA_URL}${path}`, {
@@ -121,6 +135,24 @@ async function ensureOllama() {
   process.exit(1)
 }
 
+function createVoiceOrUnavailable() {
+  try {
+    return createVoiceSupervisor()
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : 'Voice URL is invalid.'
+    return {
+      async ensure() {
+        return {
+          mode: 'unavailable',
+          detail: `${detail} Typed chat still works.`,
+          child: null
+        }
+      },
+      stopOwned() {}
+    }
+  }
+}
+
 function runDev() {
   const electronViteCli = join(ROOT, 'node_modules', 'electron-vite', 'bin', 'electron-vite.js')
   const child = spawn(process.execPath, [electronViteCli, 'dev'], {
@@ -128,13 +160,6 @@ function runDev() {
     stdio: 'inherit',
     env: process.env
   })
-
-  const shutdown = (code) => {
-    if (startedOllamaServe && ownedOllama && !ownedOllama.killed) {
-      ownedOllama.kill()
-    }
-    process.exit(code ?? 0)
-  }
 
   process.on('SIGINT', () => {
     child.kill('SIGINT')
@@ -147,12 +172,16 @@ function runDev() {
 }
 
 async function main() {
-  await ensureOllama()
-  await verifyModel()
-  runDev()
+  await bootDev({
+    ensureOllama,
+    verifyModel,
+    ensureVoice: () => voice.ensure(),
+    runDev,
+    log: (message) => console.log(message)
+  })
 }
 
 main().catch((err) => {
   console.error(err)
-  process.exit(1)
+  shutdown(1)
 })
