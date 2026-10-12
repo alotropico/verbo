@@ -6,7 +6,10 @@ import {
   type LocalCommandResult,
 } from "../../shared/local-commands";
 import { memoryTextSchema } from "../../shared/memory";
-import type { CapabilityRegistry } from "../capabilities/registry";
+import type {
+  CapabilityRegistry,
+  SearchResult,
+} from "../capabilities/registry";
 import type { MemoryStore } from "../db/memory";
 
 function presentAction(result: ActionResult): LocalCommandResult {
@@ -27,6 +30,20 @@ function helpText(registry: CapabilityRegistry): string {
     const detail = described?.description ?? command.blurb;
     return `${command.syntax} — ${command.actionId}. ${detail}`;
   }).join("\n");
+}
+
+function searchText(found: SearchResult): string {
+  if (found.status === "error") return found.summary ?? "Search failed.";
+  if (found.matches.length === 0) return `No commands match ${found.query}.`;
+  const lines = found.matches.map((match) => {
+    const aliases = match.aliases?.length
+      ? ` (${match.aliases.join(", ")})`
+      : "";
+    const syntax = match.syntax ? `${match.syntax} ` : "";
+    return `${match.id}${aliases} — ${syntax}${match.description}`;
+  });
+  if (found.more) lines.push("More matches were omitted.");
+  return lines.join("\n");
 }
 
 function catalogText(registry: CapabilityRegistry): string {
@@ -71,6 +88,13 @@ export function executeLocalCommand(input: {
   }
   if (parsed.name === "capabilities") {
     return { status: "success", summary: catalogText(input.registry) };
+  }
+  if (parsed.name === "search") {
+    const found = input.registry.search(parsed.query);
+    return {
+      status: found.status === "error" ? "error" : "success",
+      summary: searchText(found),
+    };
   }
   if (parsed.name === "memories") {
     return {

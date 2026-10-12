@@ -14,6 +14,12 @@ export const LOCAL_COMMANDS = [
     blurb: "List registered actions",
   },
   {
+    name: "search",
+    syntax: "/search <text>",
+    actionId: undefined,
+    blurb: "Find commands and aliases by text",
+  },
+  {
     name: "remember",
     syntax: "/remember <text>",
     actionId: "memory.add",
@@ -53,6 +59,22 @@ export const LOCAL_COMMANDS = [
 
 export type LocalCommandName = (typeof LOCAL_COMMANDS)[number]["name"];
 
+/** Slash names that stand for a registered action, including /files verbs. */
+export const ACTION_ALIASES: readonly { alias: string; actionId: string }[] = [
+  ...LOCAL_COMMANDS.flatMap((command) =>
+    command.actionId
+      ? [{ alias: `/${command.name}`, actionId: command.actionId }]
+      : [],
+  ),
+  { alias: "/files list", actionId: "files.list" },
+  { alias: "/files find", actionId: "files.search" },
+  { alias: "/files grep", actionId: "files.search" },
+  { alias: "/files stat", actionId: "files.stat" },
+  { alias: "/files summary", actionId: "files.summary" },
+  { alias: "/files read", actionId: "files.read" },
+  { alias: "/files next", actionId: "files.next" },
+];
+
 export type LocalCommandResult = {
   status: "success" | "error";
   summary: string;
@@ -64,6 +86,7 @@ export type ParsedCommand =
   | { handled: false }
   | { handled: true; name: "help" }
   | { handled: true; name: "capabilities" }
+  | { handled: true; name: "search"; query: string }
   | { handled: true; name: "memories" }
   | { handled: true; name: "remember"; text: string }
   | { handled: true; name: "forget"; id: string }
@@ -117,6 +140,16 @@ export function parseLocalCommand(text: string): ParsedCommand {
       };
     }
     return { handled: true, name: "capabilities" };
+  }
+  if (name === "search") {
+    if (rest.length < 2) {
+      return {
+        handled: true,
+        name: "malformed",
+        summary: "/search needs at least two characters.",
+      };
+    }
+    return { handled: true, name: "search", query: rest };
   }
   if (name === "memories") {
     if (rest) {

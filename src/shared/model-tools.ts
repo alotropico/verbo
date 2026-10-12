@@ -1,5 +1,6 @@
 export const PERMANENT_MODEL_TOOLS = [
   "capabilities.list",
+  "capabilities.search",
   "capabilities.describe",
   "actions.invoke",
 ] as const;

@@ -1,6 +1,8 @@
 import { z } from "zod";
 import { describe, expect, it } from "vitest";
 import type { ActionResult } from "../../shared/action-contract";
+import type { MemoryStore } from "../db/memory";
+import { executeLocalCommand } from "../runtime/local-command";
 import { createProductionRegistry } from "./catalog";
 import { platformCapability } from "./environment";
 import {
@@ -117,6 +119,7 @@ describe("capability registry", () => {
     expect(unknown.code).toBe("unknown_tool");
     expect(MODEL_TOOL_NAMES).toEqual([
       "capabilities.list",
+      "capabilities.search",
       "capabilities.describe",
       "actions.invoke",
     ]);
@@ -239,6 +242,65 @@ describe("capability registry", () => {
     );
     expect(missed.code).toBe("invalid_args");
     expect(missed.summary).toContain('kind:"file"|"directory"');
+  });
+
+  it("searches every command and alias in one call", () => {
+    const registry = createProductionRegistry();
+    const moved = dispatchModelTool(
+      registry,
+      "capabilities.search",
+      { query: "move" },
+      context,
+    );
+    expect(moved.status).toBe("success");
+    const moveBody = JSON.parse(moved.detail ?? "{}") as {
+      matches: Array<{ id: string }>;
+    };
+    expect(moveBody.matches.map((match) => match.id)).toContain("files.move");
+    const grep = dispatchModelTool(
+      registry,
+      "capabilities.search",
+      { query: "grep" },
+      context,
+    );
+    const grepBody = JSON.parse(grep.detail ?? "{}") as {
+      matches: Array<{ id: string; aliases?: string[] }>;
+    };
+    expect(
+      grepBody.matches.find((match) => match.id === "files.search")?.aliases,
+    ).toContain("/files grep");
+    expect(
+      dispatchModelTool(
+        registry,
+        "capabilities.search",
+        { query: "zzzzqq" },
+        context,
+      ).summary,
+    ).toBe("No commands match zzzzqq.");
+    expect(
+      dispatchModelTool(registry, "capabilities.search", {}, context).code,
+    ).toBe("invalid_args");
+    const unused = (): never => {
+      throw new Error("unused");
+    };
+    const store: MemoryStore = {
+      budget: 0,
+      list: unused,
+      get: unused,
+      add: unused,
+      update: unused,
+      remove: unused,
+      snapshot: unused,
+      usage: unused,
+      recentChanges: unused,
+    };
+    expect(
+      executeLocalCommand({
+        text: "/search remember",
+        store,
+        registry,
+      }).summary,
+    ).toContain("memory.add");
   });
 
   it("rejects a model payload that claims approval", () => {

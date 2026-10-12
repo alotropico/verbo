@@ -25,6 +25,15 @@ describe("local commands", () => {
       handled: true,
       name: "memories",
     });
+    expect(parseLocalCommand("/search move")).toEqual({
+      handled: true,
+      name: "search",
+      query: "move",
+    });
+    expect(parseLocalCommand("/search")).toMatchObject({
+      name: "malformed",
+      summary: "/search needs at least two characters.",
+    });
   });
 });
 

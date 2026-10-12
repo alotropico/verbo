@@ -20,6 +20,21 @@ const toolParameters: Record<
   (typeof PERMANENT_MODEL_TOOLS)[number],
   { description: string; parameters: Record<string, unknown> }
 > = {
+  "capabilities.search": {
+    description:
+      "Search every command and alias for one string. Returns matching action ids, syntax, and aliases. Use this instead of listing each category to find a name.",
+    parameters: {
+      type: "object",
+      properties: {
+        query: {
+          type: "string",
+          description:
+            "Text to find in command ids, descriptions, syntax, and aliases.",
+        },
+      },
+      required: ["query"],
+    },
+  },
   "capabilities.list": {
     description:
       "List capability categories, or the actions in one category. Each action includes syntax with required fields and allowed values.",

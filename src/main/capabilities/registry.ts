@@ -4,13 +4,19 @@ import {
   type ActionResult,
   type ActorKind,
 } from "../../shared/action-contract";
+import { ACTION_ALIASES, LOCAL_COMMANDS } from "../../shared/local-commands";
+import {
+  PERMANENT_MODEL_TOOLS,
+  type PermanentModelTool,
+} from "../../shared/model-tools";
 
 export {
   PERMANENT_MODEL_TOOLS as MODEL_TOOL_NAMES,
   type PermanentModelTool as ModelToolName,
-} from "../../shared/model-tools";
+};
 
 const LIST_LIMIT = 20;
+const SEARCH_LIMIT = 20;
 const DESCRIBE_LIMIT = 8;
 const DETAIL_LIMIT = 4000;
 
@@ -37,6 +43,7 @@ export type Capability = {
 
 export type CapabilityRegistry = {
   list: (path?: string) => ListResult;
+  search: (query: string) => SearchResult;
   describe: (ids: string[]) => DescribeResult;
   invoke: (
     name: string,
@@ -50,6 +57,23 @@ type Child = {
   description: string;
   kind: "read" | "mutation" | "category";
   syntax?: string;
+};
+
+export type SearchMatch = {
+  id: string;
+  description: string;
+  kind: "read" | "mutation" | "command";
+  syntax?: string;
+  aliases?: string[];
+};
+
+export type SearchResult = {
+  query: string;
+  matches: SearchMatch[];
+  more: boolean;
+  status?: "error";
+  code?: "invalid_query";
+  summary?: string;
 };
 
 export type ListResult = {
@@ -78,6 +102,16 @@ export type DescribeResult = {
 const listArgsSchema = z
   .object({
     path: z.string().max(128).optional(),
+  })
+  .strict();
+
+const searchArgsSchema = z
+  .object({
+    query: z
+      .string()
+      .trim()
+      .min(2, "Search needs at least two characters.")
+      .max(64),
   })
   .strict();
 
@@ -272,6 +306,43 @@ function fitListDetail(listed: ListResult): {
   };
 }
 
+function fitSearchDetail(found: SearchResult): {
+  detail: string;
+  detailsAvailable?: true;
+} {
+  const full = jsonWithin({
+    query: found.query,
+    matches: found.matches,
+    more: found.more,
+  });
+  if (full) return { detail: full };
+  const clipped = jsonWithin({
+    query: found.query,
+    matches: found.matches.map((match) => ({
+      id: match.id,
+      kind: match.kind,
+      ...(match.syntax ? { syntax: match.syntax } : {}),
+      ...(match.aliases ? { aliases: match.aliases } : {}),
+      description: clip(match.description, 160),
+    })),
+    more: found.more,
+  });
+  if (clipped) return { detail: clipped, detailsAvailable: true };
+  return {
+    detail: JSON.stringify({
+      query: found.query,
+      matches: found.matches.slice(0, 8).map((match) => ({
+        id: match.id,
+        kind: match.kind,
+        ...(match.syntax ? { syntax: match.syntax } : {}),
+        ...(match.aliases ? { aliases: match.aliases } : {}),
+      })),
+      more: true,
+    }),
+    detailsAvailable: true,
+  };
+}
+
 function fitDescribeDetail(described: DescribeResult): {
   detail: string;
   detailsAvailable?: true;
@@ -448,7 +519,69 @@ export function createRegistry(capabilities: Capability[]): CapabilityRegistry {
     );
   }
 
-  return { list, describe, invoke };
+  function search(query: string): SearchResult {
+    const needle = query.trim().toLowerCase();
+    if (needle.length < 2 || needle.length > 64) {
+      return {
+        query: needle.slice(0, 64),
+        matches: [],
+        more: false,
+        status: "error",
+        code: "invalid_query",
+        summary: "Search needs two to sixty-four characters.",
+      };
+    }
+    const matches: SearchMatch[] = [];
+    const capabilities = [...byId.values()].sort((left, right) =>
+      left.id.localeCompare(right.id),
+    );
+    for (const capability of capabilities) {
+      const aliases = ACTION_ALIASES.filter(
+        (entry) => entry.actionId === capability.id,
+      ).map((entry) => entry.alias);
+      const syntax = shownSyntax(capability);
+      const haystack = [
+        capability.id,
+        capability.description,
+        syntax,
+        ...aliases,
+      ]
+        .join("\n")
+        .toLowerCase();
+      if (!haystack.includes(needle)) continue;
+      const hitAliases = aliases.filter((alias) =>
+        alias.toLowerCase().includes(needle),
+      );
+      matches.push({
+        id: capability.id,
+        description: capability.description,
+        kind: capability.kind,
+        syntax,
+        ...(hitAliases.length > 0 ? { aliases: hitAliases } : {}),
+      });
+    }
+    for (const command of LOCAL_COMMANDS) {
+      if (command.actionId) continue;
+      const haystack = [command.name, command.syntax, command.blurb]
+        .join("\n")
+        .toLowerCase();
+      if (!haystack.includes(needle)) continue;
+      matches.push({
+        id: `/${command.name}`,
+        description: command.blurb,
+        kind: "command",
+        syntax: command.syntax,
+      });
+    }
+    matches.sort((left, right) => left.id.localeCompare(right.id));
+    return {
+      query: needle,
+      matches: matches.slice(0, SEARCH_LIMIT),
+      more: matches.length > SEARCH_LIMIT,
+    };
+  }
+
+  return { list, search, describe, invoke };
 }
 
 export function dispatchModelTool(
@@ -478,6 +611,38 @@ export function dispatchModelTool(
           : packed.detailsAvailable
             ? `Listed ${listed.path || "catalog"}. Descriptions were shortened. Syntax remains.`
             : (listed.summary ?? `Listed ${listed.path || "catalog"}.`),
+      detail: packed.detail,
+      ...(packed.detailsAvailable ? { detailsAvailable: true } : {}),
+    });
+  }
+  if (name === "capabilities.search") {
+    const parsed = searchArgsSchema.safeParse(rawArgs ?? {});
+    if (!parsed.success) {
+      return errorResult(
+        name,
+        "invalid_args",
+        "Search needs a query of two to sixty-four characters.",
+      );
+    }
+    const found = registry.search(parsed.data.query);
+    if (found.status === "error") {
+      return errorResult(
+        name,
+        found.code ?? "invalid_query",
+        found.summary ?? "Search failed.",
+      );
+    }
+    const packed = fitSearchDetail(found);
+    const count = found.matches.length;
+    return contractResult({
+      action: name,
+      status: "success",
+      summary:
+        count === 0
+          ? `No commands match ${found.query}.`
+          : found.more
+            ? `Found ${count} commands for ${found.query}. More matches were omitted.`
+            : `Found ${count} commands for ${found.query}.`,
       detail: packed.detail,
       ...(packed.detailsAvailable ? { detailsAvailable: true } : {}),
     });
@@ -519,6 +684,6 @@ export function dispatchModelTool(
   return errorResult(
     name,
     "unknown_tool",
-    "Only capabilities.list, capabilities.describe, and actions.invoke are available.",
+    `Only ${PERMANENT_MODEL_TOOLS.join(", ")} are available.`,
   );
 }
