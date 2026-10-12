@@ -11,7 +11,13 @@ import { isPersistedThreadId } from "@shared/thread-identity";
 import { Button, Select, Stack, Text, Textarea } from "@mantine/core";
 import { schemaResolver, useForm } from "@mantine/form";
 import { useAuiState } from "@assistant-ui/react";
-import { useCallback, useEffect, useState, type ReactElement } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type ReactElement,
+} from "react";
 import { z } from "zod";
 import { SettingsLabel } from "./SettingsLabel";
 import styles from "./MemorySettings.module.css";
@@ -37,8 +43,16 @@ function MemoryRow({
 }): ReactElement {
   const [text, setText] = useState(entry.text);
   const [error, setError] = useState("");
+  const draftRef = useRef(entry.text);
+  const savedTextRef = useRef(entry.text);
+  const entryIdRef = useRef(entry.id);
+  savedTextRef.current = entry.text;
+  entryIdRef.current = entry.id;
 
-  const save = (inclusion: MemoryInclusion, nextText = text): void => {
+  const save = (
+    inclusion: MemoryInclusion,
+    nextText = draftRef.current,
+  ): void => {
     if (nextText === entry.text && inclusion === entry.inclusion) return;
     setError("");
     void window.verbo.memory
@@ -52,6 +66,8 @@ function MemoryRow({
           setError(result.summary);
           return;
         }
+        savedTextRef.current = nextText;
+        draftRef.current = nextText;
         window.dispatchEvent(new Event("verbo:memory-changed"));
         onChanged();
       })
@@ -62,19 +78,42 @@ function MemoryRow({
       });
   };
 
+  useEffect(() => {
+    return () => {
+      const nextText = draftRef.current;
+      if (nextText === savedTextRef.current) return;
+      void window.verbo.memory
+        .update({ id: entryIdRef.current, text: nextText })
+        .then((result) => {
+          if (!result.ok) return;
+          window.dispatchEvent(new Event("verbo:memory-changed"));
+        });
+    };
+  }, []);
+
   return (
     <li className={styles.entry}>
       <Textarea
         label={
           <SettingsLabel
             label="Memory text"
-            tip="The saved note. Save text writes your edit."
+            tip="The saved note. Leaving the field writes your edit."
           />
         }
         autosize
         minRows={2}
         value={text}
-        onChange={(event) => setText(event.currentTarget.value)}
+        onChange={(event) => {
+          const next = event.currentTarget.value;
+          draftRef.current = next;
+          setText(next);
+        }}
+        onBlur={(event) => {
+          const next = event.currentTarget.value;
+          draftRef.current = next;
+          setText(next);
+          save(entry.inclusion, next);
+        }}
       />
       <div className={styles.entryActions}>
         <Select
