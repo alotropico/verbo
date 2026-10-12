@@ -32,7 +32,7 @@ import {
   VoiceSessionProvider,
 } from "@/components/VoiceSession";
 import { useLocalCommandGuard } from "@/runtime/use-local-command";
-import { ActionIcon, Button, Skeleton } from "@mantine/core";
+import { ActionIcon, Button, Skeleton, Tooltip } from "@mantine/core";
 import { cx } from "@/lib/cx";
 import a11y from "@/lib/a11y.module.css";
 import {
@@ -465,54 +465,56 @@ const ThreadScrollToBottom: FC = () => {
   );
 };
 
-const WELCOME_VERBS = [
-  "Abscond", // Leave secretly to avoid being caught.
-  "Bloviate", // Speak at length with pompous confidence.
-  "Caper", // Skip or dance about playfully.
-  "Carouse", // Drink and party noisily with others.
-  "Cavort", // Jump and dance around with excitement.
-  "Dawdle", // Move slowly and waste time.
-  "Dither", // Hesitate and struggle to decide.
-  "Gallivant", // Roam about in pursuit of fun.
-  "Galumph", // Move along heavily and clumsily.
-  "Gambol", // Run and jump about playfully.
-  "Malinger", // Fake being ill to avoid work.
-  "Meander", // Wander along without a direct route.
-  "Perambulate", // Walk around a place at leisure.
-  "Pontificate", // Express opinions with pompous certainty.
-  "Quibble", // Argue over small or trivial details.
-  "Ruminate", // Think deeply and repeatedly about something.
-  "Saunter", // Walk slowly in a relaxed manner.
-  "Skulk", // Move stealthily to avoid being noticed.
-  "Soliloquize", // Speak your thoughts aloud to yourself.
-  "Traipse", // Walk about wearily or without purpose.
-] as const;
+type WelcomePart = { readonly word: string; readonly gloss: string };
 
-const WELCOME_MODIFIERS = [
-  "askance", // With a sideways or suspicious glance.
-  "askew", // At an angle or out of alignment.
-  "at an ungodly hour", // At an inconveniently early or late time.
-  "betwixt two silences", // Between two moments of quiet.
-  "beyond the pale", // Outside accepted standards of decent behavior.
-  "by dubious means", // Using methods of questionable legitimacy.
-  "contrariwise", // In the opposite way or direction.
-  "in a borrowed hat", // Wearing a hat belonging to someone else.
-  "in a minor key", // With a subdued or melancholy tone.
-  "in dubious company", // Among people of questionable character.
-  "obliquely", // At an angle or indirectly.
-  "on a whim", // Following a sudden and unplanned impulse.
-  "sideways at dusk", // Moving laterally as daylight fades.
-  "sotto voce", // In a quiet or lowered voice.
-  "in the small hours", // During the hours just after midnight.
-  "under mild protest", // With some reluctance or objection.
-  "with dubious aplomb", // With suspicious confidence and composure.
-  "with undue gravitas", // With more solemnity than circumstances warrant.
-  "with undue ceremony", // With excessive formality for the occasion.
-  "without a map", // Without guidance or a clear direction.
-] as const;
+const WELCOME_VERBS: readonly WelcomePart[] = [
+  { word: "Abscond", gloss: "Leave secretly to avoid being caught." },
+  { word: "Bloviate", gloss: "Speak at length with pompous confidence." },
+  { word: "Caper", gloss: "Skip or dance about playfully." },
+  { word: "Carouse", gloss: "Drink and party noisily with others." },
+  { word: "Cavort", gloss: "Jump and dance around with excitement." },
+  { word: "Dawdle", gloss: "Move slowly and waste time." },
+  { word: "Dither", gloss: "Hesitate and struggle to decide." },
+  { word: "Gallivant", gloss: "Roam about in pursuit of fun." },
+  { word: "Galumph", gloss: "Move along heavily and clumsily." },
+  { word: "Gambol", gloss: "Run and jump about playfully." },
+  { word: "Malinger", gloss: "Fake being ill to avoid work." },
+  { word: "Meander", gloss: "Wander along without a direct route." },
+  { word: "Perambulate", gloss: "Walk around a place at leisure." },
+  { word: "Pontificate", gloss: "Express opinions with pompous certainty." },
+  { word: "Quibble", gloss: "Argue over small or trivial details." },
+  { word: "Ruminate", gloss: "Think deeply and repeatedly about something." },
+  { word: "Saunter", gloss: "Walk slowly in a relaxed manner." },
+  { word: "Skulk", gloss: "Move stealthily to avoid being noticed." },
+  { word: "Soliloquize", gloss: "Speak your thoughts aloud to yourself." },
+  { word: "Traipse", gloss: "Walk about wearily or without purpose." },
+];
 
-const pickWelcomeWord = (words: readonly string[]): string =>
-  words[Math.floor(Math.random() * words.length)] ?? words[0]!;
+const WELCOME_MODIFIERS: readonly WelcomePart[] = [
+  { word: "askance", gloss: "With a sideways or suspicious glance." },
+  { word: "askew", gloss: "At an angle or out of alignment." },
+  { word: "at an ungodly hour", gloss: "At an inconveniently early or late time." },
+  { word: "betwixt two silences", gloss: "Between two moments of quiet." },
+  { word: "beyond the pale", gloss: "Outside accepted standards of decent behavior." },
+  { word: "by dubious means", gloss: "Using methods of questionable legitimacy." },
+  { word: "contrariwise", gloss: "In the opposite way or direction." },
+  { word: "in a borrowed hat", gloss: "Wearing a hat belonging to someone else." },
+  { word: "in a minor key", gloss: "With a subdued or melancholy tone." },
+  { word: "in dubious company", gloss: "Among people of questionable character." },
+  { word: "obliquely", gloss: "At an angle or indirectly." },
+  { word: "on a whim", gloss: "Following a sudden and unplanned impulse." },
+  { word: "sideways at dusk", gloss: "Moving laterally as daylight fades." },
+  { word: "sotto voce", gloss: "In a quiet or lowered voice." },
+  { word: "in the small hours", gloss: "During the hours just after midnight." },
+  { word: "under mild protest", gloss: "With some reluctance or objection." },
+  { word: "with dubious aplomb", gloss: "With suspicious confidence and composure." },
+  { word: "with undue gravitas", gloss: "With more solemnity than circumstances warrant." },
+  { word: "with undue ceremony", gloss: "With excessive formality for the occasion." },
+  { word: "without a map", gloss: "Without guidance or a clear direction." },
+];
+
+const pickWelcomePart = (parts: readonly WelcomePart[]): WelcomePart =>
+  parts[Math.floor(Math.random() * parts.length)] ?? parts[0]!;
 
 const TypingDots: FC<{ label?: string }> = ({ label }) => (
   <span
@@ -528,15 +530,15 @@ const TypingDots: FC<{ label?: string }> = ({ label }) => (
 );
 
 const ThreadWelcome: FC = () => {
-  const [verb] = useState(() => pickWelcomeWord(WELCOME_VERBS));
-  const [modifier] = useState(() => pickWelcomeWord(WELCOME_MODIFIERS));
+  const [verb] = useState(() => pickWelcomePart(WELCOME_VERBS));
+  const [modifier] = useState(() => pickWelcomePart(WELCOME_MODIFIERS));
   const [line, setLine] = useState<string | null>(null);
   const [linePending, setLinePending] = useState(true);
 
   useEffect(() => {
     let cancelled = false;
     void window.verbo.ollama
-      .welcomeLine({ verb, modifier })
+      .welcomeLine({ verb: verb.word, modifier: modifier.word })
       .then((next) => {
         if (!cancelled && next) setLine(next);
       })
@@ -559,7 +561,12 @@ const ThreadWelcome: FC = () => {
           styles.welcomeMessageInner,
         )}
       >
-        {verb} <em className={styles.welcomeEmphasis}>{modifier}.</em>
+        <Tooltip label={verb.gloss} multiline maw={280}>
+          <span>{verb.word}</span>
+        </Tooltip>{" "}
+        <Tooltip label={modifier.gloss} multiline maw={280}>
+          <em className={styles.welcomeEmphasis}>{modifier.word}.</em>
+        </Tooltip>
       </h1>
       <p className={styles.welcomeDescription}>
         {line ?? (linePending ? <TypingDots label="Writing a line" /> : null)}

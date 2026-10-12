@@ -235,10 +235,13 @@
 }
 
 .welcomeRoot {
+  cursor: default;
   display: flex;
   flex-direction: column;
   margin-bottom: rem(32px);
   padding-inline: rem(4px);
+  text-box-edge: cap alphabetic;
+  text-box-trim: trim-both;
 }
 
 .welcomeMessageInner {
