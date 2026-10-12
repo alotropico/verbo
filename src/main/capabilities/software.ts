@@ -13,7 +13,12 @@ import {
 import type { Capability } from "./registry";
 
 function failure(action: string, code: string, summary: string): ActionResult {
-  return { action, status: code === "unsupported_platform" ? "not_supported" : "error", code, summary };
+  return {
+    action,
+    status: code === "unsupported_platform" ? "not_supported" : "error",
+    code,
+    summary,
+  };
 }
 
 export function softwareCapabilities(
@@ -68,7 +73,8 @@ export function softwareCapabilities(
       example: { name: "notepad" },
       execute(args): ActionResult {
         const found = findSoftware({ source, name: String(args.name) });
-        if (!found.ok) return failure("software.find", found.code, found.summary);
+        if (!found.ok)
+          return failure("software.find", found.code, found.summary);
         if (found.matches.length === 0) {
           return failure(
             "software.find",

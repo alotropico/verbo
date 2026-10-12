@@ -204,11 +204,7 @@ describe("phase 6 environment, projects, software, and AGS", () => {
     expect(found.detail).toContain("Beta");
     expect(found.detail).not.toContain("UninstallString");
 
-    const first = registry.invoke(
-      "software.list",
-      { pageSize: 1 },
-      context,
-    );
+    const first = registry.invoke("software.list", { pageSize: 1 }, context);
     expect(first.detail).toContain("Alpha");
     const cursor = JSON.parse(first.detail ?? "{}").nextCursor as string;
     const second = registry.invoke(
@@ -309,9 +305,7 @@ describe("phase 6 environment, projects, software, and AGS", () => {
     expect(saved.ok).toBe(true);
     const checked = registry.invoke("ags.check", { host: "fixture" }, context);
     expect(checked.status).toBe("success");
-    expect(calls).toEqual([
-      { args: [...AGS_CHECK_ARGS], executable },
-    ]);
+    expect(calls).toEqual([{ args: [...AGS_CHECK_ARGS], executable }]);
     expect(checked.detail).not.toContain(executable);
     expect(checked.detail).toContain("checked");
 

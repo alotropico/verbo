@@ -91,10 +91,7 @@ function failure(code: string, summary: string): ScopeFailure {
 }
 
 function mapScope(row: ScopeRow): FileScopeRecord {
-  const aliases = [
-    row.alias,
-    ...splitScopeAliases(row.extra_aliases ?? ""),
-  ];
+  const aliases = [row.alias, ...splitScopeAliases(row.extra_aliases ?? "")];
   return {
     id: row.id,
     alias: row.alias,

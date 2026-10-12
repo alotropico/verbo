@@ -3,12 +3,12 @@ import {
   useLocalRuntime,
   useRemoteThreadListRuntime,
 } from "@assistant-ui/react";
-import { useMemo, type ReactNode } from "react";
+import { useMemo, type ReactElement, type ReactNode } from "react";
 import { createChatModelAdapter } from "./chat-model-adapter";
 import { verboThreadListAdapter } from "./thread-list-adapter";
 import { PERMANENT_MODEL_TOOLS } from "../../../shared/model-tools";
 
-function useThreadRuntime() {
+function useThreadRuntime(): ReturnType<typeof useLocalRuntime> {
   const modelAdapter = useMemo(
     () =>
       createChatModelAdapter(
@@ -21,7 +21,11 @@ function useThreadRuntime() {
   });
 }
 
-export function VerboRuntimeProvider({ children }: { children: ReactNode }) {
+export function VerboRuntimeProvider({
+  children,
+}: {
+  children: ReactNode;
+}): ReactElement {
   const runtime = useRemoteThreadListRuntime({
     adapter: verboThreadListAdapter,
     runtimeHook: useThreadRuntime,

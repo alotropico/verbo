@@ -45,7 +45,10 @@ export type AgsArtifact = {
   bytes: number;
 };
 
-export function agsArtifactsSince(root: string, startedAt: number): AgsArtifact[] {
+export function agsArtifactsSince(
+  root: string,
+  startedAt: number,
+): AgsArtifact[] {
   const directory = win32.join(root, ".tmp", "ags");
   const resolved = resolveContainedPath(root, directory, "read");
   if (!resolved.ok || !resolved.exists) return [];

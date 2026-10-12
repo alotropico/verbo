@@ -18,7 +18,12 @@ export const SOFTWARE_PAGE_LIMIT = 20;
 
 export const softwareListArgsSchema = z
   .object({
-    pageSize: z.number().int().min(1).max(SOFTWARE_PAGE_LIMIT).default(SOFTWARE_PAGE_LIMIT),
+    pageSize: z
+      .number()
+      .int()
+      .min(1)
+      .max(SOFTWARE_PAGE_LIMIT)
+      .default(SOFTWARE_PAGE_LIMIT),
     cursor: z.string().trim().min(8).max(120).optional(),
   })
   .strict();

@@ -46,11 +46,7 @@ function openHandle(
   return opened[0];
 }
 
-function openKey(
-  hive: Hive,
-  subkey: string,
-  sam = KEY_READ,
-): unknown | null {
+function openKey(hive: Hive, subkey: string, sam = KEY_READ): unknown | null {
   return openHandle(hives[hive], subkey, sam);
 }
 
@@ -105,7 +101,13 @@ function locationOf(value: string): string {
 }
 
 function clip(value: string, max: number): string {
-  return value.replace(/[\u0000-\u001f]/gu, "").trim().slice(0, max);
+  return (
+    value
+      // eslint-disable-next-line no-control-regex
+      .replace(/[\u0000-\u001f]/gu, "")
+      .trim()
+      .slice(0, max)
+  );
 }
 
 export function readInstalledPrograms(now = Date.now()): {
@@ -158,8 +160,14 @@ export function readInstalledPrograms(now = Date.now()): {
           const display = queryValue(child, "DisplayName");
           const name = clip(display?.text ?? "", 160);
           if (!name) continue;
-          const version = clip(queryValue(child, "DisplayVersion")?.text ?? "", 40);
-          const publisher = clip(queryValue(child, "Publisher")?.text ?? "", 120);
+          const version = clip(
+            queryValue(child, "DisplayVersion")?.text ?? "",
+            40,
+          );
+          const publisher = clip(
+            queryValue(child, "Publisher")?.text ?? "",
+            120,
+          );
           const location = locationOf(
             queryValue(child, "InstallLocation")?.text ?? "",
           );

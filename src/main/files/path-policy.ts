@@ -120,8 +120,7 @@ export function parseFileReference(reference: string): ParsedFileReference {
 }
 
 export type QualifiedFileReference =
-  | Exclude<ParsedFileReference, { kind: "relative" }>
-  | { kind: "no_default" };
+  Exclude<ParsedFileReference, { kind: "relative" }> | { kind: "no_default" };
 
 /** A bare filename or relative path uses the one default save folder. */
 export function qualifyFileReference(

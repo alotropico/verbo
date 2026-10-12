@@ -1,8 +1,12 @@
-import { MantineProvider } from '@mantine/core'
-import type { ReactNode } from 'react'
-import { cssVariablesResolver, theme } from './mantine'
+import { MantineProvider } from "@mantine/core";
+import type { ReactElement, ReactNode } from "react";
+import { cssVariablesResolver, theme } from "./mantine";
 
-export function ThemeProvider({ children }: { children: ReactNode }) {
+export function ThemeProvider({
+  children,
+}: {
+  children: ReactNode;
+}): ReactElement {
   return (
     <MantineProvider
       theme={theme}
@@ -12,5 +16,5 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     >
       {children}
     </MantineProvider>
-  )
+  );
 }

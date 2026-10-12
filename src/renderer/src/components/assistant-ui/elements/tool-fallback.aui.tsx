@@ -243,7 +243,9 @@ const formatUnknownValue = (value: unknown, space?: number): string => {
 
     const json = JSON.stringify(value, null, space);
     if (json !== undefined) return json;
-  } catch {}
+  } catch {
+    // Circular or BigInt values fall through to String().
+  }
 
   try {
     return String(value);

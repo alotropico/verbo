@@ -151,9 +151,7 @@ export function AudioPlayer({
       className={cx(paper, styles.audioRoot, className)}
       {...props}
     >
-      {artwork ? (
-        <img src={artwork} alt="" className={styles.artwork} />
-      ) : null}
+      {artwork ? <img src={artwork} alt="" className={styles.artwork} /> : null}
       <ActionIcon
         type="button"
         variant="subtle"
@@ -212,7 +210,7 @@ export function AudioPlayer({
       />
       {hasError ? (
         <span role="alert" className={styles.errorText}>
-          Can't play this audio
+          Can&apos;t play this audio
         </span>
       ) : null}
     </div>

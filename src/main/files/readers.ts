@@ -66,7 +66,11 @@ function pack(body: Record<string, unknown>): {
   return { detail, truncated };
 }
 
-function openFile(request: FileQueryRequest, action: string, reference: string): Opened {
+function openFile(
+  request: FileQueryRequest,
+  action: string,
+  reference: string,
+): Opened {
   const resolved = resolveFileReference({
     reference,
     purpose: "read",
@@ -76,7 +80,10 @@ function openFile(request: FileQueryRequest, action: string, reference: string):
     ...(request.now !== undefined ? { now: request.now } : {}),
   });
   if (!resolved.ok) {
-    return { ok: false, result: failure(action, resolved.code, resolved.summary) };
+    return {
+      ok: false,
+      result: failure(action, resolved.code, resolved.summary),
+    };
   }
   let stats;
   try {
@@ -91,7 +98,11 @@ function openFile(request: FileQueryRequest, action: string, reference: string):
   if (stats.isSymbolicLink() || flags?.reparse) {
     return {
       ok: false,
-      result: failure(action, "link", "Links are not read. Open the target path."),
+      result: failure(
+        action,
+        "link",
+        "Links are not read. Open the target path.",
+      ),
     };
   }
   if (!stats.isFile()) {
@@ -108,11 +119,7 @@ function openFile(request: FileQueryRequest, action: string, reference: string):
   };
 }
 
-function readPrefix(
-  absolute: string,
-  size: number,
-  maxBytes: number,
-): Buffer {
+function readPrefix(absolute: string, size: number, maxBytes: number): Buffer {
   const length = Math.min(size, maxBytes);
   const buffer = Buffer.alloc(length);
   const fd = openSync(absolute, "r");
@@ -131,9 +138,10 @@ function readPrefix(
 
 function decodeText(buffer: Buffer): string | null {
   if (buffer.includes(0)) return null;
-  const source = buffer[0] === 0xef && buffer[1] === 0xbb && buffer[2] === 0xbf
-    ? buffer.subarray(3)
-    : buffer;
+  const source =
+    buffer[0] === 0xef && buffer[1] === 0xbb && buffer[2] === 0xbf
+      ? buffer.subarray(3)
+      : buffer;
   try {
     return new TextDecoder("utf-8", { fatal: true }).decode(source);
   } catch {
@@ -159,7 +167,11 @@ function pointerValue(
       current = current[index];
       continue;
     }
-    if (!current || typeof current !== "object" || !Object.hasOwn(current, part)) {
+    if (
+      !current ||
+      typeof current !== "object" ||
+      !Object.hasOwn(current, part)
+    ) {
       return { ok: false };
     }
     current = (current as Record<string, unknown>)[part];
@@ -189,7 +201,11 @@ function textLines(
   const lines = text.split(/\r?\n/u);
   const start = args.startLine;
   if (start > lines.length) {
-    return failure(action, "line_missing", `That file has ${lines.length} lines.`);
+    return failure(
+      action,
+      "line_missing",
+      `That file has ${lines.length} lines.`,
+    );
   }
   const slice = lines.slice(start - 1, start - 1 + args.lineCount);
   const endLine = start - 1 + slice.length;
@@ -231,7 +247,9 @@ function jsonText(
       summary: "That JSON file is larger than the read cap.",
     };
   }
-  const text = decodeText(readPrefix(opened.absolute, opened.size, opened.size));
+  const text = decodeText(
+    readPrefix(opened.absolute, opened.size, opened.size),
+  );
   if (text === null) {
     return {
       action,
@@ -248,7 +266,11 @@ function jsonText(
   }
   const selected = pointerValue(parsed, pointer ?? "");
   if (!selected.ok) {
-    return failure(action, "pointer_missing", "That JSON pointer was not found.");
+    return failure(
+      action,
+      "pointer_missing",
+      "That JSON pointer was not found.",
+    );
   }
   const body: Record<string, unknown> = {
     path: opened.display,
@@ -287,11 +309,13 @@ function pdfText(
     { page: args.page, pageCount: args.pageCount },
   );
   if (!extracted.ok) {
-    const status = extracted.code === "page_missing" ? "error" : "not_supported";
+    const status =
+      extracted.code === "page_missing" ? "error" : "not_supported";
     return { action, status, code: extracted.code, summary: extracted.summary };
   }
   const imageOnly =
-    extracted.pages.length > 0 && extracted.pages.every((page) => page.imageOnly);
+    extracted.pages.length > 0 &&
+    extracted.pages.every((page) => page.imageOnly);
   const nextPage = args.page + extracted.pages.length;
   const body: Record<string, unknown> = {
     path: opened.display,
@@ -351,7 +375,11 @@ export function readFileContent(
 ): ActionResult {
   const parsed = filesReadArgsSchema.safeParse(args);
   if (!parsed.success) {
-    return failure("files.read", "invalid_args", "Those read arguments are not valid.");
+    return failure(
+      "files.read",
+      "invalid_args",
+      "Those read arguments are not valid.",
+    );
   }
   const opened = openFile(request, "files.read", parsed.data.path);
   if (!opened.ok) return opened.result;
@@ -364,7 +392,12 @@ export function readFileContent(
           ? "pdf"
           : "text"
       : parsed.data.mode;
-  if (mode === "text" && extension !== "" && !TEXT.has(extension) && extension !== "pdf") {
+  if (
+    mode === "text" &&
+    extension !== "" &&
+    !TEXT.has(extension) &&
+    extension !== "pdf"
+  ) {
     if (parsed.data.mode === "auto") {
       return {
         action: "files.read",
@@ -381,7 +414,8 @@ export function readFileContent(
       "JSON pointers apply to JSON files.",
     );
   }
-  if (mode === "json") return jsonText("files.read", opened, parsed.data.pointer);
+  if (mode === "json")
+    return jsonText("files.read", opened, parsed.data.pointer);
   if (mode === "pdf") return pdfText("files.read", opened, parsed.data);
   return textLines("files.read", opened, parsed.data);
 }
@@ -397,7 +431,10 @@ function lineDiff(left: string[], right: string[]): string[] {
       scores[row]![column] =
         left[row] === right[column]
           ? (scores[row + 1]?.[column + 1] ?? 0) + 1
-          : Math.max(scores[row + 1]?.[column] ?? 0, scores[row]?.[column + 1] ?? 0);
+          : Math.max(
+              scores[row + 1]?.[column] ?? 0,
+              scores[row]?.[column + 1] ?? 0,
+            );
     }
   }
   const lines: string[] = [];
@@ -425,7 +462,9 @@ function lineDiff(left: string[], right: string[]): string[] {
 function readComparable(
   request: FileQueryRequest,
   reference: string,
-): { ok: true; display: string; text: string; capped: boolean } | { ok: false; result: ActionResult } {
+):
+  | { ok: true; display: string; text: string; capped: boolean }
+  | { ok: false; result: ActionResult } {
   const opened = openFile(request, "files.compare", reference);
   if (!opened.ok) return opened;
   const buffer = readPrefix(
@@ -525,9 +564,18 @@ export function hashFiles(
 ): ActionResult {
   const parsed = filesHashArgsSchema.safeParse(args);
   if (!parsed.success) {
-    return failure("files.hash", "invalid_args", "Hash needs one or more paths.");
+    return failure(
+      "files.hash",
+      "invalid_args",
+      "Hash needs one or more paths.",
+    );
   }
-  const items: Array<{ path: string; algorithm: "sha256"; sha256: string; bytes: number }> = [];
+  const items: Array<{
+    path: string;
+    algorithm: "sha256";
+    sha256: string;
+    bytes: number;
+  }> = [];
   const errors: Array<{ path: string; code: string; summary: string }> = [];
   for (const reference of parsed.data.paths) {
     const opened = openFile(request, "files.hash", reference);
@@ -640,7 +688,10 @@ export function inspectImages(
       if (!vision) {
         omittedPayload = true;
         item.payload = "vision_unavailable";
-      } else if (opened.size > FILE_READER_LIMITS.maxPayloadBytes || opened.size !== buffer.length) {
+      } else if (
+        opened.size > FILE_READER_LIMITS.maxPayloadBytes ||
+        opened.size !== buffer.length
+      ) {
         omittedPayload = true;
         item.payload = "capped";
       } else {

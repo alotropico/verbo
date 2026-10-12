@@ -2,13 +2,7 @@ import type { ActionResult } from "./action-contract";
 import type { ChatEvent, ChatToolCall, ChatTurnStop } from "./chat-ipc";
 
 type JsonObject = { [key: string]: JsonValue };
-type JsonValue =
-  | string
-  | number
-  | boolean
-  | null
-  | JsonValue[]
-  | JsonObject;
+type JsonValue = string | number | boolean | null | JsonValue[] | JsonObject;
 
 export type ProjectedPart =
   | { type: "text"; text: string }

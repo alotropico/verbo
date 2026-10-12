@@ -5,7 +5,9 @@ import { parseActionCommand, parseFilesCommand } from "./file-commands";
 describe("file commands", () => {
   it("parses quoted Windows paths and file aliases", () => {
     expect(
-      parseFilesCommand('list "D:\\cosmos\\projects\\notes" --depth 0 --type directories --sort name --page-size 50'),
+      parseFilesCommand(
+        'list "D:\\cosmos\\projects\\notes" --depth 0 --type directories --sort name --page-size 50',
+      ),
     ).toEqual({
       ok: true,
       call: {
@@ -24,7 +26,9 @@ describe("file commands", () => {
       actionId: "files.read",
       args: { path: "notes:/Inbox/idea.md", startLine: 1, lineCount: 100 },
     });
-    const grep = parseFilesCommand('grep notes:/ --text "individuation" --ext md,.txt');
+    const grep = parseFilesCommand(
+      'grep notes:/ --text "individuation" --ext md,.txt',
+    );
     expect(grep.ok && grep.call).toMatchObject({
       actionId: "files.search",
       args: {
@@ -47,7 +51,8 @@ describe("file commands", () => {
     expect(flagged.ok).toBe(false);
     if (!approve.ok) expect(approve.summary).toBe("Approval is not a command.");
     if (!forged.ok) expect(forged.summary).toBe("Approval is not a command.");
-    if (!broken.ok) expect(broken.summary).toBe("Those arguments are not valid JSON.");
+    if (!broken.ok)
+      expect(broken.summary).toBe("Those arguments are not valid JSON.");
     if (!flagged.ok) expect(flagged.summary).toContain("Unknown flag");
     expect(parseFilesCommand('read "notes:/My Notes.md')).toMatchObject({
       ok: false,

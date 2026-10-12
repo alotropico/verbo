@@ -18,10 +18,7 @@ const MARKERS: Array<[string, string]> = [
   ["go.mod", "go"],
 ];
 
-function containedFile(
-  root: string,
-  ...parts: string[]
-): string | null {
+function containedFile(root: string, ...parts: string[]): string | null {
   const candidate = win32.join(root, ...parts);
   const resolved = resolveContainedPath(root, candidate, "read");
   if (!resolved.ok || !resolved.exists) return null;
@@ -48,14 +45,14 @@ function firstLine(text: string, max: number): string {
     .split(/\r?\n/u)
     .map((item) => item.trim())
     .find((item) => item.length > 0 && !item.startsWith("#"));
+  // eslint-disable-next-line no-control-regex
   return (line ?? "").replace(/[\u0000-\u001f]/gu, "").slice(0, max);
 }
 
 function quoted(text: string, key: string): string {
-  const match = new RegExp(
-    `^${key}\\s*=\\s*"([^"\\n]{1,80})"`,
-    "mu",
-  ).exec(text);
+  const match = new RegExp(`^${key}\\s*=\\s*"([^"\\n]{1,80})"`, "mu").exec(
+    text,
+  );
   return match?.[1]?.trim() ?? "";
 }
 
@@ -88,7 +85,8 @@ export function inspectProject(root: string, folderName: string): ProjectFacts {
   }
   try {
     const names = readdirSync(root);
-    if (names.some((entry) => /\.(csproj|sln)$/iu.test(entry))) stack.push("dotnet");
+    if (names.some((entry) => /\.(csproj|sln)$/iu.test(entry)))
+      stack.push("dotnet");
   } catch {
     // The root listing is optional stack evidence.
   }
@@ -116,7 +114,10 @@ export function inspectProject(root: string, folderName: string): ProjectFacts {
   if (headFile) {
     vcs = "git";
     const line = (readCapped(headFile, 256) ?? "").split(/\r?\n/u)[0] ?? "";
-    if (/^ref: refs\/[A-Za-z0-9._/-]{1,80}$/u.test(line) || /^[0-9a-f]{40}$/u.test(line)) {
+    if (
+      /^ref: refs\/[A-Za-z0-9._/-]{1,80}$/u.test(line) ||
+      /^[0-9a-f]{40}$/u.test(line)
+    ) {
       head = line;
     }
   }

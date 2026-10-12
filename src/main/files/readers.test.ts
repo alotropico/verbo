@@ -100,7 +100,10 @@ describe("file readers", () => {
   it("reads text ranges, JSON pointers, and rejects binaries and escapes", () => {
     const root = folder("verbo-reader-");
     writeFileSync(join(root, "note.md"), "alpha\nbeta\ngamma\n");
-    writeFileSync(join(root, "data.json"), JSON.stringify({ a: { b: [1, 2] } }));
+    writeFileSync(
+      join(root, "data.json"),
+      JSON.stringify({ a: { b: [1, 2] } }),
+    );
     writeFileSync(join(root, "blob.bin"), Buffer.from([0, 1, 2, 3]));
     const db = register(root);
 
@@ -110,10 +113,12 @@ describe("file readers", () => {
       lineCount: 1,
     });
     expect(lines.status).toBe("success");
-    expect(detail<{ text: string; next: { startLine: number } }>(lines).text).toBe(
-      "beta",
+    expect(
+      detail<{ text: string; next: { startLine: number } }>(lines).text,
+    ).toBe("beta");
+    expect(detail<{ next: { startLine: number } }>(lines).next.startLine).toBe(
+      3,
     );
-    expect(detail<{ next: { startLine: number } }>(lines).next.startLine).toBe(3);
 
     const pointed = invoke(db, "files.read", {
       path: "notes:/data.json",
@@ -121,7 +126,10 @@ describe("file readers", () => {
     });
     expect(detail<{ text: string }>(pointed).text).toBe("2");
     expect(
-      invoke(db, "files.read", { path: "notes:/data.json", pointer: "/missing" }).code,
+      invoke(db, "files.read", {
+        path: "notes:/data.json",
+        pointer: "/missing",
+      }).code,
     ).toBe("pointer_missing");
     expect(invoke(db, "files.read", { path: "notes:/blob.bin" }).status).toBe(
       "not_supported",
@@ -129,9 +137,9 @@ describe("file readers", () => {
     expect(invoke(db, "files.read", { path: "notes:/../secret.md" }).code).toBe(
       "invalid_reference",
     );
-    expect(invoke(db, "files.read", { path: "C:\\Windows\\System32\\hosts" }).code).toBe(
-      "protected",
-    );
+    expect(
+      invoke(db, "files.read", { path: "C:\\Windows\\System32\\hosts" }).code,
+    ).toBe("protected");
   });
 
   it("lets the model read an explicit outside file and keeps commands on a selection", () => {
@@ -140,10 +148,12 @@ describe("file readers", () => {
     writeFileSync(join(outside, "secret.txt"), "outside");
     const db = register(root);
     const path = join(outside, "secret.txt");
-    expect(invoke(db, "files.read", { path, lineCount: 5 }).status).toBe("success");
-    expect(invoke(db, "files.read", { path, lineCount: 5 }, "user_command").code).toBe(
-      "needs_selection",
+    expect(invoke(db, "files.read", { path, lineCount: 5 }).status).toBe(
+      "success",
     );
+    expect(
+      invoke(db, "files.read", { path, lineCount: 5 }, "user_command").code,
+    ).toBe("needs_selection");
   });
 
   it("extracts PDF text, reports image-only pages, and hashes explicit files", () => {
@@ -160,7 +170,10 @@ describe("file readers", () => {
     writeFileSync(join(root, "same.txt"), "hello\n");
     const db = register(root);
 
-    const plain = extractPdfText(literalPdf("Hello PDF"), { page: 1, pageCount: 1 });
+    const plain = extractPdfText(literalPdf("Hello PDF"), {
+      page: 1,
+      pageCount: 1,
+    });
     expect(plain.ok && plain.pages[0]?.text).toBe("Hello PDF");
     const flate = invoke(db, "files.read", { path: "notes:/flate.pdf" });
     expect(flate.status).toBe("success");
@@ -169,9 +182,9 @@ describe("file readers", () => {
     expect(image.code).toBe("image_only");
 
     const hashed = invoke(db, "files.hash", { paths: ["notes:/same.txt"] });
-    expect(detail<{ items: Array<{ sha256: string }> }>(hashed).items[0]?.sha256).toBe(
-      createHash("sha256").update("hello\n").digest("hex"),
-    );
+    expect(
+      detail<{ items: Array<{ sha256: string }> }>(hashed).items[0]?.sha256,
+    ).toBe(createHash("sha256").update("hello\n").digest("hex"));
   });
 
   it("diffs text, caps image payloads without vision, and continues a page from a cursor", () => {
@@ -218,9 +231,9 @@ describe("file readers", () => {
       { visionSupported: true },
     );
     expect(direct.detail).toContain("dataUrl");
-    expect(opened.list("files").children.some((child) => child.id === "files.read")).toBe(
-      true,
-    );
+    expect(
+      opened.list("files").children.some((child) => child.id === "files.read"),
+    ).toBe(true);
 
     const listed = invoke(db, "files.list", {
       root: "notes:",
@@ -229,10 +242,13 @@ describe("file readers", () => {
       pageSize: 1,
       sort: { by: "name", direction: "asc" },
     });
-    const cursor = detail<{ page: { nextCursor?: string } }>(listed).page.nextCursor ?? "";
+    const cursor =
+      detail<{ page: { nextCursor?: string } }>(listed).page.nextCursor ?? "";
     const next = invoke(db, "files.next", { cursor });
     expect(next.status).toBe("success");
-    expect(detail<{ items: Array<{ path: string }> }>(next).items[0]?.path).not.toBe(
+    expect(
+      detail<{ items: Array<{ path: string }> }>(next).items[0]?.path,
+    ).not.toBe(
       detail<{ items: Array<{ path: string }> }>(listed).items[0]?.path,
     );
 

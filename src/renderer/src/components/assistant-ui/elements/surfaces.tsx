@@ -43,12 +43,7 @@ export function ShimmerLabel({
   className,
   ...props
 }: ComponentProps<"span"> & { active?: boolean }) {
-  return (
-    <span
-      className={cx(active && "shimmer", className)}
-      {...props}
-    />
-  );
+  return <span className={cx(active && "shimmer", className)} {...props} />;
 }
 
 /**

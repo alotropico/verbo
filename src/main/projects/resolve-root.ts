@@ -16,9 +16,7 @@ export type ResolvedRoot = {
 };
 
 function samePath(left: string, right: string): boolean {
-  return (
-    isFinalPathInside(left, right) && isFinalPathInside(right, left)
-  );
+  return isFinalPathInside(left, right) && isFinalPathInside(right, left);
 }
 
 export function resolveRegisteredRoot(input: {
@@ -82,7 +80,11 @@ export function resolveRegisteredRoot(input: {
   if (registered) {
     return {
       ok: true,
-      root: { alias: registered.alias, path: registered.path, registered: true },
+      root: {
+        alias: registered.alias,
+        path: registered.path,
+        registered: true,
+      },
     };
   }
   const now = input.now ?? Date.now();

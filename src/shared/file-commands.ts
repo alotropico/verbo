@@ -15,8 +15,7 @@ export type FileCommandCall = {
 export type CommandFailure = { ok: false; summary: string };
 
 export type ParsedFileCommand =
-  | { ok: true; call: FileCommandCall }
-  | CommandFailure;
+  { ok: true; call: FileCommandCall } | CommandFailure;
 
 type FlagSuccess = {
   ok: true;
@@ -118,7 +117,10 @@ function one(flags: Map<string, string[]>, name: string): string | undefined {
   return values[values.length - 1];
 }
 
-function integer(value: string | undefined, name: string): number | CommandFailure {
+function integer(
+  value: string | undefined,
+  name: string,
+): number | CommandFailure {
   if (value === undefined) return fail(`--${name} needs a value.`);
   if (!/^\d+$/u.test(value)) return fail(`--${name} needs a whole number.`);
   return Number(value);
@@ -138,7 +140,9 @@ function sortOf(
   if (value === undefined) return undefined;
   const [by, direction = "asc"] = value.split(":");
   if (!by || !SORTS.has(by) || (direction !== "asc" && direction !== "desc")) {
-    return fail("--sort uses name, extension, type, size, modified, or created, with :asc or :desc.");
+    return fail(
+      "--sort uses name, extension, type, size, modified, or created, with :asc or :desc.",
+    );
   }
   return { by, direction };
 }
@@ -158,7 +162,11 @@ function sharedQuery(
   }
   const entryType = one(flags, "type");
   if (entryType !== undefined) {
-    if (entryType !== "all" && entryType !== "files" && entryType !== "directories") {
+    if (
+      entryType !== "all" &&
+      entryType !== "files" &&
+      entryType !== "directories"
+    ) {
       return fail("--type is all, files, or directories.");
     }
     args.entryType = entryType;
@@ -202,7 +210,10 @@ export function parseActionCommand(rest: string): ParsedFileCommand {
     return fail("/action arguments must be a JSON object.");
   }
   if ("approved" in value) return fail("Approval is not a command.");
-  return { ok: true, call: { actionId: id, args: value as Record<string, unknown> } };
+  return {
+    ok: true,
+    call: { actionId: id, args: value as Record<string, unknown> },
+  };
 }
 
 export function parseFilesCommand(rest: string): ParsedFileCommand {
@@ -232,12 +243,14 @@ export function parseFilesCommand(rest: string): ParsedFileCommand {
     const unknown = unknownFlag(flags, ["lines", "pointer", "page"]);
     if (unknown) return unknown;
     const path = positionals[0];
-    if (!path || positionals.length !== 1) return fail("/files read needs one path.");
+    if (!path || positionals.length !== 1)
+      return fail("/files read needs one path.");
     const args: Record<string, unknown> = { path };
     const lines = one(flags, "lines");
     if (lines !== undefined) {
       const match = /^(\d+):(\d+)$/u.exec(lines);
-      if (!match?.[1] || !match[2]) return fail("--lines uses start:end, such as 1:100.");
+      if (!match?.[1] || !match[2])
+        return fail("--lines uses start:end, such as 1:100.");
       const start = Number(match[1]);
       const end = Number(match[2]);
       if (end < start) return fail("--lines end comes after the start.");
@@ -257,7 +270,8 @@ export function parseFilesCommand(rest: string): ParsedFileCommand {
   if (verb === "stat") {
     const unknown = unknownFlag(flags, []);
     if (unknown) return unknown;
-    if (positionals.length === 0) return fail("/files stat needs at least one path.");
+    if (positionals.length === 0)
+      return fail("/files stat needs at least one path.");
     return {
       ok: true,
       call: { actionId: "files.stat", args: { paths: positionals } },
@@ -299,7 +313,8 @@ export function parseFilesCommand(rest: string): ParsedFileCommand {
   const query = sharedQuery(flags, hidden);
   if (!query.ok) return query;
   const args: Record<string, unknown> = { root, ...query.args };
-  if (verb === "list") return { ok: true, call: { actionId: "files.list", args } };
+  if (verb === "list")
+    return { ok: true, call: { actionId: "files.list", args } };
   if (verb === "summary") {
     return { ok: true, call: { actionId: "files.summary", args } };
   }

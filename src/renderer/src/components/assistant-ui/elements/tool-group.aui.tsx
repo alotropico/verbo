@@ -37,10 +37,10 @@ export type ToolGroupRootProps = Omit<
 > & {
   variant?: ToolGroupVariant;
 } & {
-    open?: boolean;
-    onOpenChange?: (open: boolean) => void;
-    defaultOpen?: boolean;
-  };
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
+  defaultOpen?: boolean;
+};
 
 function ToolGroupRoot({
   className,
@@ -144,11 +144,7 @@ function ToolGroupContent({
       className={cx("aui-tool-group-content", styles.content, className)}
       {...props}
     >
-      <div
-        className={styles.contentInner}
-      >
-        {children}
-      </div>
+      <div className={styles.contentInner}>{children}</div>
     </CollapsibleContent>
   );
 }

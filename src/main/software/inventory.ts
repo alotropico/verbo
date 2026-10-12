@@ -83,7 +83,11 @@ export function listSoftwarePage(input: {
       complete: boolean;
       nextCursor?: string;
     }
-  | { ok: false; code: "stale_cursor" | "invalid_cursor" | "unsupported_platform"; summary: string } {
+  | {
+      ok: false;
+      code: "stale_cursor" | "invalid_cursor" | "unsupported_platform";
+      summary: string;
+    } {
   if (input.source.platform !== "win32") {
     return {
       ok: false,

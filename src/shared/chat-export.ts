@@ -145,6 +145,7 @@ export function chatExportFilename(
   extension: "json" | "md",
 ): string {
   const cleaned = title
+    // eslint-disable-next-line no-control-regex
     .replace(/[<>:"/\\|?*\u0000-\u001f]/g, " ")
     .replace(/\s+/g, " ")
     .replace(/[. ]+$/g, "")

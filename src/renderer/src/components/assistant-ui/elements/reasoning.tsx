@@ -40,22 +40,22 @@ export type ReasoningRootProps = Omit<
 > & {
   variant?: ReasoningVariant;
 } & {
-    open?: boolean;
-    onOpenChange?: (open: boolean) => void;
-    defaultOpen?: boolean;
-    /**
-     * Whether the reasoning is currently streaming. While `true` the
-     * disclosure is held open with a bottom-pinned live preview; when
-     * streaming ends it returns to `defaultOpen`, and the first manual
-     * toggle takes over the open/close state permanently. The live preview
-     * keeps following the newest tokens while the disclosure is open during
-     * streaming, even after a manual toggle, and pauses while the reader is
-     * scrolled up.
-     */
-    streaming?: boolean;
-    /** Called right before the disclosure animates, on toggle and on streaming transitions. */
-    onAnimationStart?: () => void;
-  };
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
+  defaultOpen?: boolean;
+  /**
+   * Whether the reasoning is currently streaming. While `true` the
+   * disclosure is held open with a bottom-pinned live preview; when
+   * streaming ends it returns to `defaultOpen`, and the first manual
+   * toggle takes over the open/close state permanently. The live preview
+   * keeps following the newest tokens while the disclosure is open during
+   * streaming, even after a manual toggle, and pauses while the reader is
+   * scrolled up.
+   */
+  streaming?: boolean;
+  /** Called right before the disclosure animates, on toggle and on streaming transitions. */
+  onAnimationStart?: () => void;
+};
 
 const ReasoningRoot = forwardRef<
   HTMLDivElement,
@@ -177,13 +177,21 @@ function ReasoningTrigger({
       />
       <span
         data-slot="reasoning-trigger-label"
-        className={cx("aui-reasoning-trigger-label-wrapper", styles.triggerLabel, active && "shimmer")}
+        className={cx(
+          "aui-reasoning-trigger-label-wrapper",
+          styles.triggerLabel,
+          active && "shimmer",
+        )}
       >
         Reasoning{durationText}
       </span>
       <ChevronDownIcon
         data-slot="reasoning-trigger-chevron"
-        className={cx("aui-reasoning-trigger-chevron", styles.triggerChevron, styles.chevron)}
+        className={cx(
+          "aui-reasoning-trigger-chevron",
+          styles.triggerChevron,
+          styles.chevron,
+        )}
       />
     </CollapsibleTrigger>
   );

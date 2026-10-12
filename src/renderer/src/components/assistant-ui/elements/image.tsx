@@ -119,9 +119,13 @@ const defaultFilenameFromImage = (image: string): string => {
     let basename = encodedBasename;
     try {
       basename = decodeURIComponent(encodedBasename);
-    } catch {}
+    } catch {
+      // Malformed escapes keep the encoded name.
+    }
     if (/\.(png|jpe?g|webp|gif|svg)$/i.test(basename)) return basename;
-  } catch {}
+  } catch {
+    // Unparseable URLs fall back to the default name.
+  }
   return "image.png";
 };
 
@@ -552,6 +556,7 @@ function RegenerateButton({
         try {
           await onRegenerate();
         } catch {
+          // The caller reports regeneration failures.
         } finally {
           setIsRegenerating(false);
         }
@@ -573,10 +578,7 @@ function RegenerateButton({
 
 function ImageActions({ part, onRegenerate, className }: ImageActionsProps) {
   return (
-    <div
-      data-slot="image-actions"
-      className={cx(styles.actions, className)}
-    >
+    <div data-slot="image-actions" className={cx(styles.actions, className)}>
       <ActionIcon
         type="button"
         variant="subtle"

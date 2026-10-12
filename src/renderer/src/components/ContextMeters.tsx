@@ -107,7 +107,10 @@ export function ContextMeters({
           <th scope="col">
             <Tooltip label={contextLabel} multiline w={240}>
               <span
-                className={levelClass(meters.contextTokens, meters.contextWindow)}
+                className={levelClass(
+                  meters.contextTokens,
+                  meters.contextWindow,
+                )}
               >
                 Context
               </span>
@@ -118,7 +121,9 @@ export function ContextMeters({
           <td className={levelClass(meters.memoryTokens, meters.memoryBudget)}>
             {meters.memoryTokens} / {meters.memoryBudget}
           </td>
-          <td className={levelClass(meters.contextTokens, meters.contextWindow)}>
+          <td
+            className={levelClass(meters.contextTokens, meters.contextWindow)}
+          >
             {formatEstimatedTokens(meters.contextTokens)} /{" "}
             {formatEstimatedTokens(meters.contextWindow)}
           </td>

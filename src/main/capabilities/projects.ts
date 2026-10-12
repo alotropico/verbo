@@ -43,9 +43,9 @@ export function projectCapabilities(
   resolveScopes?: () => ScopeStore,
   resolveDatabase?: () => DatabaseSync,
 ): Capability[] {
-  function open(action: string):
-    | { database: DatabaseSync; scopes: ScopeStore }
-    | ActionResult {
+  function open(
+    action: string,
+  ): { database: DatabaseSync; scopes: ScopeStore } | ActionResult {
     try {
       if (!resolveDatabase || !resolveScopes) {
         return failure(action, "unavailable", "Projects are not configured.");
@@ -127,11 +127,7 @@ export function projectCapabilities(
           actor: context.actor,
         });
         if (!resolved.ok) {
-          return failure(
-            "projects.inspect",
-            resolved.code,
-            resolved.summary,
-          );
+          return failure("projects.inspect", resolved.code, resolved.summary);
         }
         const facts = inspectProject(
           resolved.root.path,

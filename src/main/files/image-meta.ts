@@ -15,7 +15,8 @@ function png(buffer: Buffer): ImageMeta | null {
 }
 
 function jpeg(buffer: Buffer): ImageMeta | null {
-  if (buffer.length < 4 || buffer[0] !== 0xff || buffer[1] !== 0xd8) return null;
+  if (buffer.length < 4 || buffer[0] !== 0xff || buffer[1] !== 0xd8)
+    return null;
   let cursor = 2;
   const limit = Math.min(buffer.length, 1024 * 1024);
   while (cursor + 8 < limit) {
@@ -81,7 +82,8 @@ function webp(buffer: Buffer): ImageMeta | null {
     const third = buffer[23] ?? 0;
     const fourth = buffer[24] ?? 0;
     const width = 1 + (((second & 0x3f) << 8) | first);
-    const height = 1 + (((fourth & 0x0f) << 10) | (third << 2) | ((second & 0xc0) >> 6));
+    const height =
+      1 + (((fourth & 0x0f) << 10) | (third << 2) | ((second & 0xc0) >> 6));
     if (width <= 0 || height <= 0) return null;
     return { format: "webp", width, height };
   }
@@ -89,5 +91,7 @@ function webp(buffer: Buffer): ImageMeta | null {
 }
 
 export function readImageMeta(buffer: Buffer): ImageMeta | null {
-  return png(buffer) ?? jpeg(buffer) ?? gif(buffer) ?? bmp(buffer) ?? webp(buffer);
+  return (
+    png(buffer) ?? jpeg(buffer) ?? gif(buffer) ?? bmp(buffer) ?? webp(buffer)
+  );
 }

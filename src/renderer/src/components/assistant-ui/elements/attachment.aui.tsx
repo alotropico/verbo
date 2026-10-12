@@ -38,7 +38,10 @@ const AttachmentPreview: FC<AttachmentPreviewProps> = ({ src, name }) => {
         styles.previewImage,
         isLoaded
           ? cx("aui-attachment-preview-image-loaded", styles.previewImageLoaded)
-          : cx("aui-attachment-preview-image-loading", styles.previewImageLoading),
+          : cx(
+              "aui-attachment-preview-image-loading",
+              styles.previewImageLoading,
+            ),
       )}
       onLoad={() => setIsLoaded(true)}
     />
@@ -231,10 +234,7 @@ const AttachmentRemove: FC<{ name: string }> = ({ name }) => {
 export const UserMessageAttachments: FC = () => {
   return (
     <div
-      className={cx(
-        "aui-user-message-attachments-end",
-        styles.userAttachments,
-      )}
+      className={cx("aui-user-message-attachments-end", styles.userAttachments)}
     >
       <MessagePrimitive.Attachments>
         {() => <AttachmentUI />}

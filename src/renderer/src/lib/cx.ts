@@ -1,7 +1,7 @@
-import clsx from 'clsx'
+import clsx from "clsx";
 
-type ClassValue = Parameters<typeof clsx>[0]
+type ClassValue = Parameters<typeof clsx>[0];
 
 export function cx(...inputs: ClassValue[]): string {
-  return clsx(...inputs)
+  return clsx(...inputs);
 }

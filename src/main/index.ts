@@ -1,4 +1,11 @@
-import { app, dialog, nativeTheme, shell, BrowserWindow, session } from "electron";
+import {
+  app,
+  dialog,
+  nativeTheme,
+  shell,
+  BrowserWindow,
+  session,
+} from "electron";
 import { join } from "path";
 import { electronApp, optimizer, is } from "@electron-toolkit/utils";
 import { registerIpc } from "./ipc/register-ipc";

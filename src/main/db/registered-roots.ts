@@ -36,8 +36,12 @@ function failure(code: string, summary: string): RootFailure {
 
 function samePath(left: string, right: string): boolean {
   return (
-    displayFinalPath(left).replace(/[\\/]+$/u, "").toLowerCase() ===
-    displayFinalPath(right).replace(/[\\/]+$/u, "").toLowerCase()
+    displayFinalPath(left)
+      .replace(/[\\/]+$/u, "")
+      .toLowerCase() ===
+    displayFinalPath(right)
+      .replace(/[\\/]+$/u, "")
+      .toLowerCase()
   );
 }
 
@@ -76,10 +80,16 @@ export function createRootStore(
       const path = displayFinalPath(described.finalPath);
       const current = (listed.all() as RootRow[]).map(mapRoot);
       if (current.some((item) => item.alias === parsed.data)) {
-        return failure("duplicate_alias", `That ${noun} alias is already used.`);
+        return failure(
+          "duplicate_alias",
+          `That ${noun} alias is already used.`,
+        );
       }
       if (current.some((item) => samePath(item.path, path))) {
-        return failure("duplicate_path", `That ${noun} folder is already registered.`);
+        return failure(
+          "duplicate_path",
+          `That ${noun} folder is already registered.`,
+        );
       }
       const root: RegisteredRoot = {
         id: randomUUID(),
@@ -96,7 +106,8 @@ export function createRootStore(
     },
     remove(id: string): RootFailure | { ok: true; summary: string } {
       const existing = (listed.all() as RootRow[]).find((row) => row.id === id);
-      if (!existing) return failure("missing", `That ${noun} is not registered.`);
+      if (!existing)
+        return failure("missing", `That ${noun} is not registered.`);
       removed.run(id);
       return { ok: true, summary: `Removed ${existing.alias}.` };
     },

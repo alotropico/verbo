@@ -31,7 +31,11 @@ export function buildActionsOverview(database: DatabaseSync): ActionsOverview {
   return {
     catalog,
     history: recentActionAudits(database),
-    projects: createRootStore(database, "registered_projects", "project").list(),
+    projects: createRootStore(
+      database,
+      "registered_projects",
+      "project",
+    ).list(),
     agsHosts: createRootStore(database, "ags_hosts", "AGS host").list(),
     agsCheckConfigured: check.configured,
     agsCheckPath: check.path,

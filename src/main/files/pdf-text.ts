@@ -42,10 +42,7 @@ function indexOfWord(buffer: Buffer, word: string, from: number): number {
   while (cursor < buffer.length) {
     const at = buffer.indexOf(word, cursor);
     if (at < 0) return -1;
-    if (
-      boundary(buffer[at - 1]) &&
-      boundary(buffer[at + word.length])
-    ) {
+    if (boundary(buffer[at - 1]) && boundary(buffer[at + word.length])) {
       return at;
     }
     cursor = at + word.length;
@@ -92,7 +89,10 @@ function parseObjects(buffer: Buffer): PdfObject[] {
     while (start >= 0 && buffer[start] !== 10 && buffer[start] !== 13) {
       start -= 1;
     }
-    const prefix = buffer.subarray(start + 1, at).toString("latin1").trim();
+    const prefix = buffer
+      .subarray(start + 1, at)
+      .toString("latin1")
+      .trim();
     const match = /^(\d+)\s+\d+$/u.exec(prefix);
     if (!match?.[1]) {
       cursor = at + 4;
@@ -150,7 +150,9 @@ function refList(source: string, key: string): number[] {
 }
 
 function isPage(header: string): boolean {
-  return /\/Type\s*\/Page\b/u.test(header) && !/\/Type\s*\/Pages\b/u.test(header);
+  return (
+    /\/Type\s*\/Page\b/u.test(header) && !/\/Type\s*\/Pages\b/u.test(header)
+  );
 }
 
 function orderedPages(objects: Map<number, PdfObject>): PdfObject[] {
@@ -248,7 +250,10 @@ function extractOperators(content: string): string {
     parts.push(unescapePdf(literal.value));
     index = literal.end - 1;
   }
-  return parts.join("").replace(/[ \t]+\n/gu, "\n").trim();
+  return parts
+    .join("")
+    .replace(/[ \t]+\n/gu, "\n")
+    .trim();
 }
 
 function pageHasImage(
@@ -314,7 +319,10 @@ export function extractPdfText(
     for (const id of contentIds) {
       const object = objects.get(id);
       if (!object) continue;
-      if (object.undecoded || (object.stream === null && /\/Filter/u.test(object.header))) {
+      if (
+        object.undecoded ||
+        (object.stream === null && /\/Filter/u.test(object.header))
+      ) {
         warnings.push(`Page ${start + index} used an unsupported filter.`);
         continue;
       }

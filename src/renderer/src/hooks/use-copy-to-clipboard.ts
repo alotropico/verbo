@@ -8,7 +8,10 @@ export type UseCopyToClipboardOptions = {
 
 export const useCopyToClipboard = ({
   copiedDuration = 3000,
-}: UseCopyToClipboardOptions = {}) => {
+}: UseCopyToClipboardOptions = {}): {
+  isCopied: boolean;
+  copyToClipboard: (value: string) => void;
+} => {
   const [isCopied, setIsCopied] = useState<boolean>(false);
   const copiedTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(
     undefined,
@@ -27,7 +30,7 @@ export const useCopyToClipboard = ({
     [],
   );
 
-  const copyToClipboard = (value: string) => {
+  const copyToClipboard = (value: string): void => {
     if (!value || typeof navigator === "undefined" || !navigator.clipboard) {
       return;
     }
