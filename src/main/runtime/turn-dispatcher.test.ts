@@ -205,6 +205,69 @@ describe("turn dispatcher", () => {
     expect(restarted.claim("thread-a").item?.text).toBe("draft");
   });
 
+  it("starts a new chat after restart when another thread is only pinned", () => {
+    const { database, queue } = setup();
+    addThread(database, "thread-a");
+    addThread(database, "thread-b");
+    addMessage(database, "root", "thread-a", null);
+    addMessage(database, "answer", "thread-a", "root");
+    const saved = queue.enqueue({
+      threadId: "thread-a",
+      text: "old",
+      branchAnchor: "answer",
+      source: "typed",
+      now: 1,
+    });
+    if (!saved.ok) throw new Error("enqueue failed");
+    queue.releaseReservation(saved.item.id);
+    addMessage(database, "regen", "thread-a", "root");
+    expect(queue.snapshot("thread-a").items[0]?.status).toBe("pinned");
+    const restarted = createTurnDispatcher(database);
+    restarted.recover();
+    expect(restarted.snapshot("thread-a").hold).toBe(false);
+    const first = restarted.enqueue({
+      threadId: "thread-b",
+      text: "hello",
+      branchAnchor: null,
+      source: "typed",
+      now: 2,
+    });
+    expect(first).toMatchObject({ ok: true, start: true });
+  });
+
+  it("starts a new chat when the user sends after an interrupted turn", () => {
+    const { database, queue } = setup();
+    addThread(database, "thread-a");
+    addThread(database, "thread-b");
+    const running = queue.enqueue({
+      threadId: "thread-a",
+      text: "in flight",
+      branchAnchor: null,
+      source: "typed",
+      now: 1,
+    });
+    if (!running.ok) throw new Error("enqueue failed");
+    expect(
+      queue.begin({
+        queueItemId: running.item.id,
+        threadId: "thread-a",
+        turnId: "turn-1",
+      }).ok,
+    ).toBe(true);
+    const restarted = createTurnDispatcher(database);
+    restarted.recover();
+    expect(restarted.snapshot("thread-a").hold).toBe(true);
+    const first = restarted.enqueue({
+      threadId: "thread-b",
+      text: "hello",
+      branchAnchor: null,
+      source: "typed",
+      now: 2,
+    });
+    expect(first).toMatchObject({ ok: true, start: true });
+    expect(restarted.snapshot("thread-b").hold).toBe(false);
+  });
+
   it("lets the older thread go first without reordering inside a thread", () => {
     const { database, queue } = setup();
     addThread(database, "thread-a");
@@ -269,6 +332,76 @@ describe("turn dispatcher", () => {
     expect(queue.snapshot("thread-a").items[0]?.status).toBe("pinned");
     expect(queue.rebind(saved.item.id).ok).toBe(true);
     expect(queue.claim("thread-a").item?.text).toBe("follow up");
+  });
+
+  it("keeps a follow-up queued when it moves above a pinned draft", () => {
+    const { database, queue } = setup();
+    addThread(database, "thread-a");
+    const first = queue.enqueue({
+      threadId: "thread-a",
+      text: "hold",
+      branchAnchor: null,
+      source: "typed",
+      now: 1,
+    });
+    const second = queue.enqueue({
+      threadId: "thread-a",
+      text: "next",
+      branchAnchor: null,
+      source: "typed",
+      now: 2,
+    });
+    if (!first.ok || !second.ok) throw new Error("enqueue failed");
+    database
+      .prepare(`UPDATE queued_turns SET status = 'pinned' WHERE id = ?`)
+      .run(first.item.id);
+    expect(
+      queue.reorder({
+        id: second.item.id,
+        threadId: "thread-a",
+        revision: second.item.revision,
+        direction: "up",
+      }).ok,
+    ).toBe(true);
+    const raised = queue.snapshot("thread-a").items;
+    expect(raised.map((item) => [item.text, item.status])).toEqual([
+      ["next", "queued"],
+      ["hold", "pinned"],
+    ]);
+    const moved = raised[0];
+    if (!moved) throw new Error("missing row");
+    expect(
+      queue.reorder({
+        id: moved.id,
+        threadId: "thread-a",
+        revision: moved.revision,
+        direction: "down",
+      }).ok,
+    ).toBe(true);
+    expect(
+      queue.snapshot("thread-a").items.map((item) => [item.text, item.status]),
+    ).toEqual([
+      ["hold", "pinned"],
+      ["next", "queued"],
+    ]);
+  });
+
+  it("sends a follow-up whose anchor is not stored yet", () => {
+    const { database, queue } = setup();
+    addThread(database, "thread-a");
+    addMessage(database, "answer", "thread-a", null);
+    const saved = queue.enqueue({
+      threadId: "thread-a",
+      text: "hello",
+      branchAnchor: "still-on-the-client",
+      source: "typed",
+      now: 1,
+    });
+    expect(saved).toMatchObject({ ok: true, start: true });
+    if (!saved.ok) return;
+    const snapshot = queue.snapshot("thread-a");
+    expect(snapshot.outgoingId).toBe(saved.item.id);
+    expect(snapshot.items.map((item) => item.status)).toEqual(["queued"]);
   });
 
   it("closes a reserved local command so the next turn can start", () => {

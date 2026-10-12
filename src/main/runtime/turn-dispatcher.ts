@@ -128,7 +128,7 @@ export function createTurnDispatcher(
       recovered = true;
       store.recoverInterrupted(Date.now());
       slot = null;
-      hold = store.hasUnfinished();
+      hold = store.hasInterrupted();
       if (hold) changed();
     },
     enqueue(input: {
@@ -152,6 +152,7 @@ export function createTurnDispatcher(
           : {}),
         now: input.now ?? Date.now(),
       });
+      if (hold) hold = false;
       const next = readyHead();
       const stored = store.get(item.id) ?? item;
       if (next?.id === item.id && stored.status === "queued") {
@@ -160,6 +161,7 @@ export function createTurnDispatcher(
         return { ok: true, item: stored, start: true };
       }
       changed();
+      promote();
       return { ok: true, item: stored, start: false };
     },
     claim(threadId: string): QueueClaimResult {
@@ -441,7 +443,13 @@ export function createTurnDispatcher(
     remove(id: string): QueueMutationResult {
       const row = store.get(id);
       const editing = row?.status === "editing" ? row.threadId : null;
-      const ok = store.cancel(id, Date.now(), ["queued", "editing", "pinned"]);
+      const ok = store.cancel(id, Date.now(), [
+        "queued",
+        "editing",
+        "pinned",
+        "failed",
+        "interrupted",
+      ]);
       if (!ok) {
         return { ok: false, summary: "That message can no longer be removed." };
       }
@@ -526,7 +534,15 @@ export function createTurnDispatcher(
       promote();
     },
     snapshot(threadId: string): QueueSnapshot {
-      const stale = store.markStaleBranches(Date.now());
+      const outgoingId =
+        slot?.threadId === threadId &&
+        slot.phase === "reserved" &&
+        slot.queueItemId
+          ? slot.queueItemId
+          : null;
+      const stale = outgoingId
+        ? store.markStaleBranches(Date.now(), outgoingId)
+        : store.markStaleBranches(Date.now());
       const next =
         !hold && !serviceHold && !slot ? store.nextQueuedHead() : null;
       if (stale) changed();
@@ -534,6 +550,7 @@ export function createTurnDispatcher(
         slot && slot.threadId !== threadId ? slot.threadId : null;
       return {
         items: store.visible(threadId),
+        outgoingId,
         hold,
         waitingForThreadId:
           reservedElsewhere ??

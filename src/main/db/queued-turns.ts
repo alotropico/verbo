@@ -21,8 +21,9 @@ export type QueuedTurnStore = {
   get(id: string): QueuedTurn | null;
   visible(threadId: string): QueuedTurn[];
   hasUnfinished(): boolean;
+  hasInterrupted(): boolean;
   nextQueuedHead(): QueuedTurn | null;
-  markStaleBranches(now: number): boolean;
+  markStaleBranches(now: number, keepId?: string): boolean;
   recoverInterrupted(now: number): number;
   markRunning(id: string, turnId: string, now: number): boolean;
   setStatus(
@@ -77,6 +78,13 @@ const COLUMNS = `id, thread_id, branch_anchor, source, text, attachment_refs_jso
   status, sequence, revision, edit_token, released, turn_id, created_at, updated_at`;
 
 const OPEN_STATUSES = `('queued', 'editing', 'running', 'awaiting_approval', 'failed', 'interrupted', 'pinned')`;
+const ACTIONABLE = new Set([
+  "queued",
+  "editing",
+  "pinned",
+  "failed",
+  "interrupted",
+]);
 
 function mapTurn(row: TurnRow): QueuedTurn {
   return {
@@ -103,6 +111,9 @@ function branchIntact(
   anchor: string | null,
 ): boolean {
   if (head === anchor) return true;
+  if (anchor !== null && !messages.some((row) => row.id === anchor)) {
+    return true;
+  }
   if (!head) return false;
   const parent = new Map(messages.map((row) => [row.id, row.parent_id]));
   const childCount = new Map<string | null, number>();
@@ -217,6 +228,15 @@ export function createQueuedTurnStore(database: DatabaseSync): QueuedTurnStore {
     hasUnfinished(): boolean {
       return openRows().length > 0;
     },
+    hasInterrupted(): boolean {
+      const row = database
+        .prepare(
+          `SELECT 1 AS present FROM queued_turns
+           WHERE status = 'interrupted' LIMIT 1`,
+        )
+        .get() as { present: number } | undefined;
+      return row !== undefined;
+    },
     nextQueuedHead(): QueuedTurn | null {
       const grouped = new Map<string, QueuedTurn[]>();
       for (const row of openRows()) {
@@ -248,7 +268,7 @@ export function createQueuedTurnStore(database: DatabaseSync): QueuedTurnStore {
       }
       return winner;
     },
-    markStaleBranches(now: number): boolean {
+    markStaleBranches(now: number, keepId?: string): boolean {
       const threadIds = database
         .prepare(
           `SELECT DISTINCT thread_id FROM queued_turns WHERE status = 'queued'`,
@@ -270,6 +290,7 @@ export function createQueuedTurnStore(database: DatabaseSync): QueuedTurnStore {
           .all(threadId) as TurnRow[];
         const queuedTurns = queued.map(mapTurn);
         for (const row of queuedTurns) {
+          if (row.id === keepId) continue;
           if (branchIntact(messages, head?.head_id ?? null, row.branchAnchor)) {
             continue;
           }
@@ -384,7 +405,7 @@ export function createQueuedTurnStore(database: DatabaseSync): QueuedTurnStore {
         .prepare(
           `UPDATE queued_turns
            SET status = 'editing', edit_token = ?, revision = revision + 1, updated_at = ?
-           WHERE id = ? AND status = 'queued' AND revision = ?`,
+           WHERE id = ? AND status IN ('queued', 'pinned', 'failed', 'interrupted') AND revision = ?`,
         )
         .run(token, now, id, revision);
       return result.changes === 1;
@@ -426,12 +447,10 @@ export function createQueuedTurnStore(database: DatabaseSync): QueuedTurnStore {
     reorder(id, direction, revision, now): boolean {
       const row = read(id);
       if (!row || row.revision !== revision) return false;
-      if (row.status !== "queued" && row.status !== "editing") return false;
+      if (!ACTIONABLE.has(row.status)) return false;
       const pending = openRows()
         .filter(
-          (item) =>
-            item.threadId === row.threadId &&
-            (item.status === "queued" || item.status === "editing"),
+          (item) => item.threadId === row.threadId && ACTIONABLE.has(item.status),
         )
         .sort((left, right) => left.sequence - right.sequence);
       const index = pending.findIndex((item) => item.id === id);

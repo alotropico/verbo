@@ -38,6 +38,7 @@ export type QueuedTurn = {
 
 export type QueueSnapshot = {
   items: QueuedTurn[];
+  outgoingId: string | null;
   hold: boolean;
   waitingForThreadId: string | null;
   serviceHold: string | null;
