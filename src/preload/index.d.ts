@@ -30,11 +30,24 @@ import type {
 import type { SettingsRecovery } from "../shared/settings-recovery";
 import type {
   QueueClaimResult,
+  QueueEditResult,
   QueueEnqueueResult,
   QueueMutationResult,
   QueueSnapshot,
   QueueSource,
 } from "../shared/turn-queue";
+
+type ServiceView = {
+  name: "ollama" | "voice";
+  state: "stopped" | "starting" | "ready" | "error";
+  owned: boolean;
+  reused: boolean;
+  identity: string | null;
+  pid: number | null;
+  error: string | null;
+  suppressed: boolean;
+  detail: string;
+};
 import type { VoiceDraftResult } from "../shared/voice-draft";
 import type { VoiceSettings } from "../shared/voice-settings";
 import type {
@@ -154,6 +167,7 @@ type VerboApi = {
     confirm: (input: {
       operationId: string;
       threadId: string;
+      decision: "approve" | "deny";
     }) => Promise<ActionResult | OperationReviewFailure>;
   };
   actions: {
@@ -211,7 +225,63 @@ type VerboApi = {
     clear: (threadId: string) => Promise<QueueMutationResult>;
     releaseHold: () => Promise<{ ok: true }>;
     release: (id: string) => Promise<{ ok: true }>;
+    beginEdit: (input: {
+      id: string;
+      threadId: string;
+      revision: number;
+      composerText: string;
+      composerRefs: AttachmentRef[];
+    }) => Promise<QueueEditResult>;
+    saveEdit: (input: {
+      id: string;
+      threadId: string;
+      revision: number;
+      token: string;
+      text: string;
+      attachmentRefs: AttachmentRef[];
+    }) => Promise<QueueEditResult>;
+    cancelEdit: (input: {
+      id: string;
+      threadId: string;
+      token: string;
+    }) => Promise<QueueEditResult>;
+    reorder: (input: {
+      id: string;
+      threadId: string;
+      revision: number;
+      direction: "up" | "down";
+    }) => Promise<QueueMutationResult>;
     subscribe: (listener: () => void) => () => void;
+  };
+  turns: {
+    cancel: () => Promise<{ ok: boolean }>;
+    snapshot: (threadId: string) => Promise<{
+      turnId: string;
+      threadId: string;
+      queueItemId: string | null;
+      userText: string;
+      events: unknown[];
+    } | null>;
+    onStarted: (
+      listener: (payload: {
+        threadId: string;
+        queueItemId: string;
+        turnId: string;
+        text?: string;
+        attachmentRefs?: AttachmentRef[];
+        event?: unknown;
+      }) => void,
+    ) => () => void;
+  };
+  services: {
+    snapshot: () => Promise<{ ollama: ServiceView; voice: ServiceView }>;
+    start: (name: "ollama" | "voice") => Promise<ServiceView>;
+    stop: (
+      name: "ollama" | "voice",
+    ) => Promise<
+      | { ok: true; service: ServiceView }
+      | { ok: false; summary: string; service: ServiceView }
+    >;
   };
   voice: {
     settings: () => Promise<VoiceSettings>;
@@ -228,6 +298,7 @@ type VerboApi = {
       threadId: string;
       text: string;
       branchAnchor: string | null;
+      captureMode?: "dictation" | "control";
     }) => Promise<VoiceDraftResult>;
     flush: (input: {
       threadId: string;

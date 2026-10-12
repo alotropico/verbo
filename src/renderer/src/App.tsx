@@ -4,9 +4,8 @@ import {
   ChatSelectionBar,
   ChatSelectionProvider,
 } from "@/components/ChatSelection";
-import { ContextMeters } from "@/components/ContextMeters";
-import { OllamaStatusBanner } from "@/components/OllamaStatusBanner";
-import { SettingsPanel } from "@/components/SettingsPanel";
+import { QueueSidebar } from "@/components/QueueSidebar";
+import { ServiceControls } from "@/components/ServiceControls";
 import { WindowControls } from "@/components/WindowControls";
 import { VerboRuntimeProvider } from "@/runtime/VerboRuntimeProvider";
 import { useAui, useAuiState, type AssistantState } from "@assistant-ui/react";
@@ -72,7 +71,6 @@ function VerboShell(): ReactElement {
 
   const toggleSidebar = isMobile ? toggleMobile : toggleDesktop;
   const showHeaderToggle = isMobile || !desktopOpened;
-  const sidebarHidden = isMobile ? !mobileOpened : !desktopOpened;
 
   return (
     <ChatSelectionProvider>
@@ -100,15 +98,15 @@ function VerboShell(): ReactElement {
               </ActionIcon>
             ) : null}
             <ShellTitle />
-            {sidebarHidden ? <ContextMeters compact /> : null}
-            <OllamaStatusBanner />
-            <SettingsPanel />
+            <ServiceControls />
+            <span className={styles.headerDivider} aria-hidden="true" />
             <WindowControls />
           </header>
           <div className={styles.main}>
             <ChatSelectionBar />
             <div className={styles.threadPane}>
               <Thread />
+              <QueueSidebar />
             </div>
           </div>
         </AppShell.Main>

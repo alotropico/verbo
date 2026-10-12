@@ -1,28 +1,26 @@
-.compact {
-  display: flex;
-  flex-direction: column;
-  font-size: rem(10px);
-  gap: rem(2px);
-  line-height: 1.3;
-}
-
 .high {
   color: var(--destructive);
 }
 
-.meters {
-  border-collapse: collapse;
-  font-size: rem(11px);
-  line-height: 1.35;
-  table-layout: fixed;
-  width: 100%;
+.icon {
+  block-size: rem(12px);
+  flex-shrink: 0;
+  inline-size: rem(12px);
 }
 
-.meters th,
-.meters td {
-  font-weight: inherit;
-  text-align: start;
-  width: 50%;
+.meter {
+  align-items: center;
+  display: inline-flex;
+  gap: rem(4px);
+}
+
+.meters {
+  align-items: center;
+  display: flex;
+  font-size: rem(10px);
+  gap: rem(12px);
+  line-height: 1;
+  padding-inline: rem(8px);
 }
 
 .ok {

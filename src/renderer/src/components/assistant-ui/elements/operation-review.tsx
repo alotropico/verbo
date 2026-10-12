@@ -102,24 +102,45 @@ export function OperationReviewCard({
       ) : null}
       {error ? <p className={styles.risk}>{error}</p> : null}
       {waiting && window.verbo?.operations ? (
-        <Button
-          disabled={busy}
-          onClick={() => {
-            if (!operationId || !threadId) return;
-            setBusy(true);
-            setError(null);
-            void window.verbo.operations
-              .confirm({ operationId, threadId })
-              .then((next) => {
-                if ("status" in next) setReceipt(next);
-                else setError(next.summary);
-              })
-              .catch(() => setError("Confirmation did not finish."))
-              .finally(() => setBusy(false));
-          }}
-        >
-          Confirm in dialog
-        </Button>
+        <div className={styles.actions}>
+          <Button
+            disabled={busy}
+            variant="default"
+            onClick={() => {
+              if (!operationId || !threadId) return;
+              setBusy(true);
+              setError(null);
+              void window.verbo.operations
+                .confirm({ operationId, threadId, decision: "deny" })
+                .then((next) => {
+                  if ("status" in next) setReceipt(next);
+                  else setError(next.summary);
+                })
+                .catch(() => setError("Confirmation did not finish."))
+                .finally(() => setBusy(false));
+            }}
+          >
+            Deny
+          </Button>
+          <Button
+            disabled={busy}
+            onClick={() => {
+              if (!operationId || !threadId) return;
+              setBusy(true);
+              setError(null);
+              void window.verbo.operations
+                .confirm({ operationId, threadId, decision: "approve" })
+                .then((next) => {
+                  if ("status" in next) setReceipt(next);
+                  else setError(next.summary);
+                })
+                .catch(() => setError("Confirmation did not finish."))
+                .finally(() => setBusy(false));
+            }}
+          >
+            Approve
+          </Button>
+        </div>
       ) : null}
       {waiting && !window.verbo?.operations ? (
         <p className={styles.summary}>Confirmation opens in the app window.</p>

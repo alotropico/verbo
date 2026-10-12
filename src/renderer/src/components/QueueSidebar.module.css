@@ -1,0 +1,72 @@
+.sidebar {
+  background: transparent;
+  border-inline-start: rem(1px) dotted var(--border);
+  color: var(--muted-foreground);
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+  gap: rem(8px);
+  min-height: 0;
+  overflow: auto;
+  padding: rem(12px);
+  width: rem(240px);
+}
+
+.rail {
+  align-items: center;
+  display: flex;
+  flex-direction: column;
+  gap: rem(8px);
+  padding-block: rem(12px);
+  width: rem(28px);
+}
+
+.marker {
+  background: var(--muted-foreground);
+  block-size: rem(8px);
+  border: 0;
+  border-radius: 999px;
+  inline-size: rem(8px);
+  padding: 0;
+}
+
+.markerEditing {
+  background: var(--primary);
+}
+
+.row {
+  display: grid;
+  gap: rem(4px);
+}
+
+.preview {
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  color: var(--foreground);
+  display: -webkit-box;
+  font-size: var(--mantine-font-size-xs);
+  line-clamp: 2;
+  overflow: hidden;
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: rem(4px);
+}
+
+.drawer {
+  background: color-mix(in oklab, var(--background) 92%, transparent);
+  border-inline-start: rem(1px) dotted var(--border);
+  inset-block: 0;
+  inset-inline-end: 0;
+  position: absolute;
+  width: min(rem(280px), 80vw);
+  z-index: 5;
+}
+
+@media (max-width: 47.99em) {
+  .sidebar {
+    width: min(rem(280px), 80vw);
+  }
+}

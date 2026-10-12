@@ -2,10 +2,31 @@ import { randomUUID } from "node:crypto";
 import { app, ipcMain, type BrowserWindow, type IpcMainEvent } from "electron";
 import { join } from "node:path";
 import { z } from "zod";
+import { FILE_MUTATION_LIMITS } from "../../shared/file-mutation";
+import { resolveApproval, waitForApproval } from "../runtime/approval-wait";
+import {
+  closeLiveTurn,
+  liveById,
+  liveEvents,
+  liveTurnForThread,
+  noteLiveOperation,
+  openLiveTurn,
+  publishLive,
+  requestTurnCancel,
+  setTurnCancelHandler,
+  subscribeLive,
+} from "../runtime/turn-session";
+import { abandonPendingPlan, decideOperation } from "../files/mutation-plan";
+import { operationSession } from "../files/mutation-ports";
+import { createScopeStore } from "../db/scopes";
+import { appendStoredMessage } from "../db/history";
+import { loadHistory } from "../services/conversations";
 import {
   ASSISTANT_STREAM_CHANNEL,
   type ChatEvent,
+  type ChatMessage,
 } from "../../shared/chat-ipc";
+import { IPC_CHANNELS } from "../../shared/ipc-channels";
 import { chatSettingsSchema } from "../../shared/storage-ipc";
 import { routeUtterance } from "../../shared/local-commands";
 import { persistedThreadIdSchema } from "../../shared/thread-identity";
@@ -27,6 +48,12 @@ import { refreshModelVision } from "../runtime/model-vision";
 import { toOllamaMessages, withUserImages } from "../runtime/ollama-wire";
 import { runTurn, type TurnUpdate } from "../runtime/turn";
 import { createAssetStore } from "../files/asset-store";
+import type { QueuedTurn } from "../../shared/turn-queue";
+import {
+  emptyChatProjection,
+  projectChatEvent,
+  visibleProjection,
+} from "../../shared/chat-projection";
 
 const chatMessageSchema = z
   .object({
@@ -50,7 +77,272 @@ const chatRequestSchema = z
   })
   .strict();
 
+function messageText(content: unknown): string {
+  if (typeof content === "string") return content;
+  if (!Array.isArray(content)) return "";
+  return content
+    .flatMap((part) => {
+      if (!part || typeof part !== "object" || !("text" in part)) return [];
+      const text = part.text;
+      return typeof text === "string" ? [text] : [];
+    })
+    .join("\n");
+}
+
+async function startPromotedTurn(
+  mainWindow: BrowserWindow,
+  item: QueuedTurn,
+): Promise<void> {
+  const database = getDatabase();
+  const dispatcher = turnDispatcher();
+  const turnId = randomUUID();
+  const assistantMessageId = randomUUID();
+  const begun = dispatcher.begin({
+    queueItemId: item.id,
+    threadId: item.threadId,
+    turnId,
+  });
+  if (!begun.ok || begun.attached) return;
+  const anchor = item.branchAnchor ?? undefined;
+  appendStoredMessage(database, item.threadId, anchor, {
+    id: item.id,
+    role: "user",
+    content: [{ type: "text", text: item.text }],
+  });
+  const plain: ChatMessage[] = loadHistory(item.threadId).messages.flatMap(
+    (entry) => {
+      const role =
+        entry.message.role === "assistant"
+          ? ("assistant" as const)
+          : entry.message.role === "user"
+            ? ("user" as const)
+            : null;
+      if (!role || entry.message.id === item.id) return [];
+      return [
+        {
+          id: entry.message.id,
+          role,
+          content: messageText(entry.message.content),
+        },
+      ];
+    },
+  );
+  const history = expandHistoryWithTurnEvents(database, plain);
+  const settings = loadSettings();
+  const abortController = new AbortController();
+  openLiveTurn({
+    turnId,
+    threadId: item.threadId,
+    queueItemId: item.id,
+    assistantMessageId,
+    userText: item.text,
+    operationId: null,
+    abort: abortController,
+  });
+  if (!mainWindow.isDestroyed()) {
+    mainWindow.webContents.send(IPC_CHANNELS.turnStarted, {
+      threadId: item.threadId,
+      queueItemId: item.id,
+      turnId,
+      text: item.text,
+      attachmentRefs: item.attachmentRefs,
+    });
+  }
+  let projection = emptyChatProjection();
+  const emit = (message: ChatEvent): void => {
+    projection = projectChatEvent(projection, message);
+    publishLive(turnId, message);
+    if (!mainWindow.isDestroyed()) {
+      mainWindow.webContents.send(IPC_CHANNELS.turnStarted, {
+        threadId: item.threadId,
+        queueItemId: item.id,
+        turnId,
+        event: message,
+      });
+    }
+  };
+  let seq = 0;
+  const persist = (kind: TurnEventKind, payload: unknown): void => {
+    seq += 1;
+    recordTurnEvent(database, {
+      id: `${turnId}:${seq}`,
+      threadId: item.threadId,
+      messageId: assistantMessageId,
+      turnId,
+      seq,
+      kind,
+      payload,
+    });
+  };
+  const onUpdate = (update: TurnUpdate): void => {
+    if (update.type === "text") emit({ type: "delta", text: update.text });
+    if (update.type === "approval") {
+      dispatcher.awaitApproval(turnId);
+      if (update.result.operationId) {
+        noteLiveOperation(turnId, update.result.operationId);
+      }
+      emit({
+        type: "approval",
+        toolCallId: update.call.id,
+        name: update.call.name,
+        args: update.call.arguments,
+        result: update.result,
+      });
+    }
+    if (update.type === "assistant_tools") {
+      persist("assistant_tools", {
+        content: update.content,
+        toolCalls: update.toolCalls,
+      });
+      emit({
+        type: "tools",
+        content: update.content,
+        calls: update.toolCalls,
+      });
+    }
+    if (update.type === "tool_result") {
+      persist("tool_result", {
+        toolName: update.toolName,
+        content: update.content,
+      });
+      emit({
+        type: "tool_result",
+        toolCallId: update.call.id,
+        name: update.call.name,
+        args: update.call.arguments,
+        result: update.result,
+      });
+    }
+    if (update.type === "stop") {
+      if (update.stop === "paused") dispatcher.awaitApproval(turnId);
+      else if (update.stop === "completed") dispatcher.complete(turnId);
+      else if (update.stop === "cancelled") dispatcher.cancelIfRunning(turnId);
+      else dispatcher.fail(turnId);
+      if (update.stop === "completed" && update.content) {
+        persist("assistant_text", { content: update.content });
+      }
+      emit({
+        type: "turn_status",
+        stop: update.stop,
+        ...(update.summary ? { summary: update.summary } : {}),
+      });
+    }
+  };
+  const assets = createAssetStore(
+    database,
+    join(app.getPath("userData"), "attachments"),
+  );
+  const attachmentIds = item.attachmentRefs.map((ref) => ref.id);
+  try {
+    const vision = await refreshModelVision(settings.model);
+    if (abortController.signal.aborted) return;
+    const images = vision
+      ? assets.imagePayloads(item.threadId, attachmentIds)
+      : [];
+    const excerpt = assets.excerpt(item.threadId, attachmentIds);
+    await runTurn({
+      userText: excerpt ? `${item.text}\n\n${excerpt}` : item.text,
+      history,
+      numCtx: settings.numCtx,
+      memory: createMemoryStore(database).snapshot(item.threadId),
+      registry: registryForDatabase(database),
+      context: { actor: "model", threadId: item.threadId, turnId },
+      gate: ollamaRequestGate,
+      signal: abortController.signal,
+      onUpdate,
+      awaitDecision: async (result) => {
+        const operationId = result.operationId;
+        if (!operationId) return result;
+        const pending = waitForApproval(
+          operationId,
+          turnId,
+          abortController.signal,
+        );
+        const timer = setTimeout(() => {
+          resolveApproval(
+            operationId,
+            decideOperation({
+              database: getDatabase(),
+              scopes: createScopeStore(getDatabase()),
+              operationId,
+              threadId: item.threadId,
+              sessionId: operationSession(),
+              decision: "deny",
+            }),
+          );
+        }, FILE_MUTATION_LIMITS.planTtlMs + 50);
+        try {
+          const final = await pending;
+          dispatcher.settleApproval(turnId);
+          return final;
+        } finally {
+          clearTimeout(timer);
+        }
+      },
+      model: (messages, hooks) =>
+        streamOllamaTurn(
+          withUserImages(toOllamaMessages(messages), images),
+          settings,
+          hooks.signal ?? abortController.signal,
+          hooks.onText,
+        ),
+    });
+    appendStoredMessage(database, item.threadId, item.id, {
+      id: assistantMessageId,
+      role: "assistant",
+      content: visibleProjection(projection),
+    });
+    emit({ type: "done" });
+  } catch (error) {
+    if (!abortController.signal.aborted) {
+      dispatcher.fail(turnId);
+      emit({
+        type: "error",
+        message: error instanceof Error ? error.message : "Stream failed",
+      });
+    }
+  } finally {
+    closeLiveTurn(turnId);
+  }
+}
+
 export function registerAssistantStreamIpc(mainWindow: BrowserWindow): void {
+  const dispatcher = turnDispatcher();
+  dispatcher.setOnPromoted((item) => {
+    void startPromotedTurn(mainWindow, item);
+  });
+  setTurnCancelHandler((turnId) => {
+    const live = liveById(turnId);
+    if (live?.operationId) abandonPendingPlan(getDatabase(), live.operationId);
+    turnDispatcher().cancelIfRunning(turnId);
+  });
+  ipcMain.handle(IPC_CHANNELS.turnCancel, (event) => {
+    if (
+      event.sender !== mainWindow.webContents ||
+      event.senderFrame !== mainWindow.webContents.mainFrame
+    ) {
+      throw new Error("Untrusted IPC sender");
+    }
+    return { ok: requestTurnCancel() };
+  });
+  ipcMain.handle(IPC_CHANNELS.turnSnapshot, (event, threadId: unknown) => {
+    if (
+      event.sender !== mainWindow.webContents ||
+      event.senderFrame !== mainWindow.webContents.mainFrame
+    ) {
+      throw new Error("Untrusted IPC sender");
+    }
+    if (typeof threadId !== "string") return null;
+    const live = liveTurnForThread(threadId);
+    if (!live) return null;
+    return {
+      turnId: live.turnId,
+      threadId: live.threadId,
+      queueItemId: live.queueItemId,
+      userText: live.userText,
+      events: liveEvents(live.turnId),
+    };
+  });
   const handleStream = (event: IpcMainEvent, request: unknown): void => {
     const [port] = event.ports;
     if (!port) return;
@@ -139,16 +431,42 @@ export function registerAssistantStreamIpc(mainWindow: BrowserWindow): void {
       port.close();
       return;
     }
+    if (begun.attached && begun.turnId) {
+      const attachedId = begun.turnId;
+      for (const prior of liveEvents(attachedId)) send(prior);
+      const stopLive = subscribeLive(attachedId, (event) => {
+        try {
+          send(event);
+        } catch {
+          stopLive();
+        }
+      });
+      port.once("close", () => stopLive());
+      return;
+    }
     const memory = createMemoryStore(database).snapshot(chatRequest.threadId);
     const history = expandHistoryWithTurnEvents(
       getDatabase(),
       chatRequest.messages.slice(0, -1),
     );
     const abortController = new AbortController();
-    port.once("close", () => {
-      abortController.abort();
-      dispatcher.cancelIfRunning(turnId);
+    openLiveTurn({
+      turnId,
+      threadId: chatRequest.threadId,
+      queueItemId: chatRequest.queueItemId ?? null,
+      assistantMessageId: chatRequest.assistantMessageId,
+      userText: latest.content,
+      operationId: null,
+      abort: abortController,
     });
+    const emit = (message: ChatEvent): void => {
+      publishLive(turnId, message);
+      try {
+        send(message);
+      } catch {
+        // The renderer port can close without cancelling the turn.
+      }
+    };
     let seq = 0;
     const persist = (kind: TurnEventKind, payload: unknown): void => {
       seq += 1;
@@ -165,15 +483,28 @@ export function registerAssistantStreamIpc(mainWindow: BrowserWindow): void {
 
     const onUpdate = (update: TurnUpdate): void => {
       if (update.type === "trimmed" && update.removedCount > 0) {
-        send({ type: "context_trimmed", removedCount: update.removedCount });
+        emit({ type: "context_trimmed", removedCount: update.removedCount });
       }
-      if (update.type === "text") send({ type: "delta", text: update.text });
+      if (update.type === "text") emit({ type: "delta", text: update.text });
+      if (update.type === "approval") {
+        dispatcher.awaitApproval(turnId);
+        if (update.result.operationId) {
+          noteLiveOperation(turnId, update.result.operationId);
+        }
+        emit({
+          type: "approval",
+          toolCallId: update.call.id,
+          name: update.call.name,
+          args: update.call.arguments,
+          result: update.result,
+        });
+      }
       if (update.type === "assistant_tools") {
         persist("assistant_tools", {
           content: update.content,
           toolCalls: update.toolCalls,
         });
-        send({
+        emit({
           type: "tools",
           content: update.content,
           calls: update.toolCalls,
@@ -184,7 +515,7 @@ export function registerAssistantStreamIpc(mainWindow: BrowserWindow): void {
           toolName: update.toolName,
           content: update.content,
         });
-        send({
+        emit({
           type: "tool_result",
           toolCallId: update.call.id,
           name: update.call.name,
@@ -201,7 +532,7 @@ export function registerAssistantStreamIpc(mainWindow: BrowserWindow): void {
         if (update.stop === "completed" && update.content) {
           persist("assistant_text", { content: update.content });
         }
-        send({
+        emit({
           type: "turn_status",
           stop: update.stop,
           ...(update.summary ? { summary: update.summary } : {}),
@@ -238,6 +569,33 @@ export function registerAssistantStreamIpc(mainWindow: BrowserWindow): void {
         gate: ollamaRequestGate,
         signal: abortController.signal,
         onUpdate,
+        awaitDecision: async (result) => {
+          const operationId = result.operationId;
+          if (!operationId) return result;
+          const pending = waitForApproval(
+            operationId,
+            turnId,
+            abortController.signal,
+          );
+          const timer = setTimeout(() => {
+            const expired = decideOperation({
+              database: getDatabase(),
+              scopes: createScopeStore(getDatabase()),
+              operationId,
+              threadId: chatRequest.threadId,
+              sessionId: operationSession(),
+              decision: "deny",
+            });
+            resolveApproval(operationId, expired);
+          }, FILE_MUTATION_LIMITS.planTtlMs + 50);
+          try {
+            const final = await pending;
+            dispatcher.settleApproval(turnId);
+            return final;
+          } finally {
+            clearTimeout(timer);
+          }
+        },
         model: (messages, hooks) =>
           streamOllamaTurn(
             withUserImages(toOllamaMessages(messages), images),
@@ -247,17 +605,21 @@ export function registerAssistantStreamIpc(mainWindow: BrowserWindow): void {
           ),
       })
         .then(() => {
-          if (abortController.signal.aborted) return;
-          send({ type: "done" });
+          emit({ type: "done" });
+          closeLiveTurn(turnId);
           port.close();
         })
         .catch((error: unknown) => {
-          if (abortController.signal.aborted) return;
-          dispatcher.fail(turnId);
-          send({
-            type: "error",
-            message: error instanceof Error ? error.message : "Stream failed",
-          });
+          if (!abortController.signal.aborted) {
+            dispatcher.fail(turnId);
+            emit({
+              type: "error",
+              message: error instanceof Error ? error.message : "Stream failed",
+            });
+          } else {
+            emit({ type: "done" });
+          }
+          closeLiveTurn(turnId);
           port.close();
         });
     })();

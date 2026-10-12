@@ -6,6 +6,7 @@ import {
   type ContextMeters as MeterSnapshot,
 } from "@shared/memory";
 import { isPersistedThreadId } from "@shared/thread-identity";
+import { BrainIcon, GaugeIcon } from "lucide-react";
 import { useEffect, useState, type ReactElement } from "react";
 import styles from "./ContextMeters.module.css";
 
@@ -24,11 +25,7 @@ function levelClass(used: number, total: number): string {
   return styles.ok;
 }
 
-export function ContextMeters({
-  compact = false,
-}: {
-  compact?: boolean;
-}): ReactElement {
+export function ContextMeters(): ReactElement {
   const threadId = useAuiState((state) => state.threads.mainThreadId);
   const [meters, setMeters] = useState<MeterSnapshot>(EMPTY);
 
@@ -69,66 +66,31 @@ export function ContextMeters({
   const memoryLabel = `Always-on global memory, ${memoryPercent}% of the budget. Optional memories stay out until retrieved. ${calibration}`;
   const contextLabel = `Estimated input for the next request, ${contextPercent}% of the configured window. Excludes the message being typed. ${calibration}`;
 
-  if (compact) {
-    return (
-      <div className={styles.compact}>
-        <Tooltip label={memoryLabel} multiline w={240}>
-          <span
-            className={levelClass(meters.memoryTokens, meters.memoryBudget)}
-          >
-            Memory {meters.memoryTokens} / {meters.memoryBudget}
-          </span>
-        </Tooltip>
-        <Tooltip label={contextLabel} multiline w={240}>
-          <span
-            className={levelClass(meters.contextTokens, meters.contextWindow)}
-          >
-            Context {formatEstimatedTokens(meters.contextTokens)} /{" "}
-            {formatEstimatedTokens(meters.contextWindow)}
-          </span>
-        </Tooltip>
-      </div>
-    );
-  }
-
   return (
-    <table className={styles.meters}>
-      <tbody>
-        <tr>
-          <th scope="col">
-            <Tooltip label={memoryLabel} multiline w={240}>
-              <span
-                className={levelClass(meters.memoryTokens, meters.memoryBudget)}
-              >
-                Memory
-              </span>
-            </Tooltip>
-          </th>
-          <th scope="col">
-            <Tooltip label={contextLabel} multiline w={240}>
-              <span
-                className={levelClass(
-                  meters.contextTokens,
-                  meters.contextWindow,
-                )}
-              >
-                Context
-              </span>
-            </Tooltip>
-          </th>
-        </tr>
-        <tr>
-          <td className={levelClass(meters.memoryTokens, meters.memoryBudget)}>
+    <div className={styles.meters}>
+      <Tooltip label={memoryLabel} multiline w={240}>
+        <span
+          aria-label={`Memory ${meters.memoryTokens} / ${meters.memoryBudget}`}
+          className={`${styles.meter} ${levelClass(meters.memoryTokens, meters.memoryBudget)}`}
+        >
+          <BrainIcon aria-hidden="true" className={styles.icon} />
+          <span>
             {meters.memoryTokens} / {meters.memoryBudget}
-          </td>
-          <td
-            className={levelClass(meters.contextTokens, meters.contextWindow)}
-          >
+          </span>
+        </span>
+      </Tooltip>
+      <Tooltip label={contextLabel} multiline w={240}>
+        <span
+          aria-label={`Context ${formatEstimatedTokens(meters.contextTokens)} / ${formatEstimatedTokens(meters.contextWindow)}`}
+          className={`${styles.meter} ${levelClass(meters.contextTokens, meters.contextWindow)}`}
+        >
+          <GaugeIcon aria-hidden="true" className={styles.icon} />
+          <span>
             {formatEstimatedTokens(meters.contextTokens)} /{" "}
             {formatEstimatedTokens(meters.contextWindow)}
-          </td>
-        </tr>
-      </tbody>
-    </table>
+          </span>
+        </span>
+      </Tooltip>
+    </div>
   );
 }

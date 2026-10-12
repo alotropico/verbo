@@ -87,7 +87,7 @@ export function projectChatEvent(
       ],
     };
   }
-  if (event.type === "tool_result") {
+  if (event.type === "tool_result" || event.type === "approval") {
     const parts = state.parts.map((part) =>
       part.type === "tool-call" && part.toolCallId === event.toolCallId
         ? toolPart(

@@ -44,6 +44,13 @@ export type ChatEvent =
       args: unknown;
       result: ActionResult;
     }
+  | {
+      type: "approval";
+      toolCallId: string;
+      name: string;
+      args: unknown;
+      result: ActionResult;
+    }
   | { type: "turn_status"; stop: ChatTurnStop; summary?: string }
   | { type: "local_command"; newThread?: boolean; openMemory?: boolean }
   | { type: "done" }

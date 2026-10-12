@@ -308,30 +308,56 @@ export function createVoiceSupervisor(options = {}) {
     };
   }
 
-  function stopOwned() {
+  function stopSpawned() {
     if (owned && !owned.killed && owned.exitCode == null) {
       owned.kill();
       owned.killed = true;
     }
     owned = null;
+  }
+
+  function stopOwned() {
+    stopSpawned();
+  }
+
+  async function stopVerified() {
+    if (owned && !owned.killed && owned.exitCode == null) {
+      stopSpawned();
+      return { ok: true, summary: "Stopped the voice service Verbo started." };
+    }
     if (adoptedPid == null || adoptedPid === process.pid) {
+      return {
+        ok: false,
+        summary:
+          "Voice is running outside this app and its process could not be verified. It was left running.",
+      };
+    }
+    const current = await pidLookup(Number(port));
+    if (current !== adoptedPid) {
       adoptedPid = null;
-      return;
+      return {
+        ok: false,
+        summary:
+          "The voice process changed since Verbo connected. It was left running.",
+      };
     }
     const pid = adoptedPid;
     adoptedPid = null;
     try {
       killPid(pid);
     } catch (error) {
-      log(
-        error instanceof Error
-          ? error.message
-          : "Voice service could not be stopped.",
-      );
+      return {
+        ok: false,
+        summary:
+          error instanceof Error
+            ? error.message
+            : "Voice service could not be stopped.",
+      };
     }
+    return { ok: true, summary: "Stopped the verified voice service." };
   }
 
-  return { ensure, stopOwned, baseUrl };
+  return { ensure, stopOwned, stopVerified, baseUrl };
 }
 
 function defaultKillPid(pid) {

@@ -9,12 +9,17 @@ import {
   isPersistedThreadId,
   savedRemoteThreadId,
 } from "@shared/thread-identity";
-import { useRef, type FormEvent, type KeyboardEvent } from "react";
+import { useEffect, useRef, type FormEvent, type KeyboardEvent } from "react";
 import {
   appendUserTurn,
   storeAttachmentFile,
 } from "@/runtime/attachment-message";
 import { publishCommandStatus } from "@/runtime/command-status";
+import {
+  getQueueEdit,
+  setQueueEdit,
+  type QueueEditLock,
+} from "@/runtime/queue-edit";
 import { holdQueueLease, takeQueueLease } from "@/runtime/queue-lease";
 
 export function useLocalCommandGuard(): {
@@ -31,6 +36,17 @@ export function useLocalCommandGuard(): {
     (state) => state.composer.attachments.length,
   );
   const sending = useRef(false);
+  useEffect(() => {
+    const onEdit = (event: Event): void => {
+      const detail = (
+        event as CustomEvent<{ text: string; lock: QueueEditLock | null }>
+      ).detail;
+      setQueueEdit(detail.lock);
+      input.setText(detail.text);
+    };
+    window.addEventListener("verbo:queue-edit", onEdit);
+    return () => window.removeEventListener("verbo:queue-edit", onEdit);
+  }, [input]);
 
   const runIfCommand = (): boolean => {
     if (!parseLocalCommand(input.value).handled) return false;
@@ -100,6 +116,25 @@ export function useLocalCommandGuard(): {
           }
           stored.push(savedFile.attachment);
         }
+        const editing = getQueueEdit();
+        if (editing) {
+          const saved = await window.verbo.queue.saveEdit({
+            id: editing.id,
+            threadId: editing.threadId,
+            revision: editing.revision,
+            token: editing.token,
+            text: text || stored.map((ref) => ref.name).join(", "),
+            attachmentRefs: stored.length > 0 ? stored : editing.attachmentRefs,
+          });
+          if (!saved.ok) {
+            publishCommandStatus({ status: "error", summary: saved.summary });
+            return;
+          }
+          setQueueEdit(null);
+          input.setText(saved.composerText);
+          await aui.composer().clearAttachments();
+          return;
+        }
         const queuedText = text || stored.map((ref) => ref.name).join(", ");
         const anchor = aui.thread().getState().messages.at(-1)?.id ?? null;
         const saved = await window.verbo.queue.enqueue({
@@ -152,7 +187,7 @@ export function useLocalCommandGuard(): {
     onKeyDown: (event) => {
       if (event.key !== "Enter" || event.shiftKey) return;
       if (event.nativeEvent.isComposing) return;
-      if (!isRunning) return;
+      if (!isRunning && !getQueueEdit()) return;
       event.preventDefault();
       submitText();
     },

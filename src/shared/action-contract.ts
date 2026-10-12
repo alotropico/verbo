@@ -44,11 +44,17 @@ export const actionResultSchema = z
   })
   .strict();
 
-/** Review names a stored plan. The human decision is recorded by main, not by this payload. */
+/** Review names a stored plan. Confirm carries the card's approve or deny choice. */
 export const approvalReviewSchema = z
   .object({
     operationId: z.string().min(1).max(128),
     threadId: z.string().min(1).max(128),
+  })
+  .strict();
+
+export const approvalDecisionSchema = approvalReviewSchema
+  .extend({
+    decision: z.enum(["approve", "deny"]),
   })
   .strict();
 

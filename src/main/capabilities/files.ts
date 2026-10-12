@@ -114,7 +114,7 @@ export function filesCapabilities(
     {
       id: "files.list",
       description:
-        "List one folder. depth 0 is immediate children. Folder size is null. pageSize defaults to 20. Pass cursor for the next page. Hidden entries, .git, and node_modules are skipped unless includeHidden is set; .git and node_modules are still not entered.",
+        "List one folder. depth 0 is immediate children. entryType directories counts only folders. Folder size is null. pageSize defaults to 20. Pass cursor for the next page. Relay counts.directories and counts.files from the result, including exactTotal null when the scan is incomplete. Hidden entries, .git, and node_modules are skipped unless includeHidden is set; .git and node_modules are still not entered. When scan.complete is true, scan.omitted still names hidden and skipped-descent entries left out of an exact total.",
       kind: "read",
       approval: "none",
       args: filesListArgsSchema,
@@ -162,7 +162,7 @@ export function filesCapabilities(
     {
       id: "files.summary",
       description:
-        "Counts, extensions, and largest or newest files under one folder. totalBytes is present only when the scan finishes. Folder sizes stay unknown.",
+        "Counts, extensions, and largest or newest files under one folder. entryType directories or files limits the count. depth 0 is direct children. Relay counts.files and counts.directories, and say exactTotal is unknown when it is null. totalBytes is present only when the scan finishes. Folder sizes stay unknown. Disclose scan omissions when a total is exact.",
       kind: "read",
       approval: "none",
       args: filesSummaryArgsSchema,

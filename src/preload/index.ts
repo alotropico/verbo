@@ -281,6 +281,29 @@ const verbo = {
       ipcRenderer.invoke(IPC_CHANNELS.queueReleaseHold),
     release: (id: string): Promise<{ ok: true }> =>
       ipcRenderer.invoke(IPC_CHANNELS.queueRelease, { id }),
+    beginEdit: (input: {
+      id: string;
+      threadId: string;
+      revision: number;
+      composerText: string;
+      composerRefs: AttachmentRef[];
+    }) => ipcRenderer.invoke(IPC_CHANNELS.queueEditBegin, input),
+    saveEdit: (input: {
+      id: string;
+      threadId: string;
+      revision: number;
+      token: string;
+      text: string;
+      attachmentRefs: AttachmentRef[];
+    }) => ipcRenderer.invoke(IPC_CHANNELS.queueEditSave, input),
+    cancelEdit: (input: { id: string; threadId: string; token: string }) =>
+      ipcRenderer.invoke(IPC_CHANNELS.queueEditCancel, input),
+    reorder: (input: {
+      id: string;
+      threadId: string;
+      revision: number;
+      direction: "up" | "down";
+    }) => ipcRenderer.invoke(IPC_CHANNELS.queueReorder, input),
     subscribe(listener: () => void): () => void {
       const wrapped = (): void => listener();
       ipcRenderer.on(IPC_CHANNELS.queueChanged, wrapped);
@@ -288,6 +311,45 @@ const verbo = {
         ipcRenderer.removeListener(IPC_CHANNELS.queueChanged, wrapped);
       };
     },
+  },
+  turns: {
+    cancel: (): Promise<{ ok: boolean }> =>
+      ipcRenderer.invoke(IPC_CHANNELS.turnCancel),
+    snapshot: (threadId: string) =>
+      ipcRenderer.invoke(IPC_CHANNELS.turnSnapshot, threadId),
+    onStarted(
+      listener: (payload: {
+        threadId: string;
+        queueItemId: string;
+        turnId: string;
+        text?: string;
+        attachmentRefs?: AttachmentRef[];
+        event?: unknown;
+      }) => void,
+    ): () => void {
+      const wrapped = (
+        _event: unknown,
+        payload: {
+          threadId: string;
+          queueItemId: string;
+          turnId: string;
+          text?: string;
+          attachmentRefs?: AttachmentRef[];
+          event?: unknown;
+        },
+      ): void => listener(payload);
+      ipcRenderer.on(IPC_CHANNELS.turnStarted, wrapped);
+      return () => {
+        ipcRenderer.removeListener(IPC_CHANNELS.turnStarted, wrapped);
+      };
+    },
+  },
+  services: {
+    snapshot: () => ipcRenderer.invoke(IPC_CHANNELS.servicesSnapshot),
+    start: (name: "ollama" | "voice") =>
+      ipcRenderer.invoke(IPC_CHANNELS.servicesStart, { name }),
+    stop: (name: "ollama" | "voice") =>
+      ipcRenderer.invoke(IPC_CHANNELS.servicesStop, { name }),
   },
   voice: {
     settings: (): Promise<VoiceSettings> =>
@@ -311,6 +373,7 @@ const verbo = {
       threadId: string;
       text: string;
       branchAnchor: string | null;
+      captureMode?: "dictation" | "control";
     }): Promise<VoiceDraftResult> =>
       ipcRenderer.invoke(IPC_CHANNELS.voiceDraftCommit, input),
     flush: (input: {

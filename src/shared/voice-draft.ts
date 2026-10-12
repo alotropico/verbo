@@ -15,6 +15,14 @@ export type VoiceDraftView = {
 
 export type VoiceDraftResult =
   | { ok: true; kind: "command"; name: "new" }
+  | { ok: true; kind: "control"; name: "stop" | "cancel" }
+  | { ok: true; kind: "ignored" }
+  | {
+      ok: true;
+      kind: "composer";
+      text: string;
+      summary: string;
+    }
   | { ok: true; kind: "draft"; draft: VoiceDraftView }
   | { ok: true; kind: "idle" }
   | { ok: true; kind: "submitted"; item: QueuedTurn; start: boolean }
@@ -45,6 +53,7 @@ export const voiceDraftSendSchema = z
 export const voiceDraftCommitSchema = voiceDraftSendSchema
   .extend({
     text: z.string().trim().min(1).max(MAX_VOICE_SEGMENT_CHARS),
+    captureMode: z.enum(["dictation", "control"]).default("dictation"),
   })
   .strict();
 

@@ -2,8 +2,33 @@ import type {
   RemoteThreadListAdapter,
   ThreadMessage,
 } from "@assistant-ui/react";
+import type { RemoteThreadMetadata as StoredThread } from "@shared/storage-ipc";
 import { useThreadAdapters } from "./thread-adapters";
 import { ThreadAdaptersProvider } from "./ThreadAdaptersProvider";
+
+function toRemoteThread(thread: StoredThread): {
+  custom?: { messageCount: number };
+  externalId?: string;
+  lastMessageAt?: Date;
+  remoteId: string;
+  status: "regular" | "archived";
+  title?: string;
+} {
+  return {
+    remoteId: thread.remoteId,
+    status: thread.status,
+    ...(thread.externalId === undefined
+      ? {}
+      : { externalId: thread.externalId }),
+    ...(thread.title === undefined ? {} : { title: thread.title }),
+    ...(thread.lastMessageAt === undefined
+      ? {}
+      : { lastMessageAt: new Date(thread.lastMessageAt) }),
+    ...(thread.messageCount === undefined
+      ? {}
+      : { custom: { messageCount: thread.messageCount } }),
+  };
+}
 
 function messageText(message: ThreadMessage): string {
   return message.content
@@ -34,7 +59,7 @@ function titleAssistantStream(title: string): never {
 export const verboThreadListAdapter: RemoteThreadListAdapter = {
   async list() {
     const { threads } = await window.verbo.storage.list();
-    return { threads };
+    return { threads: threads.map(toRemoteThread) };
   },
   async initialize(localId) {
     return window.verbo.storage.initialize(localId);
@@ -52,7 +77,7 @@ export const verboThreadListAdapter: RemoteThreadListAdapter = {
     await window.verbo.storage.delete(remoteId);
   },
   async fetch(remoteId) {
-    return window.verbo.storage.fetch(remoteId);
+    return toRemoteThread(await window.verbo.storage.fetch(remoteId));
   },
   async generateTitle(remoteId, messages) {
     const snippets = messages

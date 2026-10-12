@@ -73,7 +73,7 @@ describe("voice supervisor", () => {
     );
   });
 
-  it("adopts a compatible service and stops that process on shutdown", async () => {
+  it("adopts a compatible service and leaves it running on app shutdown", async () => {
     const killed = [];
     let spawned = 0;
     const voice = createVoiceSupervisor({
@@ -94,8 +94,10 @@ describe("voice supervisor", () => {
     expect(state.mode).toBe("adopted");
     expect(spawned).toBe(0);
     voice.stopOwned();
-    voice.stopOwned();
+    expect(killed).toEqual([]);
+    expect(await voice.stopVerified()).toMatchObject({ ok: true });
     expect(killed).toEqual([4242]);
+    expect((await voice.stopVerified()).ok).toBe(false);
   });
 
   it("leaves a compatible service running when its process id is unknown", async () => {
@@ -190,24 +192,23 @@ describe("voice supervisor", () => {
     expect(child.killed).toBe(true);
   });
 
-  it("still boots typed chat when voice is unavailable", async () => {
+  it("boots the app without starting voice or Ollama", async () => {
     let dev = 0;
-    const state = await bootDev({
-      ensureOllama: async () => {},
-      verifyModel: async () => {},
-      ensureVoice: async () => ({
-        mode: "unavailable",
-        detail:
-          "Voice service Python is not installed. Typed chat still works.",
-        child: null,
-      }),
+    let voice = 0;
+    await bootDev({
+      ensureOllama: async () => {
+        voice += 1;
+      },
+      ensureVoice: async () => {
+        voice += 1;
+      },
       runDev: () => {
         dev += 1;
       },
       log: () => {},
     });
-    expect(state.mode).toBe("unavailable");
     expect(dev).toBe(1);
+    expect(voice).toBe(0);
   });
 
   it("shuts down the owned voice and ollama without a second exit", () => {

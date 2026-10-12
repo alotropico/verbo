@@ -16,6 +16,7 @@ import {
   CircleMinusIcon,
   LoaderIcon,
   XCircleIcon,
+  type LucideIcon,
 } from "lucide-react";
 import {
   toolApprovalAcceptsText,
@@ -101,7 +102,7 @@ function ToolFallbackRoot({
 
 type ToolStatus = ToolCallMessagePartStatus["type"];
 
-const statusIconMap: Record<ToolStatus, React.ElementType> = {
+const statusIconMap: Record<ToolStatus, LucideIcon> = {
   running: LoaderIcon,
   complete: CheckIcon,
   incomplete: XCircleIcon,

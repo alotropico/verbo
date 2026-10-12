@@ -1,8 +1,11 @@
+import { randomUUID } from "node:crypto";
 import type { DatabaseSync } from "node:sqlite";
+import { createComposerBufferStore } from "../db/composer-buffer";
 import { createQueuedTurnStore } from "../db/queued-turns";
 import type { AttachmentRef } from "../../shared/attachments";
 import type {
   QueueClaimResult,
+  QueueEditResult,
   QueueEnqueueResult,
   QueueMutationResult,
   QueueSnapshot,
@@ -28,16 +31,46 @@ export type TurnDispatcher = {
     now?: number;
   }): QueueEnqueueResult;
   claim(threadId: string): QueueClaimResult;
-  begin(input: {
-    queueItemId?: string;
-    threadId: string;
-    turnId: string;
-  }): { ok: true } | { ok: false; summary: string };
+  begin(input: { queueItemId?: string; threadId: string; turnId: string }):
+    | { ok: true; attached?: boolean; turnId?: string }
+    | {
+        ok: false;
+        summary: string;
+      };
   complete(turnId: string): void;
   fail(turnId: string): void;
   cancelIfRunning(turnId: string): void;
   awaitApproval(turnId: string): void;
   settleApproval(turnId: string): void;
+  activeTurn(): { turnId: string; phase: Slot["phase"] } | null;
+  setServiceHold(message: string | null): void;
+  setOnPromoted(handler: ((item: QueuedTurn) => void) | null): void;
+  beginEdit(input: {
+    id: string;
+    threadId: string;
+    revision: number;
+    composerText: string;
+    composerRefs: AttachmentRef[];
+  }): QueueEditResult;
+  saveEdit(input: {
+    id: string;
+    threadId: string;
+    revision: number;
+    token: string;
+    text: string;
+    attachmentRefs: AttachmentRef[];
+  }): QueueEditResult;
+  cancelEdit(input: {
+    id: string;
+    threadId: string;
+    token: string;
+  }): QueueEditResult;
+  reorder(input: {
+    id: string;
+    threadId: string;
+    revision: number;
+    direction: "up" | "down";
+  }): QueueMutationResult;
   releaseReservation(id: string): void;
   queuedSource(id: string): QueueSource | null;
   completeReserved(id: string): boolean;
@@ -57,16 +90,27 @@ export function createTurnDispatcher(
   emit?: () => void,
 ): TurnDispatcher {
   const store = createQueuedTurnStore(database);
+  const composer = createComposerBufferStore(database);
   let slot: Slot | null = null;
   let hold = false;
+  let serviceHold: string | null = null;
   let recovered = false;
+  let onPromoted: ((item: QueuedTurn) => void) | null = null;
 
   const changed = (): void => emit?.();
 
   function readyHead(): QueuedTurn | null {
     store.markStaleBranches(Date.now());
-    if (hold || slot) return null;
+    if (hold || serviceHold || slot) return null;
     return store.nextQueuedHead();
+  }
+
+  function promote(): void {
+    const next = readyHead();
+    if (!next) return;
+    reserve(next);
+    changed();
+    onPromoted?.(next);
   }
 
   function reserve(item: QueuedTurn): void {
@@ -119,6 +163,20 @@ export function createTurnDispatcher(
       return { ok: true, item: stored, start: false };
     },
     claim(threadId: string): QueueClaimResult {
+      if (
+        slot?.threadId === threadId &&
+        slot.phase === "reserved" &&
+        slot.queueItemId
+      ) {
+        return {
+          item: store.get(slot.queueItemId),
+          hold: false,
+          waitingForThreadId: null,
+        };
+      }
+      if (slot && slot.threadId !== threadId) {
+        return { item: null, hold, waitingForThreadId: slot.threadId };
+      }
       const next = readyHead();
       if (!next || next.threadId !== threadId) {
         return {
@@ -132,11 +190,12 @@ export function createTurnDispatcher(
       changed();
       return { item: next, hold: false, waitingForThreadId: null };
     },
-    begin(input: {
-      queueItemId?: string;
-      threadId: string;
-      turnId: string;
-    }): { ok: true } | { ok: false; summary: string } {
+    begin(input: { queueItemId?: string; threadId: string; turnId: string }):
+      | { ok: true; attached?: boolean; turnId?: string }
+      | {
+          ok: false;
+          summary: string;
+        } {
       const now = Date.now();
       if (input.queueItemId) {
         const row = store.get(input.queueItemId);
@@ -145,6 +204,14 @@ export function createTurnDispatcher(
         }
         if (slot && slot.queueItemId !== row.id) {
           return { ok: false, summary: "Another turn is still running." };
+        }
+        if (
+          slot &&
+          slot.queueItemId === row.id &&
+          slot.turnId &&
+          slot.phase !== "reserved"
+        ) {
+          return { ok: true, attached: true, turnId: slot.turnId };
         }
         if (row.status !== "queued") {
           return {
@@ -189,6 +256,7 @@ export function createTurnDispatcher(
       }
       slot = null;
       changed();
+      promote();
     },
     fail(turnId: string): void {
       if (!slot || slot.turnId !== turnId) return;
@@ -198,12 +266,19 @@ export function createTurnDispatcher(
       changed();
     },
     cancelIfRunning(turnId: string): void {
-      if (!slot || slot.turnId !== turnId || slot.phase !== "running") return;
+      if (
+        !slot ||
+        slot.turnId !== turnId ||
+        (slot.phase !== "running" && slot.phase !== "approval")
+      ) {
+        return;
+      }
       if (slot.queueItemId) {
         store.setStatus(slot.queueItemId, "cancelled", Date.now());
       }
       slot = null;
       changed();
+      promote();
     },
     awaitApproval(turnId: string): void {
       if (!slot || slot.turnId !== turnId || slot.phase !== "running") return;
@@ -216,10 +291,135 @@ export function createTurnDispatcher(
     settleApproval(turnId: string): void {
       if (!slot || slot.turnId !== turnId || slot.phase !== "approval") return;
       if (slot.queueItemId) {
-        store.setStatus(slot.queueItemId, "completed", Date.now());
+        store.setStatus(slot.queueItemId, "running", Date.now());
       }
-      slot = null;
+      slot = { ...slot, phase: "running" };
       changed();
+    },
+    activeTurn(): { turnId: string; phase: Slot["phase"] } | null {
+      if (!slot?.turnId || slot.phase === "reserved") return null;
+      return { turnId: slot.turnId, phase: slot.phase };
+    },
+    setServiceHold(message: string | null): void {
+      serviceHold = message;
+      changed();
+      if (!message) promote();
+    },
+    setOnPromoted(handler: ((item: QueuedTurn) => void) | null): void {
+      onPromoted = handler;
+    },
+    beginEdit(input): QueueEditResult {
+      if (slot?.queueItemId === input.id) {
+        return {
+          ok: false,
+          summary: "That message already started.",
+        };
+      }
+      const row = store.get(input.id);
+      if (!row || row.threadId !== input.threadId) {
+        return { ok: false, summary: "That queued message is gone." };
+      }
+      if (row.status === "editing" && row.editToken) {
+        const kept = composer.read(input.threadId);
+        return {
+          ok: true,
+          item: row,
+          composerText: kept?.text ?? "",
+          composerRefs: kept?.attachmentRefs ?? [],
+        };
+      }
+      const now = Date.now();
+      if (!store.beginEdit(input.id, randomUUID(), input.revision, now)) {
+        return {
+          ok: false,
+          summary: "That message can no longer be edited.",
+        };
+      }
+      composer.keep(
+        input.threadId,
+        input.composerText,
+        input.composerRefs,
+        now,
+      );
+      const saved = store.get(input.id);
+      if (!saved?.editToken) {
+        return { ok: false, summary: "That message can no longer be edited." };
+      }
+      changed();
+      return {
+        ok: true,
+        item: saved,
+        composerText: input.composerText,
+        composerRefs: input.composerRefs,
+      };
+    },
+    saveEdit(input): QueueEditResult {
+      const now = Date.now();
+      if (
+        !store.saveEdit({
+          id: input.id,
+          token: input.token,
+          revision: input.revision,
+          text: input.text,
+          attachmentRefs: input.attachmentRefs,
+          now,
+        })
+      ) {
+        return {
+          ok: false,
+          summary: "That edit is out of date. Reload the queue and try again.",
+        };
+      }
+      const saved = store.get(input.id);
+      const restored = composer.take(input.threadId);
+      changed();
+      if (!slot && !hold && !serviceHold) promote();
+      if (!saved) {
+        return { ok: false, summary: "That queued message is gone." };
+      }
+      return {
+        ok: true,
+        item: saved,
+        composerText: restored.text,
+        composerRefs: restored.attachmentRefs,
+      };
+    },
+    cancelEdit(input): QueueEditResult {
+      const now = Date.now();
+      if (!store.cancelEdit(input.id, input.token, now)) {
+        return { ok: false, summary: "That edit is no longer open." };
+      }
+      const saved = store.get(input.id);
+      const restored = composer.take(input.threadId);
+      changed();
+      if (!saved) {
+        return { ok: false, summary: "That queued message is gone." };
+      }
+      return {
+        ok: true,
+        item: saved,
+        composerText: restored.text,
+        composerRefs: restored.attachmentRefs,
+      };
+    },
+    reorder(input): QueueMutationResult {
+      const row = store.get(input.id);
+      if (!row || row.threadId !== input.threadId) {
+        return { ok: false, summary: "That queued message is gone." };
+      }
+      if (slot?.queueItemId === input.id) {
+        return { ok: false, summary: "That message already started." };
+      }
+      if (
+        !store.reorder(input.id, input.direction, input.revision, Date.now())
+      ) {
+        return {
+          ok: false,
+          summary: "That message can no longer be reordered.",
+        };
+      }
+      changed();
+      return { ok: true, summary: "Queue order updated." };
     },
     releaseReservation(id: string): void {
       if (!slot || slot.queueItemId !== id || slot.phase !== "reserved") return;
@@ -239,13 +439,25 @@ export function createTurnDispatcher(
       return marked;
     },
     remove(id: string): QueueMutationResult {
-      const ok = store.cancel(id, Date.now(), ["queued", "pinned"]);
+      const row = store.get(id);
+      const editing = row?.status === "editing" ? row.threadId : null;
+      const ok = store.cancel(id, Date.now(), ["queued", "editing", "pinned"]);
       if (!ok) {
         return { ok: false, summary: "That message can no longer be removed." };
       }
       if (slot?.queueItemId === id && slot.phase === "reserved") slot = null;
+      const restored = editing ? composer.take(editing) : null;
       changed();
-      return { ok: true, summary: "Removed from the queue." };
+      return {
+        ok: true,
+        summary: "Removed from the queue.",
+        ...(restored
+          ? {
+              composerText: restored.text,
+              composerRefs: restored.attachmentRefs,
+            }
+          : {}),
+      };
     },
     acknowledge(id: string): QueueMutationResult {
       if (!store.acknowledge(id, Date.now())) {
@@ -311,20 +523,27 @@ export function createTurnDispatcher(
       if (!hold) return;
       hold = false;
       changed();
+      promote();
     },
     snapshot(threadId: string): QueueSnapshot {
       const stale = store.markStaleBranches(Date.now());
-      const next = !hold && !slot ? store.nextQueuedHead() : null;
+      const next =
+        !hold && !serviceHold && !slot ? store.nextQueuedHead() : null;
       if (stale) changed();
+      const reservedElsewhere =
+        slot && slot.threadId !== threadId ? slot.threadId : null;
       return {
         items: store.visible(threadId),
         hold,
         waitingForThreadId:
-          next && next.threadId !== threadId ? next.threadId : null,
+          reservedElsewhere ??
+          (next && next.threadId !== threadId ? next.threadId : null),
+        serviceHold,
       };
     },
     acceptsImmediate(threadId: string): boolean {
-      if (hold || slot || !store.threadExists(threadId)) return false;
+      if (hold || serviceHold || slot || !store.threadExists(threadId))
+        return false;
       if (store.visible(threadId).length > 0) return false;
       return store.nextQueuedHead() === null;
     },

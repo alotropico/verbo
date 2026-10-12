@@ -30,6 +30,7 @@ export type StoredSnapshot = {
   complete: boolean;
   examined: number;
   warnings: string[];
+  omissions: { hidden: number; skippedDescent: number };
   expiresAt: number;
   sort: FileQuerySort;
 };
@@ -42,6 +43,7 @@ type SnapshotRow = {
   complete: number;
   examined: number;
   warnings_json: string;
+  omissions_json: string;
   expires_at: number;
   sort_by: FileQuerySort["by"];
   sort_direction: FileQuerySort["direction"];
@@ -105,6 +107,30 @@ function mapItem(row: ItemRow): StoredItem {
   };
 }
 
+function mapCount(value: unknown): number {
+  return typeof value === "number" && Number.isFinite(value) ? value : 0;
+}
+
+function mapOmissions(raw: string | undefined): {
+  hidden: number;
+  skippedDescent: number;
+} {
+  let parsed: unknown = {};
+  try {
+    parsed = JSON.parse(raw || "{}") as unknown;
+  } catch {
+    parsed = {};
+  }
+  const record =
+    parsed && typeof parsed === "object"
+      ? (parsed as { hidden?: unknown; skippedDescent?: unknown })
+      : {};
+  return {
+    hidden: mapCount(record.hidden),
+    skippedDescent: mapCount(record.skippedDescent),
+  };
+}
+
 function mapSnapshot(row: SnapshotRow): StoredSnapshot {
   const warnings = JSON.parse(row.warnings_json) as unknown;
   return {
@@ -117,6 +143,7 @@ function mapSnapshot(row: SnapshotRow): StoredSnapshot {
     warnings: Array.isArray(warnings)
       ? warnings.filter((warning) => typeof warning === "string")
       : [],
+    omissions: mapOmissions(row.omissions_json),
     expiresAt: row.expires_at,
     sort: { by: row.sort_by, direction: row.sort_direction },
   };
@@ -134,11 +161,13 @@ export type QuerySnapshotStore = {
     complete: boolean;
     examined: number;
     warnings: readonly string[];
+    omissions?: { hidden: number; skippedDescent: number };
     items: readonly StoredItem[];
     dirs: readonly StoredDir[];
   }) => StoredSnapshot;
   snapshot: (id: string) => StoredSnapshot | null;
   countItems: (id: string) => number;
+  countKinds: (id: string) => { directories: number; files: number };
   page: (
     id: string,
     offset: number,
@@ -221,8 +250,8 @@ export function createQuerySnapshotStore(
             `INSERT INTO file_query_snapshots (
                id, thread_id, fingerprint, scope_generation, root_path,
                sort_by, sort_direction, complete, examined, warnings_json,
-               created_at, expires_at
-             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+               omissions_json, created_at, expires_at
+             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
           )
           .run(
             id,
@@ -235,6 +264,7 @@ export function createQuerySnapshotStore(
             input.complete ? 1 : 0,
             input.examined,
             JSON.stringify(input.warnings),
+            JSON.stringify(input.omissions ?? { hidden: 0, skippedDescent: 0 }),
             input.now,
             expiresAt,
           );
@@ -283,6 +313,7 @@ export function createQuerySnapshotStore(
         complete: input.complete,
         examined: input.examined,
         warnings: [...input.warnings],
+        omissions: input.omissions ?? { hidden: 0, skippedDescent: 0 },
         expiresAt,
         sort: input.sort,
       };
@@ -291,7 +322,7 @@ export function createQuerySnapshotStore(
       const row = database
         .prepare(
           `SELECT id, thread_id, fingerprint, scope_generation, complete, examined,
-                  warnings_json, expires_at, sort_by, sort_direction
+                  warnings_json, omissions_json, expires_at, sort_by, sort_direction
            FROM file_query_snapshots WHERE id = ?`,
         )
         .get(id) as SnapshotRow | undefined;
@@ -304,6 +335,20 @@ export function createQuerySnapshotStore(
         )
         .get(id) as { count: number };
       return row.count;
+    },
+    countKinds(id) {
+      const rows = database
+        .prepare(
+          `SELECT kind, COUNT(*) AS count FROM file_query_items
+           WHERE snapshot_id = ? GROUP BY kind`,
+        )
+        .all(id) as Array<{ kind: string; count: number }>;
+      const counts = { directories: 0, files: 0 };
+      for (const row of rows) {
+        if (row.kind === "directory") counts.directories = row.count;
+        if (row.kind === "file") counts.files = row.count;
+      }
+      return counts;
     },
     page(id, offset, limit, sort) {
       const rows = database

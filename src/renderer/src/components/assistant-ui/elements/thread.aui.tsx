@@ -24,13 +24,16 @@ import {
 } from "@/components/assistant-ui/elements/tool-group.aui";
 import { TooltipIconButton } from "./tooltip-icon-button";
 import { CommandNotice } from "@/components/CommandNotice";
-import { PendingQueue } from "@/components/PendingQueue";
+import { ContextMeters } from "@/components/ContextMeters";
+import { ChatBlob } from "@/features/chat-blob";
+import { noteThreadActivity, timestampMs } from "@/runtime/thread-activity";
 import {
   VoiceDraftPanel,
   VoiceSessionButton,
   VoiceSessionProvider,
 } from "@/components/VoiceSession";
 import { useVoiceListening } from "@/components/voice-session-context";
+import { getQueueEdit, subscribeQueueEdit } from "@/runtime/queue-edit";
 import { useLocalCommandGuard } from "@/runtime/use-local-command";
 import { ActionIcon, Button, Skeleton, Tooltip } from "@mantine/core";
 import { cx } from "@/lib/cx";
@@ -81,6 +84,7 @@ import {
   useLayoutEffect,
   useRef,
   useState,
+  useSyncExternalStore,
   type ComponentType,
   type FC,
   type PropsWithChildren,
@@ -200,6 +204,30 @@ export const Thread: FC<ThreadProps> = ({
   );
 };
 
+const ThreadActivitySync: FC = () => {
+  const stamp = useAuiState((s) => {
+    let count = 0;
+    let at = 0;
+    for (const message of s.thread.messages) {
+      if (message.role !== "user" && message.role !== "assistant") continue;
+      count += 1;
+      const time = timestampMs(message.createdAt);
+      if (time > at) at = time;
+    }
+    if (count === 0) return "";
+    return `${s.threads.mainThreadId}\n${count}\n${at}`;
+  });
+
+  useEffect(() => {
+    if (!stamp) return;
+    const [threadId, countText, atText] = stamp.split("\n");
+    if (!threadId || !countText || !atText) return;
+    noteThreadActivity(threadId, Number(atText), Number(countText));
+  }, [stamp]);
+
+  return null;
+};
+
 const ThreadRoot: FC<{ isEmpty: boolean; autoFocus: boolean }> = ({
   isEmpty,
   autoFocus,
@@ -210,6 +238,7 @@ const ThreadRoot: FC<{ isEmpty: boolean; autoFocus: boolean }> = ({
     <ThreadPrimitive.Root
       className={cx("aui-root", "aui-thread-root", styles.threadRoot)}
     >
+      <ThreadActivitySync />
       <ThreadPrimitive.Viewport
         turnAnchor="top"
         data-slot="aui_thread-viewport"
@@ -242,10 +271,14 @@ const ThreadRoot: FC<{ isEmpty: boolean; autoFocus: boolean }> = ({
           >
             <VoiceSessionProvider>
               <ThreadFollowupSuggestions />
-              <PendingQueue />
               <CommandNotice />
               <VoiceDraftPanel />
-              <Composer autoFocus={autoFocus} />
+              <div className={styles.composerBlock}>
+                <Composer autoFocus={autoFocus} />
+                <AuiIf condition={(s) => s.thread.messages.length > 0}>
+                  <ContextMeters />
+                </AuiIf>
+              </div>
             </VoiceSessionProvider>
             <AuiIf condition={(s) => isNewChatView(s) && s.composer.isEmpty}>
               <ThreadSuggestions />
@@ -592,8 +625,9 @@ const ThreadWelcome: FC = () => {
           <span>{verb.word}</span>
         </Tooltip>{" "}
         <Tooltip label={modifier.gloss} multiline maw={280}>
-          <em className={styles.welcomeEmphasis}>{modifier.word}.</em>
-        </Tooltip>
+          <em className={styles.welcomeEmphasis}>{modifier.word}</em>
+        </Tooltip>{" "}
+        <ChatBlob />
       </h1>
       <p className={styles.welcomeDescription}>
         {line ?? (linePending ? <TypingDots label="Writing a line" /> : null)}
@@ -699,6 +733,11 @@ const ComposerAction: FC<{
   onSend: () => void;
 }> = ({ canSend, onSend }) => {
   const listening = useVoiceListening();
+  const editing = useSyncExternalStore(
+    subscribeQueueEdit,
+    getQueueEdit,
+    getQueueEdit,
+  );
   // The stop control only cancels the send while no run it could stop is going.
   const isSending = useAuiState(
     (s) =>
@@ -776,7 +815,7 @@ const ComposerAction: FC<{
           </AuiIf>
         </AuiIf>
         <TooltipIconButton
-          tooltip="Send message"
+          tooltip={editing ? "Save changes" : "Send message"}
           side="bottom"
           type="button"
           className={cx(
@@ -784,7 +823,7 @@ const ComposerAction: FC<{
             styles.composerIconButton,
             styles.composerSend,
           )}
-          aria-label="Send message"
+          aria-label={editing ? "Save changes" : "Send message"}
           disabled={!canSend}
           onClick={onSend}
         >
@@ -806,6 +845,9 @@ const ComposerAction: FC<{
                     styles.composerCancel,
                   )}
                   aria-label={isSending ? "Cancel sending" : "Stop generating"}
+                  onClick={() => {
+                    void window.verbo.turns.cancel();
+                  }}
                 />
               }
             >

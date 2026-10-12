@@ -1,4 +1,11 @@
-import { ipcMain, type BrowserWindow, type IpcMainInvokeEvent } from "electron";
+import {
+  app,
+  ipcMain,
+  type BrowserWindow,
+  type IpcMainInvokeEvent,
+} from "electron";
+import { serviceManager } from "../services/service-host";
+import { requestTurnCancel } from "../runtime/turn-session";
 import { IPC_CHANNELS } from "../../shared/ipc-channels";
 import {
   voiceSynthesizeSchema,
@@ -41,21 +48,37 @@ export function registerVoiceIpc(mainWindow: BrowserWindow): void {
     assertTrustedWindow(event, mainWindow);
     return voiceBridge().status();
   };
-  const transcribe = (
+  const requireVoice = async (): Promise<{ ok: true } | VoiceTextResult> => {
+    const manager = await serviceManager(app.getAppPath());
+    const voice = await manager.ensureVoice();
+    if (voice.state === "ready") return { ok: true };
+    return {
+      ok: false,
+      code: "offline",
+      detail: voice.detail || "Voice is stopped. Start it to use voice.",
+    };
+  };
+  const transcribe = async (
     event: IpcMainInvokeEvent,
     payload: unknown,
   ): Promise<VoiceTextResult> => {
     assertTrustedWindow(event, mainWindow);
+    const ready = await requireVoice();
+    if (!ready.ok) return ready;
     const data = voiceTranscribeSchema.parse(payload);
     return voiceBridge().transcribe(data.audio, {
       ...(data.language ? { language: data.language } : {}),
     });
   };
-  const synthesize = (
+  const synthesize = async (
     event: IpcMainInvokeEvent,
     payload: unknown,
   ): Promise<VoiceAudioResult> => {
     assertTrustedWindow(event, mainWindow);
+    const ready = await requireVoice();
+    if (!ready.ok) {
+      return { ok: false, code: "offline", detail: ready.detail };
+    }
     const data = voiceSynthesizeSchema.parse(payload);
     return voiceBridge().synthesize(data);
   };
@@ -78,7 +101,9 @@ export function registerVoiceIpc(mainWindow: BrowserWindow): void {
     payload: unknown,
   ): VoiceDraftResult => {
     assertTrustedWindow(event, mainWindow);
-    return drafts.commit(voiceDraftCommitSchema.parse(payload));
+    const result = drafts.commit(voiceDraftCommitSchema.parse(payload));
+    if (result.ok && result.kind === "control") requestTurnCancel();
+    return result;
   };
   const flushDraft = (
     event: IpcMainInvokeEvent,

@@ -1,5 +1,8 @@
 import type { DatabaseSync } from "node:sqlite";
-import { parseVoiceCommand } from "../../shared/local-commands";
+import {
+  parseVoiceCommand,
+  parseVoiceControl,
+} from "../../shared/local-commands";
 import {
   joinSpeech,
   MAX_VOICE_DRAFT_CHARS,
@@ -18,6 +21,7 @@ export type VoiceDraftService = {
     threadId: string;
     text: string;
     branchAnchor: string | null;
+    captureMode?: "dictation" | "control";
   }): VoiceDraftResult;
   flush(input: {
     threadId: string;
@@ -73,8 +77,25 @@ export function createVoiceDraftService(
       if (!drafts.threadExists(input.threadId)) {
         return { ok: false, summary: missingThread };
       }
-      if (parseVoiceCommand(input.text).handled) {
+      const control = parseVoiceControl(input.text);
+      const busy = !dispatcher.acceptsImmediate(input.threadId);
+      if (control.handled && dispatcher.activeTurn()) {
+        return { ok: true, kind: "control", name: control.name };
+      }
+      if (parseVoiceCommand(input.text).handled && !busy) {
         return { ok: true, kind: "command", name: "new" };
+      }
+      if (busy) {
+        if (input.captureMode === "dictation") {
+          return {
+            ok: true,
+            kind: "composer",
+            text: input.text,
+            summary:
+              "That utterance started while Verbo was free. It is in the composer and was not sent.",
+          };
+        }
+        return { ok: true, kind: "ignored" };
       }
       const joined = joinSpeech(drafts.read(input.threadId), input.text);
       if (joined.length > MAX_VOICE_DRAFT_CHARS) {

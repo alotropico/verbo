@@ -37,6 +37,23 @@ export type QueuedTurnStore = {
   cancel(id: string, now: number, allowed: readonly QueueStatus[]): boolean;
   clearPending(threadId: string, now: number): number;
   headId(threadId: string): string | null;
+  beginEdit(id: string, token: string, revision: number, now: number): boolean;
+  saveEdit(input: {
+    id: string;
+    token: string;
+    revision: number;
+    text: string;
+    attachmentRefs: AttachmentRef[];
+    now: number;
+  }): boolean;
+  cancelEdit(id: string, token: string, now: number): boolean;
+  editingId(): string | null;
+  reorder(
+    id: string,
+    direction: "up" | "down",
+    revision: number,
+    now: number,
+  ): boolean;
 };
 
 type TurnRow = {
@@ -48,6 +65,8 @@ type TurnRow = {
   attachment_refs_json: string;
   status: QueueStatus;
   sequence: number;
+  revision: number;
+  edit_token: string | null;
   released: number;
   turn_id: string | null;
   created_at: number;
@@ -55,9 +74,9 @@ type TurnRow = {
 };
 
 const COLUMNS = `id, thread_id, branch_anchor, source, text, attachment_refs_json,
-  status, sequence, released, turn_id, created_at, updated_at`;
+  status, sequence, revision, edit_token, released, turn_id, created_at, updated_at`;
 
-const OPEN_STATUSES = `('queued', 'running', 'awaiting_approval', 'failed', 'interrupted', 'pinned')`;
+const OPEN_STATUSES = `('queued', 'editing', 'running', 'awaiting_approval', 'failed', 'interrupted', 'pinned')`;
 
 function mapTurn(row: TurnRow): QueuedTurn {
   return {
@@ -69,6 +88,8 @@ function mapTurn(row: TurnRow): QueuedTurn {
     attachmentRefs: parseAttachmentRefs(row.attachment_refs_json),
     status: row.status,
     sequence: row.sequence,
+    revision: row.revision,
+    editToken: row.edit_token,
     released: row.released === 1,
     turnId: row.turn_id,
     createdAt: row.created_at,
@@ -187,6 +208,7 @@ export function createQueuedTurnStore(database: DatabaseSync): QueuedTurnStore {
         (row) =>
           row.threadId === threadId &&
           (row.status === "queued" ||
+            row.status === "editing" ||
             row.status === "pinned" ||
             row.status === "failed" ||
             row.status === "interrupted"),
@@ -205,8 +227,17 @@ export function createQueuedTurnStore(database: DatabaseSync): QueuedTurnStore {
       let winner: QueuedTurn | null = null;
       for (const list of grouped.values()) {
         list.sort((left, right) => left.sequence - right.sequence);
-        const head = list[0];
-        if (!head || head.status !== "queued") continue;
+        let head: QueuedTurn | null = null;
+        for (const row of list) {
+          if (row.status === "editing") continue;
+          if (row.status !== "queued") {
+            head = null;
+            break;
+          }
+          head = row;
+          break;
+        }
+        if (!head) continue;
         if (
           !winner ||
           head.createdAt < winner.createdAt ||
@@ -331,7 +362,7 @@ export function createQueuedTurnStore(database: DatabaseSync): QueuedTurnStore {
       const result = database
         .prepare(
           `UPDATE queued_turns SET status = 'cancelled', updated_at = ?
-           WHERE thread_id = ? AND status IN ('queued', 'pinned')`,
+           WHERE thread_id = ? AND status IN ('queued', 'editing', 'pinned')`,
         )
         .run(now, threadId);
       return Number(result.changes);
@@ -341,6 +372,93 @@ export function createQueuedTurnStore(database: DatabaseSync): QueuedTurnStore {
         .prepare(`SELECT head_id FROM threads WHERE id = ?`)
         .get(threadId) as { head_id: string | null } | undefined;
       return row?.head_id ?? null;
+    },
+    beginEdit(id, token, revision, now): boolean {
+      const other = database
+        .prepare(
+          `SELECT id FROM queued_turns WHERE status = 'editing' AND id != ?`,
+        )
+        .get(id) as { id: string } | undefined;
+      if (other) return false;
+      const result = database
+        .prepare(
+          `UPDATE queued_turns
+           SET status = 'editing', edit_token = ?, revision = revision + 1, updated_at = ?
+           WHERE id = ? AND status = 'queued' AND revision = ?`,
+        )
+        .run(token, now, id, revision);
+      return result.changes === 1;
+    },
+    saveEdit(input): boolean {
+      const result = database
+        .prepare(
+          `UPDATE queued_turns
+           SET text = ?, attachment_refs_json = ?, status = 'queued',
+               edit_token = NULL, revision = revision + 1, updated_at = ?
+           WHERE id = ? AND status = 'editing' AND revision = ? AND edit_token = ?`,
+        )
+        .run(
+          input.text,
+          JSON.stringify(input.attachmentRefs),
+          input.now,
+          input.id,
+          input.revision,
+          input.token,
+        );
+      return result.changes === 1;
+    },
+    cancelEdit(id, token, now): boolean {
+      const result = database
+        .prepare(
+          `UPDATE queued_turns
+           SET status = 'queued', edit_token = NULL, revision = revision + 1, updated_at = ?
+           WHERE id = ? AND status = 'editing' AND edit_token = ?`,
+        )
+        .run(now, id, token);
+      return result.changes === 1;
+    },
+    editingId(): string | null {
+      const row = database
+        .prepare(`SELECT id FROM queued_turns WHERE status = 'editing' LIMIT 1`)
+        .get() as { id: string } | undefined;
+      return row?.id ?? null;
+    },
+    reorder(id, direction, revision, now): boolean {
+      const row = read(id);
+      if (!row || row.revision !== revision) return false;
+      if (row.status !== "queued" && row.status !== "editing") return false;
+      const pending = openRows()
+        .filter(
+          (item) =>
+            item.threadId === row.threadId &&
+            (item.status === "queued" || item.status === "editing"),
+        )
+        .sort((left, right) => left.sequence - right.sequence);
+      const index = pending.findIndex((item) => item.id === id);
+      const neighbor = pending[direction === "up" ? index - 1 : index + 1];
+      if (index < 0 || !neighbor) return false;
+      database.exec("BEGIN");
+      try {
+        database
+          .prepare(
+            `UPDATE queued_turns
+             SET sequence = ?, revision = revision + 1, updated_at = ?
+             WHERE id = ?`,
+          )
+          .run(neighbor.sequence, now, row.id);
+        database
+          .prepare(
+            `UPDATE queued_turns
+             SET sequence = ?, revision = revision + 1, updated_at = ?
+             WHERE id = ?`,
+          )
+          .run(row.sequence, now, neighbor.id);
+        database.exec("COMMIT");
+      } catch (error) {
+        database.exec("ROLLBACK");
+        throw error;
+      }
+      return true;
     },
   };
 }

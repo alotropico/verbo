@@ -16,7 +16,7 @@ import {
 import { closeDatabase, getDatabase } from "./db/database";
 import { turnDispatcher } from "./runtime/queue-service";
 import { voiceBridge } from "./voice/client";
-import { attachVoiceService } from "./voice/lifecycle";
+import { serviceManager } from "./services/service-host";
 import { createScopeStore } from "./db/scopes";
 import { createAssetStore } from "./files/asset-store";
 import { ensureInstalledFileScopes } from "./files/installed-scopes";
@@ -25,10 +25,10 @@ import { reconcileOperations } from "./files/mutation-plan";
 nativeTheme.themeSource = "dark";
 
 let mainWindow: BrowserWindow | null = null;
-let stopVoiceService = (): void => {};
+let shutdownServices = async (): Promise<void> => {};
 
 app.on("will-quit", () => {
-  stopVoiceService();
+  void shutdownServices();
 });
 
 function createWindow(): void {
@@ -129,9 +129,9 @@ app.whenReady().then(async () => {
     const message = error instanceof Error ? error.message : "Startup failed.";
     dialog.showErrorBox("Verbo failed to start", message);
   }
-  await attachVoiceService(app.getAppPath(), (stop) => {
-    stopVoiceService = stop;
-  });
+  const services = await serviceManager(app.getAppPath());
+  shutdownServices = () => services.shutdown();
+  await services.boot();
   void voiceBridge()
     .status()
     .then((status) => {

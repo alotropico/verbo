@@ -51,6 +51,12 @@ export type TurnUpdate =
       result: ActionResult;
       call: ContextToolCall;
     }
+  | {
+      type: "approval";
+      toolName: string;
+      result: ActionResult;
+      call: ContextToolCall;
+    }
   | { type: "stop"; stop: TurnStop; content: string; summary?: string };
 
 type ModelHooks = {
@@ -106,6 +112,10 @@ export async function runTurn(input: {
   registry?: CapabilityRegistry;
   signal?: AbortSignal;
   onUpdate?: (update: TurnUpdate) => void;
+  awaitDecision?: (
+    result: ActionResult,
+    call: ContextToolCall,
+  ) => Promise<ActionResult>;
 }): Promise<TurnOutcome> {
   const registry = input.registry ?? createProductionRegistry();
   const budget = Math.floor(input.numCtx * 0.75);
@@ -204,8 +214,34 @@ export async function runTurn(input: {
       toolCalls,
     });
 
-    let paused = false;
-    for (const call of toolCalls) {
+    const pushTool = (call: ContextToolCall, result: ActionResult): boolean => {
+      results.push(result);
+      const toolMessage: ContextToolMessage = {
+        role: "tool",
+        toolName: call.name || "tool",
+        content: JSON.stringify(result),
+      };
+      messages.push(toolMessage);
+      input.onUpdate?.({
+        type: "tool_result",
+        toolName: toolMessage.toolName,
+        content: toolMessage.content,
+        result,
+        call,
+      });
+      return contextTokens(messages) > budget;
+    };
+    const closed = (call: ContextToolCall, summary: string): ActionResult =>
+      actionResultSchema.parse({
+        action: call.name || "tool",
+        status: "cancelled",
+        code: "cancelled",
+        summary,
+      });
+
+    for (let index = 0; index < toolCalls.length; index += 1) {
+      const call = toolCalls[index];
+      if (!call) continue;
       if (toolRequests >= DEFAULT_TURN_LIMITS.maxToolRequests) {
         return finish(
           "limit",
@@ -223,7 +259,7 @@ export async function runTurn(input: {
       }
       seen.add(key);
       toolRequests += 1;
-      const result =
+      let result =
         call.name && isRecord(call.arguments)
           ? dispatchModelTool(
               registry,
@@ -232,38 +268,60 @@ export async function runTurn(input: {
               input.context,
             )
           : malformedCall(call.name);
-      results.push(result);
-      const toolMessage: ContextToolMessage = {
-        role: "tool",
-        toolName: call.name || "tool",
-        content: JSON.stringify(result),
-      };
-      messages.push(toolMessage);
-      input.onUpdate?.({
-        type: "tool_result",
-        toolName: toolMessage.toolName,
-        content: toolMessage.content,
-        result,
-        call,
-      });
-      if (contextTokens(messages) > budget) {
+      if (result.status === "requires_confirmation") {
+        input.onUpdate?.({
+          type: "approval",
+          toolName: call.name || "tool",
+          result,
+          call,
+        });
+        if (!input.awaitDecision) {
+          results.push(result);
+          return finish(
+            "paused",
+            aggregated.content,
+            "A mutation is waiting for confirmation.",
+          );
+        }
+        try {
+          result = await input.awaitDecision(result, call);
+        } catch (error) {
+          if (!(input.signal?.aborted || isAbort(error))) throw error;
+          if (pushTool(call, closed(call, "The turn was cancelled."))) {
+            return finish(
+              "capacity",
+              aggregated.content,
+              "The required instructions, user message, and tool results do not fit the context budget.",
+            );
+          }
+          for (const rest of toolCalls.slice(index + 1)) {
+            if (
+              pushTool(
+                rest,
+                closed(rest, "The turn was cancelled before this call."),
+              )
+            ) {
+              return finish(
+                "capacity",
+                aggregated.content,
+                "The required instructions, user message, and tool results do not fit the context budget.",
+              );
+            }
+          }
+          return finish(
+            "cancelled",
+            aggregated.content,
+            "The turn was cancelled.",
+          );
+        }
+      }
+      if (pushTool(call, result)) {
         return finish(
           "capacity",
           aggregated.content,
           "The required instructions, user message, and tool results do not fit the context budget.",
         );
       }
-      if (result.status === "requires_confirmation") {
-        paused = true;
-        break;
-      }
-    }
-    if (paused) {
-      return finish(
-        "paused",
-        aggregated.content,
-        "A mutation is waiting for confirmation.",
-      );
     }
   }
 

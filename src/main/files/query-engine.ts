@@ -37,12 +37,15 @@ type Limits = {
   maxContentBytes: number;
 };
 
+type ScanOmissions = { hidden: number; skippedDescent: number };
+
 type ScanResult = {
   items: StoredItem[];
   dirs: StoredDir[];
   examined: number;
   complete: boolean;
   warnings: string[];
+  omitted: ScanOmissions;
 };
 
 export type FileQueryRequest = {
@@ -353,6 +356,7 @@ function scanTree(input: {
   const items: StoredItem[] = [];
   const dirs: StoredDir[] = [];
   const warnings: string[] = [];
+  const omitted: ScanOmissions = { hidden: 0, skippedDescent: 0 };
   let examined = 0;
   let complete = true;
   const started = Date.now();
@@ -440,8 +444,14 @@ function scanTree(input: {
       if (!entry.name || entry.name === "." || entry.name === "..") continue;
       examined += 1;
       const absolute = displayFinalPath(win32.join(directory, entry.name));
-      if (!input.includeHidden && hiddenEntry(entry.name, absolute)) continue;
-      if (SKIP_DESCENT.has(entry.name.toLowerCase())) continue;
+      if (!input.includeHidden && hiddenEntry(entry.name, absolute)) {
+        omitted.hidden += 1;
+        continue;
+      }
+      if (SKIP_DESCENT.has(entry.name.toLowerCase())) {
+        omitted.skippedDescent += 1;
+        continue;
+      }
       let stats;
       try {
         stats = lstatSync(absolute);
@@ -478,7 +488,7 @@ function scanTree(input: {
   };
 
   visit(input.absolute, input.display, input.depth);
-  return { items, dirs, examined, complete, warnings };
+  return { items, dirs, examined, complete, warnings, omitted };
 }
 
 function resolveRoot(
@@ -552,6 +562,11 @@ function limitsOf(override?: Partial<Limits>): Limits {
   };
 }
 
+function omissionNote(omitted: ScanOmissions): string {
+  if (omitted.hidden === 0 && omitted.skippedDescent === 0) return "";
+  return ` Omitted ${omitted.hidden} hidden names and ${omitted.skippedDescent} skipped folders from the exact total.`;
+}
+
 function pageResult(input: {
   action: string;
   snapshot: StoredSnapshot;
@@ -561,10 +576,23 @@ function pageResult(input: {
   store: ReturnType<typeof createQuerySnapshotStore>;
 }): ActionResult {
   let rows = [...input.items];
+  const kinds = input.store.countKinds(input.snapshot.id);
+  const exact = input.snapshot.complete;
   const scan = {
     complete: input.snapshot.complete,
     examined: input.snapshot.examined,
     warnings: input.snapshot.warnings,
+    omitted: input.snapshot.omissions,
+  };
+  const counts = {
+    directories: {
+      observed: kinds.directories,
+      exactTotal: exact ? kinds.directories : null,
+    },
+    files: {
+      observed: kinds.files,
+      exactTotal: exact ? kinds.files : null,
+    },
   };
   const placeholder = "00000000-0000-4000-8000-000000000000";
   let returned = rows.length;
@@ -576,6 +604,7 @@ function pageResult(input: {
     detail = JSON.stringify({
       resultSet: input.snapshot.id,
       items: rows.map(publicItem),
+      counts,
       page: {
         returned,
         hasMore,
@@ -612,7 +641,7 @@ function pageResult(input: {
       ? `Listed ${returned} entries. The scan hit a limit.`
       : hasMore
         ? `Listed ${returned} entries. More remain.`
-        : `Listed ${returned} entries.`,
+        : `Listed ${returned} entries.${omissionNote(input.snapshot.omissions)}`,
     detail,
     ...(input.snapshot.complete ? { totalItems: input.total } : {}),
     ...(dropped || hasMore ? { detailsAvailable: true } : {}),
@@ -820,6 +849,7 @@ function runQuery(
     complete: scanned.complete,
     examined: scanned.examined,
     warnings: scanned.warnings,
+    omissions: scanned.omitted,
     items: scanned.items,
     dirs: scanned.dirs,
   });
@@ -984,7 +1014,7 @@ export function summarizeFiles(
     depth: parsed.data.depth,
     includeHidden: parsed.data.includeHidden,
     filter: {
-      entryType: "all",
+      entryType: parsed.data.entryType,
       names: [],
       extensions: [],
     },
@@ -1042,13 +1072,24 @@ export function summarizeFiles(
     newest: brief(newest),
     oldest: brief(oldest),
     warnings: scanned.warnings,
+    omitted: scanned.omitted,
+    counts: {
+      directories: {
+        observed: directories.length,
+        exactTotal: scanned.complete ? directories.length : null,
+      },
+      files: {
+        observed: files.length,
+        exactTotal: scanned.complete ? files.length : null,
+      },
+    },
   };
   return {
     action: "files.summary",
     status: scanned.complete ? "success" : "partial",
     ...(!scanned.complete ? { code: "limit_reached" } : {}),
     summary: scanned.complete
-      ? `Summarized ${files.length} files and ${directories.length} folders.`
+      ? `Summarized ${files.length} files and ${directories.length} folders.${omissionNote(scanned.omitted)}`
       : "The summary hit a limit before the folder was fully examined.",
     detail: JSON.stringify(body),
     ...(scanned.complete

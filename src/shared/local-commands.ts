@@ -178,16 +178,30 @@ export function modelRoute(text: string): "local" | "model" {
 }
 
 const VOICE_NEW_CHAT = new Set(["clear chat", "empty chat"]);
+const VOICE_CONTROLS = new Set(["stop", "cancel"]);
+
+function standaloneSpeech(text: string): string | null {
+  const trimmed = text.trim();
+  if (/["'“”‘’]/u.test(trimmed)) return null;
+  return trimmed.replace(/\s+/gu, " ").toLowerCase();
+}
 
 /** Finalized standalone speech only. Quotes and extra words stay ordinary text. */
 export function parseVoiceCommand(
   text: string,
 ): { handled: false } | { handled: true; name: "new" } {
-  const trimmed = text.trim();
-  if (/["'“”‘’]/u.test(trimmed)) return { handled: false };
-  const normalized = trimmed.replace(/\s+/gu, " ").toLowerCase();
-  if (!VOICE_NEW_CHAT.has(normalized)) return { handled: false };
+  const normalized = standaloneSpeech(text);
+  if (!normalized || !VOICE_NEW_CHAT.has(normalized)) return { handled: false };
   return { handled: true, name: "new" };
+}
+
+/** Exact finalized `stop` or `cancel` only. Sentences stay ordinary speech. */
+export function parseVoiceControl(
+  text: string,
+): { handled: false } | { handled: true; name: "stop" | "cancel" } {
+  const normalized = standaloneSpeech(text);
+  if (!normalized || !VOICE_CONTROLS.has(normalized)) return { handled: false };
+  return { handled: true, name: normalized === "stop" ? "stop" : "cancel" };
 }
 
 export function routeUtterance(

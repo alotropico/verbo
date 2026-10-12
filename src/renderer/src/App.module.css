@@ -85,6 +85,14 @@
   );
 }
 
+.headerDivider {
+  align-self: center;
+  background: var(--sidebar-border);
+  block-size: rem(16px);
+  flex-shrink: 0;
+  inline-size: rem(1px);
+}
+
 .headerSpacer {
   flex: 1;
   min-width: 0;
@@ -112,9 +120,11 @@
 }
 
 .threadPane {
+  display: flex;
   flex: 1;
   min-height: 0;
   min-width: 0;
+  position: relative;
 }
 
 @media (max-width: em(768px)) {

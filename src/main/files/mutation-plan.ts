@@ -1301,12 +1301,35 @@ function noteRisk(risks: string[], item: Planned): void {
   }
 }
 
-function needsApproval(action: string, items: Planned[]): boolean {
-  if (items.some((item) => item.kind === "trash" || item.kind === "edit"))
+function sameVolume(left: string | null, right: string | null): boolean {
+  if (!left || !right) return true;
+  const leftRoot = win32.parse(left).root.toLowerCase();
+  const rightRoot = win32.parse(right).root.toLowerCase();
+  if (!leftRoot || !rightRoot) return true;
+  return leftRoot === rightRoot;
+}
+
+export function planNeedsApproval(action: string, items: Planned[]): boolean {
+  if (action === "files.batch") return true;
+  if (items.length !== 1) return items.length > 1;
+  const item = items[0];
+  if (!item) return true;
+  if (item.kind === "trash" || item.kind === "edit") return true;
+  if (item.kind === "create_file" || item.kind === "create_directory")
+    return false;
+  if (!sameVolume(item.sourcePath, item.destinationPath)) return true;
+  if (
+    (item.kind === "copy" || item.kind === "move" || item.kind === "rename") &&
+    item.before.directory &&
+    item.descendants > 0
+  ) {
     return true;
-  if (items.length >= 2) return true;
-  if (action === "files.batch" && items.length >= 2) return true;
+  }
   return false;
+}
+
+function needsApproval(action: string, items: Planned[]): boolean {
+  return planNeedsApproval(action, items);
 }
 
 function fingerprintOf(
@@ -1907,6 +1930,24 @@ export function reviewOperation(input: {
     }),
     receipt,
   };
+}
+
+export function abandonPendingPlan(
+  database: DatabaseSync,
+  operationId: string,
+): void {
+  const store = createOperationStore(database);
+  const plan = store.get(operationId);
+  if (!plan || plan.status !== "pending") return;
+  const now = mutationPorts().now();
+  store.finish(
+    plan.id,
+    "cancelled",
+    "cancelled",
+    "The turn was cancelled.",
+    now,
+  );
+  store.markRemaining(plan.id, 0);
 }
 
 export function decideOperation(input: {

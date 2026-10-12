@@ -71,7 +71,27 @@ function VoiceSessionProvider({ children }: PropsWithChildren): ReactElement {
   const editingRef = useRef(false);
   const threadRef = useRef(threadId);
   const draftRef = useRef("");
-  const audioQueue = useRef<Uint8Array[]>([]);
+  const audioQueue = useRef<
+    { audio: Uint8Array; mode: "dictation" | "control" }[]
+  >([]);
+  const utteranceMode = useRef<"dictation" | "control">("dictation");
+  const aheadRef = useRef(false);
+  useEffect(() => {
+    const sync = (): void => {
+      const threadId = threadRef.current;
+      if (!threadId) return;
+      void window.verbo.queue.list(threadId).then((snapshot) => {
+        aheadRef.current =
+          snapshot.hold ||
+          Boolean(snapshot.serviceHold) ||
+          snapshot.items.some(
+            (item) => item.status === "queued" || item.status === "editing",
+          );
+      });
+    };
+    sync();
+    return window.verbo.queue.subscribe(sync);
+  }, []);
   const draining = useRef(false);
   const playToken = useRef(0);
   const audioRef = useRef<HTMLAudioElement | null>(null);
@@ -125,6 +145,13 @@ function VoiceSessionProvider({ children }: PropsWithChildren): ReactElement {
         newThread: true,
       });
       aui.threads().switchToNewThread();
+      return;
+    }
+    if (result.kind === "control" || result.kind === "ignored") return;
+    if (result.kind === "composer") {
+      const composer = aui.composer().getState();
+      if (!composer.text.trim()) aui.composer().setText(result.text);
+      setError(result.summary);
       return;
     }
     if (result.kind === "draft") {
@@ -281,7 +308,7 @@ function VoiceSessionProvider({ children }: PropsWithChildren): ReactElement {
     try {
       const language = settingsRef.current.sttLanguage;
       const result = await window.verbo.voice.transcribe({
-        audio: next,
+        audio: next.audio,
         ...(language === "auto" ? {} : { language }),
       });
       if (!result.ok) {
@@ -292,6 +319,7 @@ function VoiceSessionProvider({ children }: PropsWithChildren): ReactElement {
           threadId: id,
           text: result.text.trim(),
           branchAnchor: anchor(),
+          captureMode: next.mode,
         });
         if (committed.ok && committed.kind === "command") {
           quietAt.current = null;
@@ -343,6 +371,10 @@ function VoiceSessionProvider({ children }: PropsWithChildren): ReactElement {
       }),
       onSpeechStart: () => {
         if (listenGen.current !== gen) return;
+        utteranceMode.current =
+          aui.thread().getState().isRunning || aheadRef.current
+            ? "control"
+            : "dictation";
         hearingRef.current = true;
         quietAt.current = null;
         clearEndpoint();
@@ -359,7 +391,10 @@ function VoiceSessionProvider({ children }: PropsWithChildren): ReactElement {
       },
       onSegment: (audio) => {
         if (listenGen.current !== gen) return;
-        audioQueue.current.push(audio);
+        audioQueue.current.push({
+          audio,
+          mode: utteranceMode.current,
+        });
         void drain(gen);
       },
     })

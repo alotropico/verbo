@@ -1,0 +1,39 @@
+.group {
+  -webkit-app-region: no-drag;
+  display: flex;
+  gap: rem(6px);
+}
+
+.dot {
+  block-size: rem(8px);
+  border-radius: 999px;
+  inline-size: rem(8px);
+}
+
+.ready {
+  background: var(--primary);
+}
+
+.starting {
+  background: var(--muted-foreground);
+}
+
+.statusButton,
+.statusLabel {
+  font-weight: 400;
+}
+
+.stopped {
+  background: var(--muted-foreground);
+  opacity: 0.45;
+}
+
+.error {
+  background: var(--destructive);
+}
+
+.panel {
+  display: grid;
+  gap: rem(8px);
+  max-width: rem(280px);
+}

@@ -30,6 +30,12 @@
   padding: 0;
 }
 
+.actions {
+  display: flex;
+  gap: rem(8px);
+  justify-content: flex-end;
+}
+
 .risk {
   color: var(--destructive);
   margin: 0;

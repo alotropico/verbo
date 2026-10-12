@@ -142,7 +142,9 @@
   --composer-bg: var(--surface);
   container-type: inline-size;
   display: flex;
+  flex: 1;
   height: 100%;
+  min-width: 0;
   flex-direction: column;
   background: transparent;
 }
@@ -341,6 +343,12 @@
 .starterArrow {
   margin-inline-start: rem(8px);
   opacity: 0.5;
+}
+
+.composerBlock {
+  display: flex;
+  flex-direction: column;
+  gap: rem(6px);
 }
 
 .composerRoot {

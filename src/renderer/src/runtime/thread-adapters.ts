@@ -8,6 +8,7 @@ import {
 import { isPersistedThreadId } from "@shared/thread-identity";
 import { useMemo } from "react";
 import { createVerboAttachmentAdapter } from "./attachment-adapter";
+import { takeHistorySuppress } from "./queue-edit";
 
 function useThreadHistoryAdapter(): ThreadHistoryAdapter {
   const aui = useAui();
@@ -26,6 +27,7 @@ function useThreadHistoryAdapter(): ThreadHistoryAdapter {
         );
       },
       async append({ message, parentId }) {
+        if (takeHistorySuppress()) return;
         const { remoteId } = await aui.threadListItem.initialize();
         await window.verbo.storage.appendMessage({
           threadId: remoteId,

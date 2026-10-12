@@ -22,19 +22,51 @@ function now(): number {
   return Date.now();
 }
 
-export function listThreads(): RemoteThreadMetadata[] {
-  const db = getDatabase();
-  const rows = db
-    .prepare(
-      `SELECT id, title, status FROM threads WHERE status != 'deleted' ORDER BY updated_at DESC`,
-    )
-    .all() as { id: string; title: string; status: string }[];
-  return rows.map((row) => ({
+type ThreadMetaRow = {
+  id: string;
+  title: string;
+  status: string;
+  last_message_at: number | null;
+  message_count: number;
+};
+
+const THREAD_META_COLUMNS = `
+  t.id,
+  t.title,
+  t.status,
+  (
+    SELECT MAX(created_at) FROM messages
+    WHERE thread_id = t.id AND role IN ('user', 'assistant')
+  ) AS last_message_at,
+  (
+    SELECT COUNT(*) FROM messages
+    WHERE thread_id = t.id AND role IN ('user', 'assistant')
+  ) AS message_count
+`;
+
+function threadMetadata(row: ThreadMetaRow): RemoteThreadMetadata {
+  return {
     status: row.status === "archived" ? "archived" : "regular",
     remoteId: row.id,
     externalId: row.id,
     title: row.title,
-  }));
+    messageCount: Number(row.message_count),
+    ...(row.last_message_at == null
+      ? {}
+      : { lastMessageAt: Number(row.last_message_at) }),
+  };
+}
+
+export function listThreads(): RemoteThreadMetadata[] {
+  const rows = getDatabase()
+    .prepare(
+      `SELECT ${THREAD_META_COLUMNS}
+       FROM threads t
+       WHERE t.status != 'deleted'
+       ORDER BY t.updated_at DESC`,
+    )
+    .all() as ThreadMetaRow[];
+  return rows.map(threadMetadata);
 }
 
 export function initializeThread(localId: string): {
@@ -90,17 +122,16 @@ export function deleteThread(remoteId: string): void {
 
 export function fetchThread(remoteId: string): RemoteThreadMetadata {
   const row = getDatabase()
-    .prepare(`SELECT id, title, status FROM threads WHERE id = ?`)
-    .get(remoteId) as { id: string; title: string; status: string } | undefined;
+    .prepare(
+      `SELECT ${THREAD_META_COLUMNS}
+       FROM threads t
+       WHERE t.id = ?`,
+    )
+    .get(remoteId) as ThreadMetaRow | undefined;
   if (!row) {
     throw new Error("Thread not found");
   }
-  return {
-    status: row.status === "archived" ? "archived" : "regular",
-    remoteId: row.id,
-    externalId: row.id,
-    title: row.title,
-  };
+  return threadMetadata(row);
 }
 
 export function loadMessageRows(threadId: string): StoredMessageRow[] {

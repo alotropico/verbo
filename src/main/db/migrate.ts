@@ -264,6 +264,49 @@ const VERSION_13 = `
   ALTER TABLE file_scopes ADD COLUMN extra_aliases TEXT NOT NULL DEFAULT '';
 `;
 
+const VERSION_14 = `
+  CREATE TABLE queued_turns_v14 (
+    id TEXT PRIMARY KEY,
+    thread_id TEXT NOT NULL,
+    branch_anchor TEXT,
+    source TEXT NOT NULL CHECK (source IN ('typed', 'voice')),
+    text TEXT NOT NULL,
+    attachment_refs_json TEXT NOT NULL,
+    status TEXT NOT NULL CHECK (status IN (
+      'queued', 'editing', 'running', 'awaiting_approval', 'failed',
+      'interrupted', 'pinned', 'completed', 'cancelled'
+    )),
+    sequence INTEGER NOT NULL,
+    revision INTEGER NOT NULL DEFAULT 0,
+    edit_token TEXT,
+    released INTEGER NOT NULL DEFAULT 0 CHECK (released IN (0, 1)),
+    turn_id TEXT,
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL,
+    FOREIGN KEY (thread_id) REFERENCES threads(id) ON DELETE CASCADE
+  );
+  INSERT INTO queued_turns_v14 (
+    id, thread_id, branch_anchor, source, text, attachment_refs_json, status,
+    sequence, revision, released, turn_id, created_at, updated_at
+  )
+  SELECT
+    id, thread_id, branch_anchor, source, text, attachment_refs_json, status,
+    sequence, 0, released, turn_id, created_at, updated_at
+  FROM queued_turns;
+  DROP TABLE queued_turns;
+  ALTER TABLE queued_turns_v14 RENAME TO queued_turns;
+  CREATE INDEX IF NOT EXISTS idx_queued_turns_thread
+    ON queued_turns(thread_id, sequence);
+  CREATE TABLE IF NOT EXISTS composer_buffers (
+    thread_id TEXT PRIMARY KEY,
+    text TEXT NOT NULL,
+    attachment_refs_json TEXT NOT NULL DEFAULT '[]',
+    updated_at INTEGER NOT NULL,
+    FOREIGN KEY (thread_id) REFERENCES threads(id) ON DELETE CASCADE
+  );
+  ALTER TABLE file_query_snapshots ADD COLUMN omissions_json TEXT NOT NULL DEFAULT '{}';
+`;
+
 const VERSION_8 = `
   CREATE TABLE IF NOT EXISTS registered_projects (
     id TEXT PRIMARY KEY,
@@ -317,6 +360,7 @@ export const VERBO_MIGRATIONS: readonly MigrationStep[] = [
   { version: 11, up: (database) => database.exec(VERSION_11) },
   { version: 12, up: (database) => database.exec(VERSION_12) },
   { version: 13, up: (database) => database.exec(VERSION_13) },
+  { version: 14, up: (database) => database.exec(VERSION_14) },
 ];
 
 export function backupDatabase(

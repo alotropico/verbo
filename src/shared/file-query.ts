@@ -104,6 +104,7 @@ export const filesSummaryArgsSchema = z
     root: z.string().trim().min(1).max(1024),
     path: z.string().trim().min(1).max(1024).optional(),
     depth: z.number().int().min(0).max(FILE_QUERY_LIMITS.maxDepth).default(1),
+    entryType: z.enum(["all", "files", "directories"]).default("all"),
     includeHidden: z.boolean().default(false),
   })
   .strict();

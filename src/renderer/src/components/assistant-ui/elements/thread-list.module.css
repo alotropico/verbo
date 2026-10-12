@@ -51,17 +51,16 @@
   color: var(--muted-foreground);
 }
 
-.groupLabel {
-  padding-inline: rem(10px);
-  padding-top: rem(12px);
-  padding-bottom: rem(4px);
-  font-weight: 500;
-  color: var(--muted-foreground);
+.sidebarActions {
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+  gap: rem(8px);
+  padding-block-end: rem(16px);
 }
 
 .newWrap {
   flex-shrink: 0;
-  padding-block-end: rem(12px);
 }
 
 .newButton {
@@ -115,7 +114,7 @@
 .itemRoot {
   position: relative;
   display: flex;
-  min-height: rem(38px);
+  min-height: rem(48px);
   align-items: center;
   border: rem(1px) solid transparent;
   border-radius: var(--radius);
@@ -163,7 +162,7 @@
   border: 0;
   color: inherit;
   display: flex;
-  min-height: rem(36px);
+  min-height: rem(46px);
   min-width: 0;
   flex: 1;
   align-items: center;
@@ -197,9 +196,26 @@
   animation: spin 1s linear infinite;
 }
 
+.itemBody {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: rem(1px);
+  min-width: 0;
+}
+
+.itemMeta {
+  color: color-mix(in oklab, var(--muted-foreground) 72%, transparent);
+  font-size: rem(10px);
+  font-weight: 400;
+  line-height: 1.2;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .itemTitle {
   min-width: 0;
-  flex: 1;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;

@@ -278,6 +278,10 @@ describe("file queries", () => {
     expect(body(capped).scan.complete).toBe(false);
     expect(body(capped).page.totalKnown).toBeNull();
     expect(capped.totalItems).toBeUndefined();
+    const cappedDetail = JSON.parse(capped.detail ?? "{}") as {
+      counts: { files: { exactTotal: number | null } };
+    };
+    expect(cappedDetail.counts.files.exactTotal).toBeNull();
   });
 
   it("searches names and bounded text snippets", () => {
@@ -415,5 +419,33 @@ describe("file queries", () => {
       "user_command",
     );
     expect(command.code).toBe("needs_selection");
+  });
+
+  it("counts every direct child directory even when the page is smaller", () => {
+    const root = folder("verbo-dirs-");
+    for (let index = 0; index < 9; index += 1) {
+      mkdirSync(join(root, `dir-${index}`));
+    }
+    writeFileSync(join(root, "note.txt"), "x");
+    const db = register(root);
+    const listed = invoke(db, "files.list", {
+      root: "notes:",
+      depth: 0,
+      entryType: "directories",
+      pageSize: 2,
+    });
+    const detail = JSON.parse(listed.detail ?? "{}") as {
+      page: { returned: number; hasMore: boolean; totalKnown: number };
+      counts: {
+        directories: { observed: number; exactTotal: number | null };
+        files: { observed: number; exactTotal: number | null };
+      };
+    };
+    expect(detail.page.returned).toBe(2);
+    expect(detail.page.hasMore).toBe(true);
+    expect(detail.page.totalKnown).toBe(9);
+    expect(detail.counts.directories).toEqual({ observed: 9, exactTotal: 9 });
+    expect(detail.counts.files).toEqual({ observed: 0, exactTotal: 0 });
+    expect(listed.totalItems).toBe(9);
   });
 });

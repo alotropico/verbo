@@ -21,6 +21,7 @@ import { createScopeStore } from "../db/scopes";
 import {
   cancelOperation,
   decideOperation,
+  planNeedsApproval,
   reconcileOperations,
 } from "./mutation-plan";
 import {
@@ -592,5 +593,81 @@ describe("file mutations", () => {
     expect(trashed.status).toBe("success");
     expect(existsSync(file)).toBe(false);
     expect(existsSync(`${file}.trashed`)).toBe(false);
+  });
+
+  it("holds a one-item batch and a non-empty directory move", () => {
+    const root = folder("verbo-impact-");
+    const db = register(root);
+    const batch = invoke(db, "files.batch", {
+      items: [
+        {
+          action: "files.create",
+          kind: "file",
+          path: "notes:/only.md",
+          content: "one",
+        },
+      ],
+    });
+    expect(batch.status).toBe("requires_confirmation");
+    expect(existsSync(join(root, "only.md"))).toBe(false);
+    mkdirSync(join(root, "folder"));
+    writeFileSync(join(root, "folder", "child.txt"), "child");
+    mkdirSync(join(root, "dest"));
+    const moved = invoke(db, "files.move", {
+      from: "notes:/folder",
+      to: "notes:/dest/folder",
+    });
+    expect(moved.status).toBe("requires_confirmation");
+    expect(existsSync(join(root, "folder", "child.txt"))).toBe(true);
+    mkdirSync(join(root, "empty-dir"));
+    const empty = invoke(db, "files.move", {
+      from: "notes:/empty-dir",
+      to: "notes:/dest/empty-dir",
+    });
+    expect(empty.status).toBe("success");
+    expect(existsSync(join(root, "dest", "empty-dir"))).toBe(true);
+  });
+
+  it("requires approval for a cross-volume transfer", () => {
+    const before = {
+      exists: true,
+      directory: false,
+      size: 1,
+      mtimeMs: 1,
+      sha256: null,
+      reparse: false,
+    };
+    expect(
+      planNeedsApproval("files.move", [
+        {
+          kind: "move",
+          sourcePath: "C:\\notes\\a.md",
+          destinationPath: "D:\\notes\\a.md",
+          sourceDisplay: "notes:/a.md",
+          destinationDisplay: "notes:/a.md",
+          content: null,
+          format: null,
+          before,
+          expected: { descendants: 0 },
+          descendants: 0,
+        },
+      ]),
+    ).toBe(true);
+    expect(
+      planNeedsApproval("files.rename", [
+        {
+          kind: "rename",
+          sourcePath: "C:\\notes\\a.md",
+          destinationPath: "C:\\notes\\b.md",
+          sourceDisplay: "notes:/a.md",
+          destinationDisplay: "notes:/b.md",
+          content: null,
+          format: null,
+          before,
+          expected: { descendants: 0 },
+          descendants: 0,
+        },
+      ]),
+    ).toBe(false);
   });
 });

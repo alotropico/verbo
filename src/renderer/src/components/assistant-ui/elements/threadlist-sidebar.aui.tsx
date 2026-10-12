@@ -1,7 +1,6 @@
 import { useAui } from "@assistant-ui/react";
 import { ActionIcon, UnstyledButton } from "@mantine/core";
 import type { ReactElement } from "react";
-import { ContextMeters } from "@/components/ContextMeters";
 import { ThreadList } from "@/components/assistant-ui/elements/thread-list.aui";
 import { cx } from "@/lib/cx";
 import { VerboMark } from "@/components/VerboMark";
@@ -39,9 +38,6 @@ export function ThreadListSidebar({
       <div className={cx("aui-sidebar-content", styles.content)}>
         <ThreadList />
       </div>
-      <footer className={styles.footer}>
-        <ContextMeters />
-      </footer>
     </>
   );
 }

@@ -20,6 +20,8 @@ export const remoteThreadMetadataSchema = z.object({
   remoteId: z.string(),
   externalId: z.string().optional(),
   title: z.string().optional(),
+  lastMessageAt: z.number().int().nonnegative().optional(),
+  messageCount: z.number().int().nonnegative().optional(),
 });
 
 export type RemoteThreadMetadata = z.infer<typeof remoteThreadMetadataSchema>;

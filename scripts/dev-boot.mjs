@@ -1,14 +1,4 @@
-export async function bootDev({
-  ensureOllama,
-  verifyModel,
-  ensureVoice,
-  runDev,
-  log,
-}) {
-  await ensureOllama();
-  await verifyModel();
-  const voiceState = await ensureVoice();
-  log(voiceState.detail);
+export async function bootDev({ runDev, log }) {
+  log("Verbo owns Ollama and voice after the app process starts.");
   runDev();
-  return voiceState;
 }

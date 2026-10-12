@@ -135,6 +135,9 @@ describe("turn dispatcher", () => {
     queue.awaitApproval("turn-1");
     expect(queue.claim("thread-a").item).toBeNull();
     queue.settleApproval("turn-1");
+    expect(queue.activeTurn()?.phase).toBe("running");
+    expect(queue.claim("thread-a").item).toBeNull();
+    queue.complete("turn-1");
     expect(queue.claim("thread-a").item?.text).toBe("next");
     queue.releaseReservation(second.item.id);
     expect(
@@ -293,5 +296,133 @@ describe("turn dispatcher", () => {
     if (!next.ok) throw new Error("enqueue failed");
     expect(next.start).toBe(true);
     expect(queue.queuedSource(next.item.id)).toBe("voice");
+  });
+
+  it("skips an edited row and keeps its identity after save", () => {
+    const { database, queue } = setup();
+    addThread(database, "thread-a");
+    const first = queue.enqueue({
+      threadId: "thread-a",
+      text: "A",
+      branchAnchor: null,
+      source: "typed",
+      now: 1,
+    });
+    const second = queue.enqueue({
+      threadId: "thread-a",
+      text: "B",
+      branchAnchor: null,
+      source: "typed",
+      now: 2,
+    });
+    const third = queue.enqueue({
+      threadId: "thread-a",
+      text: "C",
+      branchAnchor: null,
+      source: "typed",
+      now: 3,
+    });
+    if (!first.ok || !second.ok || !third.ok) throw new Error("enqueue failed");
+    expect(
+      queue.begin({
+        queueItemId: first.item.id,
+        threadId: "thread-a",
+        turnId: "turn-a",
+      }).ok,
+    ).toBe(true);
+    const editing = queue.beginEdit({
+      id: second.item.id,
+      threadId: "thread-a",
+      revision: second.item.revision,
+      composerText: "unsent",
+      composerRefs: [],
+    });
+    expect(editing.ok).toBe(true);
+    if (!editing.ok) return;
+    expect(editing.item.id).toBe(second.item.id);
+    queue.complete("turn-a");
+    expect(queue.claim("thread-a").item?.text).toBe("C");
+    const saved = queue.saveEdit({
+      id: editing.item.id,
+      threadId: "thread-a",
+      revision: editing.item.revision,
+      token: editing.item.editToken ?? "",
+      text: "B2",
+      attachmentRefs: [],
+    });
+    expect(saved.ok).toBe(true);
+    if (!saved.ok) return;
+    expect(saved.item.id).toBe(second.item.id);
+    expect(saved.item.sequence).toBe(second.item.sequence);
+    expect(saved.item.text).toBe("B2");
+    expect(saved.composerText).toBe("unsent");
+    expect(
+      queue.begin({
+        queueItemId: third.item.id,
+        threadId: "thread-a",
+        turnId: "turn-c",
+      }).ok,
+    ).toBe(true);
+    queue.complete("turn-c");
+    expect(queue.claim("thread-a").item?.text).toBe("B2");
+  });
+
+  it("lets claim win over a late edit and rejects a stale save", () => {
+    const { database, queue } = setup();
+    addThread(database, "thread-a");
+    const saved = queue.enqueue({
+      threadId: "thread-a",
+      text: "one",
+      branchAnchor: null,
+      source: "typed",
+      now: 1,
+    });
+    if (!saved.ok) throw new Error("enqueue failed");
+    expect(
+      queue.beginEdit({
+        id: saved.item.id,
+        threadId: "thread-a",
+        revision: saved.item.revision,
+        composerText: "",
+        composerRefs: [],
+      }).ok,
+    ).toBe(false);
+    const later = queue.enqueue({
+      threadId: "thread-a",
+      text: "two",
+      branchAnchor: null,
+      source: "typed",
+      now: 2,
+    });
+    if (!later.ok) throw new Error("enqueue failed");
+    const opened = queue.beginEdit({
+      id: later.item.id,
+      threadId: "thread-a",
+      revision: later.item.revision,
+      composerText: "draft",
+      composerRefs: [],
+    });
+    expect(opened.ok).toBe(true);
+    if (!opened.ok || !opened.item.editToken) return;
+    expect(
+      queue.saveEdit({
+        id: later.item.id,
+        threadId: "thread-a",
+        revision: later.item.revision,
+        token: opened.item.editToken,
+        text: "two edited",
+        attachmentRefs: [],
+      }).ok,
+    ).toBe(false);
+    expect(
+      queue.saveEdit({
+        id: later.item.id,
+        threadId: "thread-a",
+        revision: opened.item.revision,
+        token: opened.item.editToken,
+        text: "two edited",
+        attachmentRefs: [],
+      }).ok,
+    ).toBe(true);
   });
 });

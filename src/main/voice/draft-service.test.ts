@@ -54,22 +54,42 @@ describe("voice drafts", () => {
         turnId: "turn-1",
       }).ok,
     ).toBe(true);
-    const second = service.commit({
-      threadId: "thread-a",
-      text: "still talking",
-      branchAnchor: null,
-    });
-    expect(second).toMatchObject({
-      ok: true,
-      kind: "draft",
-      draft: { text: "still talking" },
-    });
-    expect(service.read("thread-a")).toMatchObject({
-      draft: { text: "still talking" },
-    });
+    expect(
+      service.commit({
+        threadId: "thread-a",
+        text: "still talking",
+        branchAnchor: null,
+        captureMode: "control",
+      }),
+    ).toEqual({ ok: true, kind: "ignored" });
+    expect(
+      service.commit({
+        threadId: "thread-a",
+        text: "stop",
+        branchAnchor: null,
+        captureMode: "control",
+      }),
+    ).toEqual({ ok: true, kind: "control", name: "stop" });
+    expect(
+      service.commit({
+        threadId: "thread-a",
+        text: "please stop now",
+        branchAnchor: null,
+        captureMode: "control",
+      }),
+    ).toEqual({ ok: true, kind: "ignored" });
+    expect(
+      service.commit({
+        threadId: "thread-a",
+        text: "started earlier",
+        branchAnchor: null,
+        captureMode: "dictation",
+      }),
+    ).toMatchObject({ ok: true, kind: "composer", text: "started earlier" });
+    expect(service.read("thread-a")).toMatchObject({ draft: { text: "" } });
   });
 
-  it("joins busy segments into one turn behind earlier typed sends", () => {
+  it("does not queue ordinary speech while a turn or earlier item is ahead", () => {
     const { database, service, queue } = setup();
     addThread(database, "thread-a");
     const typed = queue.enqueue({
@@ -99,23 +119,18 @@ describe("voice drafts", () => {
         threadId: "thread-a",
         text: "alpha",
         branchAnchor: null,
+        captureMode: "control",
       }),
-    ).toMatchObject({ ok: true, kind: "draft" });
+    ).toEqual({ ok: true, kind: "ignored" });
+    expect(service.read("thread-a")).toMatchObject({ draft: { text: "" } });
     expect(
-      service.commit({
-        threadId: "thread-a",
-        text: "beta",
-        branchAnchor: null,
-      }),
-    ).toMatchObject({
-      ok: true,
-      kind: "draft",
-      draft: { text: "alpha beta" },
-    });
+      queue.snapshot("thread-a").items.some((item) => item.source === "voice"),
+    ).toBe(false);
+    service.save({ threadId: "thread-a", text: "kept from before" });
     queue.complete("turn-typed");
-    expect(
-      service.flush({ threadId: "thread-a", branchAnchor: null }),
-    ).toMatchObject({ ok: true, kind: "draft", draft: { text: "alpha beta" } });
+    expect(service.read("thread-a")).toMatchObject({
+      draft: { text: "kept from before" },
+    });
     if (!later.ok) return;
     expect(
       queue.begin({
@@ -124,17 +139,6 @@ describe("voice drafts", () => {
         turnId: "turn-typed-2",
       }).ok,
     ).toBe(true);
-    queue.complete("turn-typed-2");
-    const flushed = service.flush({
-      threadId: "thread-a",
-      branchAnchor: "anchor-1",
-    });
-    expect(flushed).toMatchObject({
-      ok: true,
-      kind: "submitted",
-      item: { text: "alpha beta", source: "voice", branchAnchor: "anchor-1" },
-    });
-    expect(service.read("thread-a")).toMatchObject({ draft: { text: "" } });
   });
 
   it("does not queue a standalone voice command or attach another thread", () => {
@@ -190,11 +194,7 @@ describe("voice drafts", () => {
       threadId: "thread-a",
       turnId: "turn-run",
     });
-    service.commit({
-      threadId: "thread-a",
-      text: "unsent",
-      branchAnchor: null,
-    });
+    service.save({ threadId: "thread-a", text: "unsent" });
     queue.recover();
     expect(
       service.flush({ threadId: "thread-a", branchAnchor: null }),

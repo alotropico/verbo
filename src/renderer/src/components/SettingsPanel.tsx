@@ -13,7 +13,6 @@ import {
 } from "@shared/voice-settings";
 import type { FileScopeProposal, FileScopeRecord } from "@shared/files";
 import {
-  ActionIcon,
   Button,
   Group,
   Modal,
@@ -22,7 +21,6 @@ import {
   Switch,
   Tabs,
   Text,
-  Tooltip,
 } from "@mantine/core";
 import { schemaResolver, useForm } from "@mantine/form";
 import { useDisclosure } from "@mantine/hooks";
@@ -207,31 +205,33 @@ function SettingsForm({
 
   return (
     <>
-      <Tooltip label="Settings">
-        <ActionIcon
-          variant="subtle"
-          size={32}
-          type="button"
-          aria-label="Settings"
-          onClick={() => {
-            onOpen();
-            loadFiles();
-            loadVoice();
-            void window.verbo.ollama.status().then((status) => {
-              if (status.ok) setModels({ ok: true, models: status.models });
-              else
-                setModels({
-                  ok: false,
-                  error: status.error,
-                  models: status.models,
-                });
-            });
-          }}
-          className={styles.trigger}
-        >
-          <SlidersHorizontalIcon size={16} />
-        </ActionIcon>
-      </Tooltip>
+      <hr className={styles.divider} />
+      <Button
+        type="button"
+        variant="default"
+        radius="xl"
+        fullWidth
+        justify="flex-start"
+        aria-label="Settings"
+        className={styles.trigger}
+        onClick={() => {
+          onOpen();
+          loadFiles();
+          loadVoice();
+          void window.verbo.ollama.status().then((status) => {
+            if (status.ok) setModels({ ok: true, models: status.models });
+            else
+              setModels({
+                ok: false,
+                error: status.error,
+                models: status.models,
+              });
+          });
+        }}
+      >
+        <SlidersHorizontalIcon className={styles.triggerIcon} size={16} />
+        Settings
+      </Button>
       <Modal
         opened={opened}
         onClose={requestClose}

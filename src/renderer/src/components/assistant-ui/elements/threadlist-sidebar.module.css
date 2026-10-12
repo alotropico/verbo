@@ -50,9 +50,3 @@
   min-height: 0;
   padding: 0 rem(14px);
 }
-
-.footer {
-  border-top: rem(1px) solid var(--sidebar-border);
-  margin-inline: rem(20px);
-  padding-block: rem(18px) rem(20px);
-}

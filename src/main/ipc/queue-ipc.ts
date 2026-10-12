@@ -1,8 +1,12 @@
 import { ipcMain, type BrowserWindow, type IpcMainInvokeEvent } from "electron";
 import { IPC_CHANNELS } from "../../shared/ipc-channels";
 import {
+  queueEditBeginSchema,
+  queueEditCancelSchema,
+  queueEditSaveSchema,
   queueEnqueueSchema,
   queueItemSchema,
+  queueReorderSchema,
   queueThreadSchema,
   type QueueClaimResult,
   type QueueEnqueueResult,
@@ -124,6 +128,22 @@ export function registerQueueIpc(mainWindow: BrowserWindow): void {
   ipcMain.handle(IPC_CHANNELS.queueClear, clear);
   ipcMain.handle(IPC_CHANNELS.queueReleaseHold, releaseHold);
   ipcMain.handle(IPC_CHANNELS.queueRelease, release);
+  ipcMain.handle(IPC_CHANNELS.queueEditBegin, (event, payload: unknown) => {
+    assertTrustedWindow(event, mainWindow);
+    return turnDispatcher().beginEdit(queueEditBeginSchema.parse(payload));
+  });
+  ipcMain.handle(IPC_CHANNELS.queueEditSave, (event, payload: unknown) => {
+    assertTrustedWindow(event, mainWindow);
+    return turnDispatcher().saveEdit(queueEditSaveSchema.parse(payload));
+  });
+  ipcMain.handle(IPC_CHANNELS.queueEditCancel, (event, payload: unknown) => {
+    assertTrustedWindow(event, mainWindow);
+    return turnDispatcher().cancelEdit(queueEditCancelSchema.parse(payload));
+  });
+  ipcMain.handle(IPC_CHANNELS.queueReorder, (event, payload: unknown) => {
+    assertTrustedWindow(event, mainWindow);
+    return turnDispatcher().reorder(queueReorderSchema.parse(payload));
+  });
 
   mainWindow.once("closed", () => {
     unsubscribe();
@@ -138,5 +158,9 @@ export function registerQueueIpc(mainWindow: BrowserWindow): void {
     ipcMain.removeHandler(IPC_CHANNELS.queueClear);
     ipcMain.removeHandler(IPC_CHANNELS.queueReleaseHold);
     ipcMain.removeHandler(IPC_CHANNELS.queueRelease);
+    ipcMain.removeHandler(IPC_CHANNELS.queueEditBegin);
+    ipcMain.removeHandler(IPC_CHANNELS.queueEditSave);
+    ipcMain.removeHandler(IPC_CHANNELS.queueEditCancel);
+    ipcMain.removeHandler(IPC_CHANNELS.queueReorder);
   });
 }

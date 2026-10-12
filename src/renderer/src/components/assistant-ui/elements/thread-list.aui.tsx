@@ -8,6 +8,12 @@ import {
   type ButtonProps,
 } from "@mantine/core";
 import { publishCommandStatus } from "@/runtime/command-status";
+import {
+  subscribeThreadActivity,
+  threadActivity,
+  timestampMs,
+} from "@/runtime/thread-activity";
+import { SettingsPanel } from "@/components/SettingsPanel";
 import { useChatSelection } from "@/components/chat-selection-context";
 import { cx } from "@/lib/cx";
 import a11y from "@/lib/a11y.module.css";
@@ -42,7 +48,6 @@ import {
 } from "lucide-react";
 import {
   forwardRef,
-  Fragment,
   useEffect,
   useMemo,
   useRef,
@@ -79,7 +84,10 @@ export const ThreadList: FC = () => {
         <ThreadListSearch value={search} onValueChange={setSearch} />
       )}
       <ThreadListItems searchQuery={hasThreads ? search : ""} />
-      <ThreadListNew />
+      <div className={styles.sidebarActions}>
+        <ThreadListNew />
+        <SettingsPanel />
+      </div>
     </ThreadListRoot>
   );
 };
@@ -163,68 +171,13 @@ export const ThreadListItems: FC<
   );
 };
 
-const dateGroupLabel = (
-  date: Date | undefined,
-  startOfToday: number,
-  startOfYesterday: number,
-): string => {
-  if (!date || date.getTime() >= startOfToday) return "Today";
-  if (date.getTime() >= startOfYesterday) return "Yesterday";
-  return "Earlier";
-};
-
-const startOfLocalDay = (date: Date) =>
-  new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime();
-
-const subscribeToNextDay = (onDayChange: () => void) => {
-  let timeout: number;
-  const scheduleNextDay = () => {
-    const now = new Date();
-    const startOfTomorrow = new Date(
-      now.getFullYear(),
-      now.getMonth(),
-      now.getDate() + 1,
-    ).getTime();
-    timeout = window.setTimeout(() => {
-      onDayChange();
-      scheduleNextDay();
-    }, startOfTomorrow - now.getTime());
-  };
-  scheduleNextDay();
-  return () => window.clearTimeout(timeout);
-};
-
-const getStartOfToday = () => startOfLocalDay(new Date());
-
-// A server render and hydration see no day start, so a prerender never reads
-// the clock; a client-only mount groups on its first render.
-const getServerStartOfToday = () => undefined;
-
-const useStartOfToday = () =>
-  useSyncExternalStore<number | undefined>(
-    subscribeToNextDay,
-    getStartOfToday,
-    getServerStartOfToday,
-  );
-
-export type ThreadListGroup = { label: string; indices: number[] };
-
-/**
- * Filters the thread list by title and buckets the matches by last activity
- * (Today, Yesterday, Earlier). `groups` is null when no thread carries a date
- * or while the local day start is unknown during server render and hydration,
- * in which case `filteredIndices` keeps the runtime order.
- */
-export const useThreadListGroups = (searchQuery = "") => {
+const useFilteredThreadIndices = (searchQuery = "") => {
   const threadIds = useAuiState((s) => s.threads.threadIds);
   const threadItems = useAuiState((s) => s.threads.threadItems);
-
   const query = searchQuery.trim().toLowerCase();
-  const startOfToday = useStartOfToday();
 
   return useMemo(() => {
     const itemsById = new Map(threadItems.map((item) => [item.id, item]));
-    const dates = threadIds.map((id) => itemsById.get(id)?.lastMessageAt);
     const filteredIndices = threadIds
       .map((id, index) => ({ id, index }))
       .filter(
@@ -235,54 +188,24 @@ export const useThreadListGroups = (searchQuery = "") => {
             .includes(query),
       )
       .map(({ index }) => index);
-    if (
-      startOfToday === undefined ||
-      !filteredIndices.some((index) => dates[index])
-    ) {
-      return { threadIds, filteredIndices, groups: null };
-    }
-
-    const yesterday = new Date(startOfToday);
-    yesterday.setDate(yesterday.getDate() - 1);
-    const startOfYesterday = yesterday.getTime();
-    const time = (index: number) =>
-      dates[index]?.getTime() ?? Number.MAX_SAFE_INTEGER;
-    const sorted = [...filteredIndices].sort((a, b) => time(b) - time(a));
-
-    const result: ThreadListGroup[] = [];
-    for (const index of sorted) {
-      const label = dateGroupLabel(
-        dates[index],
-        startOfToday,
-        startOfYesterday,
-      );
-      const lastGroup = result[result.length - 1];
-      if (lastGroup?.label === label) {
-        lastGroup.indices.push(index);
-      } else {
-        result.push({ label, indices: [index] });
-      }
-    }
-    return { threadIds, filteredIndices, groups: result };
-  }, [threadIds, threadItems, query, startOfToday]);
+    return { threadIds, filteredIndices };
+  }, [threadIds, threadItems, query]);
 };
 
 const ThreadListItemGroups: FC<{ searchQuery?: string }> = ({
   searchQuery = "",
 }) => {
-  const { threadIds, filteredIndices, groups } =
-    useThreadListGroups(searchQuery);
+  const { threadIds, filteredIndices } = useFilteredThreadIndices(searchQuery);
   const { setVisibleIds } = useChatSelection();
   const query = searchQuery.trim();
-  const visibleIds = useMemo(() => {
-    const indices = groups
-      ? groups.flatMap((group) => group.indices)
-      : filteredIndices;
-    return indices.flatMap((index) => {
-      const id = threadIds[index];
-      return id ? [id] : [];
-    });
-  }, [filteredIndices, groups, threadIds]);
+  const visibleIds = useMemo(
+    () =>
+      filteredIndices.flatMap((index) => {
+        const id = threadIds[index];
+        return id ? [id] : [];
+      }),
+    [filteredIndices, threadIds],
+  );
   setVisibleIds(visibleIds);
 
   if (query && filteredIndices.length === 0) {
@@ -293,32 +216,12 @@ const ThreadListItemGroups: FC<{ searchQuery?: string }> = ({
     );
   }
 
-  if (!groups) {
-    return filteredIndices.map((index) => (
-      <ThreadListPrimitive.ItemByIndex
-        key={threadIds[index]}
-        index={index}
-        components={{ ThreadListItem }}
-      />
-    ));
-  }
-
-  return groups.map((group) => (
-    <Fragment key={group.label}>
-      <div
-        data-slot="aui_thread-list-group-label"
-        className={styles.groupLabel}
-      >
-        {group.label}
-      </div>
-      {group.indices.map((index) => (
-        <ThreadListPrimitive.ItemByIndex
-          key={threadIds[index]}
-          index={index}
-          components={{ ThreadListItem }}
-        />
-      ))}
-    </Fragment>
+  return filteredIndices.map((index) => (
+    <ThreadListPrimitive.ItemByIndex
+      key={threadIds[index]}
+      index={index}
+      components={{ ThreadListItem }}
+    />
   ));
 };
 
@@ -387,6 +290,65 @@ const ThreadListSkeleton: FC = () => {
   );
 };
 
+const MINUTE = 60_000;
+const HOUR = 60 * MINUTE;
+const DAY = 24 * HOUR;
+
+let clockNow = Date.now();
+const clockListeners = new Set<() => void>();
+let clockTimer: number | undefined;
+
+function subscribeClock(listener: () => void): () => void {
+  clockListeners.add(listener);
+  if (clockTimer === undefined) {
+    clockTimer = window.setInterval(() => {
+      clockNow = Date.now();
+      clockListeners.forEach((entry) => entry());
+    }, 15_000);
+  }
+  return () => {
+    clockListeners.delete(listener);
+    if (clockListeners.size === 0 && clockTimer !== undefined) {
+      window.clearInterval(clockTimer);
+      clockTimer = undefined;
+    }
+  };
+}
+
+function readClock(): number {
+  return clockNow;
+}
+
+function formatTimeAgo(at: number, now: number, long = false): string {
+  const delta = Math.max(0, now - at);
+  if (delta < 45_000) return "just now";
+  if (delta < HOUR) {
+    const minutes = Math.max(1, Math.round(delta / MINUTE));
+    return long
+      ? `${minutes} ${minutes === 1 ? "minute" : "minutes"} ago`
+      : `${minutes}m ago`;
+  }
+  if (delta < DAY) {
+    const hours = Math.round(delta / HOUR);
+    return long
+      ? `${hours} ${hours === 1 ? "hour" : "hours"} ago`
+      : `${hours}h ago`;
+  }
+  if (delta < 14 * DAY) {
+    const days = Math.round(delta / DAY);
+    return long ? `${days} ${days === 1 ? "day" : "days"} ago` : `${days}d ago`;
+  }
+  return new Intl.DateTimeFormat(undefined, {
+    day: "numeric",
+    month: "short",
+  }).format(at);
+}
+
+function readMessageCount(custom: Record<string, unknown> | undefined): number {
+  const value = custom?.messageCount;
+  return typeof value === "number" && Number.isFinite(value) ? value : 0;
+}
+
 const threadTriggers = (node: HTMLElement): HTMLButtonElement[] => {
   const root = node.closest("[data-slot='aui_thread-list-root']");
   if (!root) return [];
@@ -400,6 +362,27 @@ const threadTriggers = (node: HTMLElement): HTMLButtonElement[] => {
 export const ThreadListItem: FC = () => {
   const isRunning = useAuiState((s) => s.threadListItem.isRunning);
   const itemId = useAuiState((s) => s.threadListItem.id);
+  const storedAt = useAuiState((s) => {
+    const item = s.threads.threadItems.find(
+      (entry) => entry.id === s.threadListItem.id,
+    );
+    return timestampMs(item?.lastMessageAt);
+  });
+  const storedCount = useAuiState((s) => {
+    const item = s.threads.threadItems.find(
+      (entry) => entry.id === s.threadListItem.id,
+    );
+    return readMessageCount(item?.custom);
+  });
+  const live = useSyncExternalStore(
+    subscribeThreadActivity,
+    () => threadActivity(itemId),
+    () => threadActivity(itemId),
+  );
+  const now = useSyncExternalStore(subscribeClock, readClock, readClock);
+  const at = Math.max(storedAt, live?.at ?? 0);
+  const count = Math.max(storedCount, live?.count ?? 0);
+  const messageLabel = `${count} ${count === 1 ? "message" : "messages"}`;
   const { cancel, extraIds, isSelected, selectRange, toggle } =
     useChatSelection();
   const [isRenaming, setIsRenaming] = useState(false);
@@ -496,13 +479,29 @@ export const ThreadListItem: FC = () => {
               className={styles.runningIcon}
             />
           )}
-          <span
-            data-slot="aui_thread-list-item-title"
-            className={styles.itemTitle}
-          >
-            <ThreadListItemPrimitive.Title
-              fallback={chatPlaceholderTitle(itemId)}
-            />
+          <span className={styles.itemBody}>
+            <span
+              data-slot="aui_thread-list-item-title"
+              className={styles.itemTitle}
+            >
+              <ThreadListItemPrimitive.Title
+                fallback={chatPlaceholderTitle(itemId)}
+              />
+            </span>
+            {count > 0 ? (
+              <span
+                className={styles.itemMeta}
+                aria-label={
+                  at > 0
+                    ? `Last message ${formatTimeAgo(at, now, true)}, ${messageLabel}`
+                    : messageLabel
+                }
+              >
+                {at > 0
+                  ? `${formatTimeAgo(at, now)} • ${messageLabel}`
+                  : messageLabel}
+              </span>
+            ) : null}
           </span>
           {selected ? <span className={a11y.srOnly}>Selected</span> : null}
           {isRunning && <span className={a11y.srOnly}>Running</span>}

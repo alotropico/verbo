@@ -23,7 +23,10 @@ import {
   memoryRemoveArgsSchema,
   memoryUpdateArgsSchema,
 } from "../../shared/memory";
-import { approvalReviewSchema } from "../../shared/action-contract";
+import {
+  approvalDecisionSchema,
+  approvalReviewSchema,
+} from "../../shared/action-contract";
 import { fileUiQuerySchema } from "../../shared/file-query";
 import { refreshModelVision } from "../runtime/model-vision";
 import {
@@ -31,10 +34,7 @@ import {
   scopeCommitSchema,
   splitScopeAliases,
 } from "../../shared/files";
-import {
-  operationInventoryLine,
-  type OperationReview,
-} from "../../shared/file-mutation";
+import { resolveApproval } from "../runtime/approval-wait";
 import {
   appendMessage,
   archiveThread,
@@ -82,9 +82,8 @@ import { readPromptEval } from "../runtime/prompt-eval";
 import { registerAssistantStreamIpc } from "./chat-stream";
 import { registerAttachmentIpc } from "./attachment-ipc";
 import { registerQueueIpc } from "./queue-ipc";
+import { registerServiceIpc } from "./service-ipc";
 import { registerVoiceIpc } from "./voice-ipc";
-import { createOperationStore } from "../db/operations";
-import { turnDispatcher } from "../runtime/queue-service";
 
 function assertTrustedWindow(
   event: IpcMainInvokeEvent,
@@ -102,6 +101,7 @@ export function registerIpc(mainWindow: BrowserWindow): void {
   registerWindowIpc(mainWindow);
   registerQueueIpc(mainWindow);
   registerVoiceIpc(mainWindow);
+  registerServiceIpc(mainWindow);
   registerAttachmentIpc(mainWindow);
   registerAssistantStreamIpc(mainWindow);
 
@@ -403,7 +403,7 @@ export function registerIpc(mainWindow: BrowserWindow): void {
     IPC_CHANNELS.operationsConfirm,
     async (event, payload: unknown) => {
       assertTrustedWindow(event, mainWindow);
-      const data = approvalReviewSchema.parse(payload);
+      const data = approvalDecisionSchema.parse(payload);
       const database = getDatabase();
       const scopes = createScopeStore(database);
       const review = reviewOperation({
@@ -421,32 +421,15 @@ export function registerIpc(mainWindow: BrowserWindow): void {
           summary: "That operation is no longer waiting.",
         };
       }
-      const { response } = await dialog.showMessageBox(mainWindow, {
-        type: "question",
-        buttons: ["Deny", "Approve"],
-        defaultId: 0,
-        cancelId: 0,
-        noLink: true,
-        title: "Confirm file change",
-        message: review.summary,
-        detail: confirmationDetail(review),
-      });
       const decision = decideOperation({
         database,
         scopes,
         operationId: data.operationId,
         threadId: data.threadId,
         sessionId: operationSession(),
-        decision: response === 1 ? "approve" : "deny",
+        decision: data.decision,
       });
-      const plan = createOperationStore(database).get(data.operationId);
-      if (
-        plan?.turnId &&
-        plan.status !== "pending" &&
-        plan.status !== "executing"
-      ) {
-        turnDispatcher().settleApproval(plan.turnId);
-      }
+      if (decision.operationId) resolveApproval(decision.operationId, decision);
       return decision;
     },
   );
@@ -595,22 +578,4 @@ export function registerIpc(mainWindow: BrowserWindow): void {
     });
     return { ok: true as const, summary: "Cleared the ags check command." };
   });
-}
-
-function confirmationDetail(review: OperationReview): string {
-  const lines = [
-    operationInventoryLine(review),
-    ...review.risks,
-    ...review.items
-      .slice(0, 40)
-      .map((item) =>
-        [item.kind, item.from, item.to].filter((part) => part).join(" "),
-      ),
-  ];
-  if (review.items.length > 40) {
-    lines.push(
-      `${review.items.length - 40} more items are listed in the chat card.`,
-    );
-  }
-  return lines.join("\n").slice(0, 4000);
 }
