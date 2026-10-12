@@ -28,7 +28,7 @@ export function ThreadListSidebar({
           </span>
         </UnstyledButton>
         <ActionIcon
-          variant="subtle"
+          variant="transparent"
           aria-label="Toggle Sidebar"
           onClick={onToggle}
         >

@@ -90,7 +90,7 @@ function VerboShell(): ReactElement {
           <header className={styles.header} data-window-chrome>
             {showHeaderToggle ? (
               <ActionIcon
-                variant="subtle"
+                variant="transparent"
                 aria-label="Toggle Sidebar"
                 onClick={toggleSidebar}
               >

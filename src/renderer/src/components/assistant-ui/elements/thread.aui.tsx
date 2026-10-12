@@ -286,8 +286,8 @@ const ThreadRoot: FC<{ isEmpty: boolean; autoFocus: boolean }> = ({
             </AuiIf>
           </ThreadPrimitive.ViewportFooter>
         </div>
-        <ThreadScrollToBottom />
       </ThreadPrimitive.Viewport>
+      <ThreadScrollToBottom />
     </ThreadPrimitive.Root>
   );
 };
@@ -402,10 +402,10 @@ const SpokenActionBar: FC = () => {
         }
       >
         <AuiIf condition={(s) => s.message.isCopied}>
-          <CheckIcon className={styles.copyIconCheck} />
+          <CheckIcon className={styles.copyIconCheck} size={14} />
         </AuiIf>
         <AuiIf condition={(s) => !s.message.isCopied}>
-          <CopyIcon className={styles.copyIconCopy} />
+          <CopyIcon className={styles.copyIconCopy} size={14} />
         </AuiIf>
       </ActionBarPrimitive.Copy>
     </ActionBarPrimitive.Root>
@@ -1092,12 +1092,16 @@ const AssistantActionBar: FC = () => {
       autohideFloat="single-branch"
       className={cx("aui-assistant-action-bar-root", styles.assistantActionBar)}
     >
-      <ActionBarPrimitive.Copy render={<TooltipIconButton tooltip="Copy" />}>
+      <ActionBarPrimitive.Copy
+        render={
+          <TooltipIconButton tooltip="Copy" className={styles.compactAction} />
+        }
+      >
         <AuiIf condition={(s) => s.message.isCopied}>
-          <CheckIcon className={styles.copyIconCheck} />
+          <CheckIcon className={styles.copyIconCheck} size={14} />
         </AuiIf>
         <AuiIf condition={(s) => !s.message.isCopied}>
-          <CopyIcon className={styles.copyIconCopy} />
+          <CopyIcon className={styles.copyIconCopy} size={14} />
         </AuiIf>
       </ActionBarPrimitive.Copy>
       <AuiIf condition={(s) => s.thread.capabilities.feedback}>
@@ -1105,35 +1109,43 @@ const AssistantActionBar: FC = () => {
           render={
             <TooltipIconButton
               tooltip="Helpful"
-              className={styles.feedbackButton}
+              className={cx(styles.feedbackButton, styles.compactAction)}
             />
           }
         >
-          <ThumbsUpIcon />
+          <ThumbsUpIcon size={14} />
         </ActionBarPrimitive.FeedbackPositive>
         <ActionBarPrimitive.FeedbackNegative
           render={
             <TooltipIconButton
               tooltip="Not helpful"
-              className={styles.feedbackButton}
+              className={cx(styles.feedbackButton, styles.compactAction)}
             />
           }
         >
-          <ThumbsDownIcon />
+          <ThumbsDownIcon size={14} />
         </ActionBarPrimitive.FeedbackNegative>
       </AuiIf>
       <ActionBarPrimitive.Reload
-        render={<TooltipIconButton tooltip="Refresh" />}
+        render={
+          <TooltipIconButton
+            tooltip="Refresh"
+            className={styles.compactAction}
+          />
+        }
       >
-        <RefreshCwIcon />
+        <RefreshCwIcon size={14} />
       </ActionBarPrimitive.Reload>
       <ActionBarMorePrimitive.Root>
         <ActionBarMorePrimitive.Trigger
           render={
-            <TooltipIconButton tooltip="More" className={styles.moreTrigger} />
+            <TooltipIconButton
+              tooltip="More"
+              className={cx(styles.moreTrigger, styles.compactAction)}
+            />
           }
         >
-          <MoreHorizontalIcon />
+          <MoreHorizontalIcon size={14} />
         </ActionBarMorePrimitive.Trigger>
         <ActionBarMorePrimitive.Content
           side="bottom"
@@ -1239,10 +1251,13 @@ const UserActionBar: FC = () => {
     >
       <ActionBarPrimitive.Edit
         render={
-          <TooltipIconButton tooltip="Edit" className="aui-user-action-edit" />
+          <TooltipIconButton
+            tooltip="Edit"
+            className={cx("aui-user-action-edit", styles.compactAction)}
+          />
         }
       >
-        <PencilIcon />
+        <PencilIcon size={14} />
       </ActionBarPrimitive.Edit>
     </ActionBarPrimitive.Root>
   );
@@ -1308,15 +1323,24 @@ const BranchPicker: FC<BranchPickerPrimitive.Root.Props> = ({
       {...rest}
     >
       <BranchPickerPrimitive.Previous
-        render={<TooltipIconButton tooltip="Previous" />}
+        render={
+          <TooltipIconButton
+            tooltip="Previous"
+            className={styles.compactAction}
+          />
+        }
       >
-        <ChevronLeftIcon />
+        <ChevronLeftIcon size={14} />
       </BranchPickerPrimitive.Previous>
       <span className={cx("aui-branch-picker-state", styles.branchPickerState)}>
         <BranchPickerPrimitive.Number /> / <BranchPickerPrimitive.Count />
       </span>
-      <BranchPickerPrimitive.Next render={<TooltipIconButton tooltip="Next" />}>
-        <ChevronRightIcon />
+      <BranchPickerPrimitive.Next
+        render={
+          <TooltipIconButton tooltip="Next" className={styles.compactAction} />
+        }
+      >
+        <ChevronRightIcon size={14} />
       </BranchPickerPrimitive.Next>
     </BranchPickerPrimitive.Root>
   );
