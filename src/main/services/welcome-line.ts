@@ -21,7 +21,8 @@ export function welcomeLinePrompt({
   return [
     `Heading: "${verb} ${modifier}."`,
     "Write the one sentence that belongs under that heading.",
-    "Do not repeat the heading. End with a period.",
+    "Do not repeat the heading or reuse either of its words in the sentence.",
+    "End with a period.",
   ].join(" ");
 }
 
