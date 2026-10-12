@@ -1,3 +1,6 @@
+import { isAttachmentId } from "../../../shared/attachments";
+import { publishLocalCommandEffect } from "./command-status";
+import { takeQueueLease } from "./queue-lease";
 import type { ChatModelAdapter } from "@assistant-ui/react";
 import type { ChatEvent, ChatMessage } from "../../../shared/chat-ipc";
 import {
@@ -36,23 +39,33 @@ export function createChatModelAdapter(
       }
 
       const serializedMessages: ChatMessage[] = [];
+      let attachmentIds: string[] = [];
 
       for (const message of messages) {
         const text = message.content
           .flatMap((part) => (part.type === "text" ? [part.text] : []))
           .join("\n");
+        const ids = message.content.flatMap((part) =>
+          part.type === "file" &&
+          part.sourceType === "id" &&
+          isAttachmentId(part.data)
+            ? [part.data]
+            : [],
+        );
         const hasTools = message.content.some(
           (part) => part.type === "tool-call",
         );
-        if (!text && !hasTools) continue;
+        if (!text && !hasTools && ids.length === 0) continue;
         if (message.role !== "user" && message.role !== "assistant") continue;
+        if (message.role === "user") attachmentIds = ids;
         serializedMessages.push({
           id: message.id,
           role: message.role,
-          content: text,
+          content: text || (ids.length > 0 ? "Attached files." : ""),
         });
       }
 
+      const queueItemId = takeQueueLease();
       const settings = await getSettings();
       const queue: ChatEvent[] = [];
       let wake: (() => void) | undefined;
@@ -63,6 +76,8 @@ export function createChatModelAdapter(
           ...(unstable_parentId ? { parentId: unstable_parentId } : {}),
           messages: serializedMessages,
           settings,
+          ...(queueItemId ? { queueItemId } : {}),
+          ...(attachmentIds.length > 0 ? { attachmentIds } : {}),
         },
         (event) => {
           queue.push(event);
@@ -72,7 +87,7 @@ export function createChatModelAdapter(
         },
       );
 
-      const onAbort = () => {
+      const onAbort = (): void => {
         stop();
         const notify = wake;
         wake = undefined;
@@ -93,6 +108,10 @@ export function createChatModelAdapter(
           const event = queue.shift();
           if (!event) continue;
           if (event.type === "error") throw new Error(event.message);
+          if (event.type === "local_command") {
+            publishLocalCommandEffect(event);
+            continue;
+          }
           if (event.type === "done") return;
           state = projectChatEvent(state, event);
           const content = visibleProjection(state);

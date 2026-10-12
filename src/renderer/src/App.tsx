@@ -1,10 +1,14 @@
 import { Thread } from "@/components/assistant-ui/elements/thread.aui";
 import { ThreadListSidebar } from "@/components/assistant-ui/elements/threadlist-sidebar.aui";
+import {
+  ChatSelectionBar,
+  ChatSelectionProvider,
+} from "@/components/ChatSelection";
 import { ContextMeters } from "@/components/ContextMeters";
 import { OllamaStatusBanner } from "@/components/OllamaStatusBanner";
 import { SettingsPanel } from "@/components/SettingsPanel";
 import { VerboRuntimeProvider } from "@/runtime/VerboRuntimeProvider";
-import { useAuiState, type AssistantState } from "@assistant-ui/react";
+import { useAui, useAuiState, type AssistantState } from "@assistant-ui/react";
 import { chatPlaceholderTitle } from "@shared/thread-title";
 import { ActionIcon, AppShell } from "@mantine/core";
 import { useDisclosure, useMediaQuery } from "@mantine/hooks";
@@ -42,56 +46,72 @@ function VerboShell(): ReactElement {
   });
   const [mobileOpened, { toggle: toggleMobile }] = useDisclosure(false);
   const [desktopOpened, { toggle: toggleDesktop }] = useDisclosure(true);
+  const aui = useAui();
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent): void => {
-      if (event.key !== "b" || !(event.metaKey || event.ctrlKey)) return;
+      const command = event.metaKey || event.ctrlKey;
+      if (!command) return;
+      if (event.key === "b") {
+        event.preventDefault();
+        if (isMobile) toggleMobile();
+        else toggleDesktop();
+        return;
+      }
+      if (event.key !== "n" || event.altKey || event.shiftKey || event.repeat) {
+        return;
+      }
+      if (document.querySelector("[role='dialog']")) return;
       event.preventDefault();
-      if (isMobile) toggleMobile();
-      else toggleDesktop();
+      aui.threads().switchToNewThread();
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [isMobile, toggleMobile, toggleDesktop]);
+  }, [aui, isMobile, toggleMobile, toggleDesktop]);
 
   const toggleSidebar = isMobile ? toggleMobile : toggleDesktop;
   const showHeaderToggle = isMobile || !desktopOpened;
   const sidebarHidden = isMobile ? !mobileOpened : !desktopOpened;
 
   return (
-    <AppShell
-      className={styles.shell}
-      padding={0}
-      navbar={{
-        width: 248,
-        breakpoint: "sm",
-        collapsed: { mobile: !mobileOpened, desktop: !desktopOpened },
-      }}
-    >
-      <AppShell.Navbar withBorder={false} className={styles.navbar} p={0}>
-        <ThreadListSidebar onToggle={toggleSidebar} />
-      </AppShell.Navbar>
-      <AppShell.Main className={styles.inset}>
-        <header className={styles.header}>
-          {showHeaderToggle ? (
-            <ActionIcon
-              variant="subtle"
-              aria-label="Toggle Sidebar"
-              onClick={toggleSidebar}
-            >
-              <PanelLeftIcon size={18} />
-            </ActionIcon>
-          ) : null}
-          <ShellTitle />
-          {sidebarHidden ? <ContextMeters compact /> : null}
-          <OllamaStatusBanner />
-          <SettingsPanel />
-        </header>
-        <div className={styles.main}>
-          <Thread />
-        </div>
-      </AppShell.Main>
-    </AppShell>
+    <ChatSelectionProvider>
+      <AppShell
+        className={styles.shell}
+        padding={0}
+        navbar={{
+          width: 248,
+          breakpoint: "sm",
+          collapsed: { mobile: !mobileOpened, desktop: !desktopOpened },
+        }}
+      >
+        <AppShell.Navbar withBorder={false} className={styles.navbar} p={0}>
+          <ThreadListSidebar onToggle={toggleSidebar} />
+        </AppShell.Navbar>
+        <AppShell.Main className={styles.inset}>
+          <header className={styles.header}>
+            {showHeaderToggle ? (
+              <ActionIcon
+                variant="subtle"
+                aria-label="Toggle Sidebar"
+                onClick={toggleSidebar}
+              >
+                <PanelLeftIcon size={18} />
+              </ActionIcon>
+            ) : null}
+            <ShellTitle />
+            {sidebarHidden ? <ContextMeters compact /> : null}
+            <OllamaStatusBanner />
+            <SettingsPanel />
+          </header>
+          <div className={styles.main}>
+            <ChatSelectionBar />
+            <div className={styles.threadPane}>
+              <Thread />
+            </div>
+          </div>
+        </AppShell.Main>
+      </AppShell>
+    </ChatSelectionProvider>
   );
 }
 

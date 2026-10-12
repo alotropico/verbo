@@ -7,9 +7,19 @@ import {
   Skeleton,
   type ButtonProps,
 } from "@mantine/core";
+import { publishCommandStatus } from "@/runtime/command-status";
+import { useChatSelection } from "@/components/chat-selection-context";
 import { cx } from "@/lib/cx";
 import a11y from "@/lib/a11y.module.css";
+import {
+  chatExportFilename,
+  chatExportJson,
+  chatExportMarkdown,
+  readExportMessages,
+  type ChatExport,
+} from "@shared/chat-export";
 import { chatPlaceholderTitle } from "@shared/thread-title";
+import { savedRemoteThreadId } from "@shared/thread-identity";
 import {
   AuiIf,
   ThreadListItemMorePrimitive,
@@ -20,12 +30,15 @@ import {
 } from "@assistant-ui/react";
 import {
   ArchiveIcon,
+  FileJsonIcon,
+  FileTextIcon,
   Loader2Icon,
   MoreHorizontalIcon,
   PencilIcon,
   PlusIcon,
   SearchIcon,
   TrashIcon,
+  XIcon,
 } from "lucide-react";
 import {
   forwardRef,
@@ -37,15 +50,31 @@ import {
   useSyncExternalStore,
   type ComponentPropsWithoutRef,
   type FC,
+  type KeyboardEvent as ReactKeyboardEvent,
 } from "react";
 import styles from "./thread-list.module.css";
 
 export const ThreadList: FC = () => {
   const [search, setSearch] = useState("");
   const hasThreads = useAuiState((s) => s.threads.threadIds.length > 0);
+  const { selectVisible } = useChatSelection();
 
   return (
-    <ThreadListRoot>
+    <ThreadListRoot
+      onKeyDown={(event) => {
+        if (event.key !== "a" || event.shiftKey || event.altKey) return;
+        if (!(event.ctrlKey || event.metaKey)) return;
+        const target = event.target;
+        if (
+          target instanceof HTMLElement &&
+          target.closest("input, textarea, [contenteditable='true']")
+        ) {
+          return;
+        }
+        event.preventDefault();
+        selectVisible();
+      }}
+    >
       {hasThreads && (
         <ThreadListSearch value={search} onValueChange={setSearch} />
       )}
@@ -79,6 +108,21 @@ export const ThreadListSearch = forwardRef<
           />
         }
         leftSectionPointerEvents="none"
+        rightSection={
+          value.length > 0 ? (
+            <ActionIcon
+              variant="subtle"
+              size="sm"
+              aria-label="Clear search"
+              className={styles.searchClear}
+              onMouseDown={(event) => event.preventDefault()}
+              onClick={() => onValueChange("")}
+            >
+              <XIcon className={styles.searchIcon} />
+            </ActionIcon>
+          ) : null
+        }
+        rightSectionPointerEvents="auto"
         classNames={{ input: cx(styles.searchInput, className) }}
         {...props}
       />
@@ -228,7 +272,18 @@ const ThreadListItemGroups: FC<{ searchQuery?: string }> = ({
 }) => {
   const { threadIds, filteredIndices, groups } =
     useThreadListGroups(searchQuery);
+  const { setVisibleIds } = useChatSelection();
   const query = searchQuery.trim();
+  const visibleIds = useMemo(() => {
+    const indices = groups
+      ? groups.flatMap((group) => group.indices)
+      : filteredIndices;
+    return indices.flatMap((index) => {
+      const id = threadIds[index];
+      return id ? [id] : [];
+    });
+  }, [filteredIndices, groups, threadIds]);
+  setVisibleIds(visibleIds);
 
   if (query && filteredIndices.length === 0) {
     return (
@@ -332,12 +387,25 @@ const ThreadListSkeleton: FC = () => {
   );
 };
 
+const threadTriggers = (node: HTMLElement): HTMLButtonElement[] => {
+  const root = node.closest("[data-slot='aui_thread-list-root']");
+  if (!root) return [];
+  return [
+    ...root.querySelectorAll<HTMLButtonElement>(
+      "[data-slot='aui_thread-list-item-trigger']",
+    ),
+  ];
+};
+
 export const ThreadListItem: FC = () => {
   const isRunning = useAuiState((s) => s.threadListItem.isRunning);
   const itemId = useAuiState((s) => s.threadListItem.id);
+  const { cancel, extraIds, isSelected, selectRange, toggle } =
+    useChatSelection();
   const [isRenaming, setIsRenaming] = useState(false);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const restoreFocusRef = useRef(false);
+  const selected = extraIds.length > 0 && isSelected(itemId);
 
   useEffect(() => {
     if (isRenaming || !restoreFocusRef.current) return;
@@ -345,10 +413,55 @@ export const ThreadListItem: FC = () => {
     triggerRef.current?.focus();
   }, [isRenaming]);
 
+  const onItemKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>): void => {
+    const target = event.target;
+    if (!(target instanceof HTMLElement)) return;
+    const trigger = target.closest<HTMLButtonElement>(
+      "[data-slot='aui_thread-list-item-trigger']",
+    );
+    if (!trigger) return;
+
+    const command = event.ctrlKey || event.metaKey;
+    if (
+      (event.key === "Enter" || event.key === " ") &&
+      command &&
+      !event.shiftKey
+    ) {
+      event.preventDefault();
+      toggle(itemId);
+      return;
+    }
+    if ((event.key === "Enter" || event.key === " ") && event.shiftKey) {
+      event.preventDefault();
+      selectRange(itemId);
+      return;
+    }
+    if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
+    if (event.altKey || (command && event.shiftKey)) return;
+    if (!command && !event.shiftKey) return;
+
+    const triggers = threadTriggers(trigger);
+    const next =
+      triggers[
+        triggers.indexOf(trigger) + (event.key === "ArrowDown" ? 1 : -1)
+      ];
+    if (!next) return;
+    event.preventDefault();
+    next.focus();
+    if (!event.shiftKey) return;
+    const nextId = next
+      .closest("[data-thread-id]")
+      ?.getAttribute("data-thread-id");
+    if (nextId) selectRange(nextId);
+  };
+
   return (
     <ThreadListItemPrimitive.Root
       data-slot="aui_thread-list-item"
+      data-thread-id={itemId}
+      data-selected={selected ? "true" : undefined}
       className={styles.itemRoot}
+      onKeyDown={onItemKeyDown}
     >
       {isRenaming ? (
         <ThreadListItemRename
@@ -362,6 +475,19 @@ export const ThreadListItem: FC = () => {
           ref={triggerRef}
           data-slot="aui_thread-list-item-trigger"
           className={styles.trigger}
+          onClick={(event) => {
+            if (event.shiftKey) {
+              event.preventDefault();
+              selectRange(itemId);
+              return;
+            }
+            if (event.ctrlKey || event.metaKey) {
+              event.preventDefault();
+              toggle(itemId);
+              return;
+            }
+            cancel();
+          }}
         >
           {isRunning && (
             <Loader2Icon
@@ -378,6 +504,7 @@ export const ThreadListItem: FC = () => {
               fallback={chatPlaceholderTitle(itemId)}
             />
           </span>
+          {selected ? <span className={a11y.srOnly}>Selected</span> : null}
           {isRunning && <span className={a11y.srOnly}>Running</span>}
         </ThreadListItemPrimitive.Trigger>
       )}
@@ -453,7 +580,64 @@ const ThreadListItemRename: FC<{
   );
 };
 
+const downloadText = (filename: string, mime: string, text: string): void => {
+  const url = URL.createObjectURL(new Blob([text], { type: mime }));
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  link.rel = "noopener";
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 0);
+};
+
+const exportChatFile = async (
+  kind: "json" | "md",
+  item: {
+    id: string;
+    remoteId: string | undefined;
+    status: string;
+    title?: string | undefined;
+  },
+): Promise<void> => {
+  const title = item.title?.trim() || chatPlaceholderTitle(item.id);
+  const savedId = savedRemoteThreadId({
+    status: item.status,
+    remoteId: item.remoteId,
+  });
+  const loaded = savedId
+    ? await window.verbo.storage.loadMessages(savedId)
+    : { messages: [], headId: null };
+  const chat: ChatExport = {
+    id: savedId ?? item.id,
+    title,
+    headId: loaded.headId,
+    messages: readExportMessages(loaded.messages),
+  };
+  const text =
+    kind === "json" ? chatExportJson(chat) : chatExportMarkdown(chat);
+  const mime =
+    kind === "json" ? "application/json" : "text/markdown;charset=utf-8";
+  downloadText(chatExportFilename(title, kind), mime, text);
+};
+
 const ThreadListItemMore: FC<{ onRename: () => void }> = ({ onRename }) => {
+  const aui = useAui();
+
+  const exportAs = (kind: "json" | "md"): void => {
+    const item = aui.threadListItem.getState();
+    void exportChatFile(kind, item).catch((error: unknown) => {
+      publishCommandStatus({
+        status: "error",
+        summary:
+          error instanceof Error
+            ? error.message
+            : "Could not export that chat.",
+      });
+    });
+  };
+
   return (
     <ThreadListItemMorePrimitive.Root sharedFocusGroup>
       <ThreadListItemMorePrimitive.Trigger
@@ -483,6 +667,22 @@ const ThreadListItemMore: FC<{ onRename: () => void }> = ({ onRename }) => {
         >
           <PencilIcon className={styles.moreItemIcon} />
           Rename
+        </ThreadListItemMorePrimitive.Item>
+        <ThreadListItemMorePrimitive.Item
+          data-slot="aui_thread-list-item-more-item"
+          className={styles.moreItem}
+          onSelect={() => exportAs("json")}
+        >
+          <FileJsonIcon className={styles.moreItemIcon} />
+          Export as JSON
+        </ThreadListItemMorePrimitive.Item>
+        <ThreadListItemMorePrimitive.Item
+          data-slot="aui_thread-list-item-more-item"
+          className={styles.moreItem}
+          onSelect={() => exportAs("md")}
+        >
+          <FileTextIcon className={styles.moreItemIcon} />
+          Export as MD
         </ThreadListItemMorePrimitive.Item>
         <ThreadListItemPrimitive.Archive
           render={

@@ -9,8 +9,19 @@
 
 .identity {
   align-items: center;
+  background: transparent;
+  border: 0;
+  color: inherit;
+  cursor: pointer;
   display: flex;
+  font: inherit;
   gap: rem(9px);
+  padding: 0;
+}
+
+.identity:focus-visible {
+  outline: rem(1px) solid color-mix(in oklab, var(--ring) 50%, transparent);
+  outline-offset: rem(4px);
 }
 
 .mark {
@@ -42,14 +53,6 @@
 
 .footer {
   border-top: rem(1px) solid var(--sidebar-border);
-  display: flex;
-  flex-direction: column;
-  gap: var(--mantine-spacing-xs);
   margin-inline: rem(20px);
   padding-block: rem(18px) rem(20px);
-}
-
-.shortcut {
-  color: color-mix(in oklab, var(--muted-foreground) 75%, transparent);
-  font-size: rem(10px);
 }

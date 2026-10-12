@@ -1,10 +1,13 @@
 import {
   createTheme,
+  Button,
   Combobox,
   defaultVariantColorsResolver,
   Input,
   InputWrapper,
   Modal,
+  Slider,
+  Switch,
   Tooltip,
   type CSSVariablesResolver,
   type VariantColorsResolver,
@@ -53,46 +56,55 @@ export const cssVariablesResolver: CSSVariablesResolver = () => ({
 });
 
 const variantColorResolver: VariantColorsResolver = (input) => {
+  const isDestructive = input.color === "red";
   const isPrimary =
     input.color === undefined || input.color === input.theme.primaryColor;
-  if (!isPrimary) return defaultVariantColorsResolver(input);
+  if (!isPrimary && !isDestructive) return defaultVariantColorsResolver(input);
+  const color = isDestructive ? "var(--destructive)" : "var(--primary)";
+  const tint = `color-mix(in oklab, ${color} 10%, transparent)`;
 
   switch (input.variant) {
     case "filled":
       return {
-        background: "var(--primary)",
-        hover: "color-mix(in oklch, var(--primary) 80%, transparent)",
+        background: color,
+        hover: `color-mix(in oklab, ${color} 85%, var(--background))`,
         color: "var(--primary-foreground)",
-        border: "transparent",
+        border: "1px solid transparent",
       };
     case "light":
       return {
-        background: "var(--accent)",
-        hover: "var(--muted)",
-        color: "var(--accent-foreground)",
-        border: "transparent",
+        background: tint,
+        hover: `color-mix(in oklab, ${color} 16%, transparent)`,
+        color,
+        border: "1px solid transparent",
       };
     case "outline":
       return {
         background: "transparent",
-        hover: "var(--accent)",
-        color: "var(--foreground)",
-        border: "var(--border)",
+        hover: isDestructive ? tint : "var(--accent)",
+        color: isDestructive ? color : "var(--foreground)",
+        border: `1px solid ${isDestructive ? color : "var(--border)"}`,
       };
     case "subtle":
+      return {
+        background: "transparent",
+        hover: isDestructive ? tint : "var(--accent)",
+        color: isDestructive ? color : "var(--foreground)",
+        border: "1px solid transparent",
+      };
     case "transparent":
       return {
         background: "transparent",
-        hover: "var(--accent)",
-        color: "var(--foreground)",
-        border: "transparent",
+        hover: "transparent",
+        color: isDestructive ? color : "var(--foreground)",
+        border: "0",
       };
     case "default":
       return {
         background: "var(--card)",
         hover: "var(--accent)",
         color: "var(--card-foreground)",
-        border: "var(--border)",
+        border: "1px solid var(--border)",
       };
     default:
       return defaultVariantColorsResolver({
@@ -107,8 +119,29 @@ export const theme = createTheme({
   defaultRadius: "md",
   variantColorResolver,
   components: {
+    Button: Button.extend({ classNames: { root: styles.button } }),
     Input: Input.extend({ classNames: { input: styles.input } }),
-    InputWrapper: InputWrapper.extend({ classNames: { label: styles.label } }),
+    InputWrapper: InputWrapper.extend({
+      classNames: { label: styles.label, description: styles.description },
+    }),
+    Switch: Switch.extend({
+      defaultProps: { color: "var(--primary)", withThumbIndicator: false },
+      classNames: {
+        input: styles.switchInput,
+        track: styles.switchTrack,
+        thumb: styles.switchThumb,
+        label: styles.switchLabel,
+        description: styles.description,
+      },
+    }),
+    Slider: Slider.extend({
+      defaultProps: { color: "var(--primary)", size: "sm" },
+      classNames: {
+        root: styles.slider,
+        thumb: styles.sliderThumb,
+        label: styles.sliderLabel,
+      },
+    }),
     Modal: Modal.extend({
       classNames: {
         content: styles.modalContent,

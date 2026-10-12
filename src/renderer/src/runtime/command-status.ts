@@ -16,3 +16,14 @@ export function subscribeCommandStatus(listener: () => void): () => void {
 export function readCommandStatus(): LocalCommandResult | null {
   return notice;
 }
+
+export const LOCAL_COMMAND_EVENT = "verbo:local-command";
+
+export function publishLocalCommandEffect(effect: {
+  newThread?: boolean;
+  openMemory?: boolean;
+}): void {
+  window.dispatchEvent(
+    new CustomEvent(LOCAL_COMMAND_EVENT, { detail: effect }),
+  );
+}

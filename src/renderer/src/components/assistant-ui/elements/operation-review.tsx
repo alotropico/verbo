@@ -1,9 +1,10 @@
 import { useEffect, useState, type ReactElement } from "react";
 import { Button } from "@mantine/core";
 import type { ActionResult } from "@shared/action-contract";
-import type {
-  OperationReview,
-  OperationReviewFailure,
+import {
+  operationInventoryLine,
+  type OperationReview,
+  type OperationReviewFailure,
 } from "@shared/file-mutation";
 import { cx } from "@/lib/cx";
 import styles from "./operation-review.module.css";
@@ -76,6 +77,9 @@ export function OperationReviewCard({
       <p className={styles.summary}>
         {receipt?.summary ?? shown?.summary ?? action.summary}
       </p>
+      {shown ? (
+        <p className={styles.summary}>{operationInventoryLine(shown)}</p>
+      ) : null}
       {shown?.risks.map((risk) => (
         <p className={cx(styles.risk)} key={risk}>
           {risk}

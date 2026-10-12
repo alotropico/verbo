@@ -24,6 +24,13 @@ import {
 } from "@/components/assistant-ui/elements/tool-group.aui";
 import { TooltipIconButton } from "./tooltip-icon-button";
 import { CommandNotice } from "@/components/CommandNotice";
+import { PendingQueue } from "@/components/PendingQueue";
+import {
+  useVoiceListening,
+  VoiceDraftPanel,
+  VoiceSessionButton,
+  VoiceSessionProvider,
+} from "@/components/VoiceSession";
 import { useLocalCommandGuard } from "@/runtime/use-local-command";
 import { ActionIcon, Button, Skeleton } from "@mantine/core";
 import { cx } from "@/lib/cx";
@@ -233,9 +240,13 @@ const ThreadRoot: FC<{ isEmpty: boolean; autoFocus: boolean }> = ({
               !isEmpty && styles.viewportFooterDocked,
             )}
           >
-            <ThreadFollowupSuggestions />
-            <CommandNotice />
-            <Composer autoFocus={autoFocus} />
+            <VoiceSessionProvider>
+              <ThreadFollowupSuggestions />
+              <PendingQueue />
+              <CommandNotice />
+              <VoiceDraftPanel />
+              <Composer autoFocus={autoFocus} />
+            </VoiceSessionProvider>
             <AuiIf condition={(s) => isNewChatView(s) && s.composer.isEmpty}>
               <ThreadSuggestions />
             </AuiIf>
@@ -638,6 +649,7 @@ const Composer: FC<{ autoFocus: boolean }> = ({ autoFocus }) => {
           autoFocus={autoFocus}
           enterKeyHint="send"
           aria-label="Message input"
+          onKeyDown={command.onKeyDown}
         />
         <ComposerAction
           canSend={command.canSend}
@@ -652,6 +664,7 @@ const ComposerAction: FC<{
   canSend: boolean;
   onSend: () => void;
 }> = ({ canSend, onSend }) => {
+  const listening = useVoiceListening();
   // The stop control only cancels the send while no run it could stop is going.
   const isSending = useAuiState(
     (s) =>
@@ -728,61 +741,50 @@ const ComposerAction: FC<{
             </ComposerPrimitive.StopDictation>
           </AuiIf>
         </AuiIf>
-        <AuiIf
-          condition={(s) =>
-            !s.composer.canCancel ||
-            (s.thread.voice !== undefined &&
-              s.composer.submission === undefined)
-          }
+        <TooltipIconButton
+          tooltip="Send message"
+          side="bottom"
+          type="button"
+          className={cx(
+            "aui-composer-send",
+            styles.composerIconButton,
+            styles.composerSend,
+          )}
+          aria-label="Send message"
+          disabled={!canSend}
+          onClick={onSend}
         >
-          <TooltipIconButton
-            tooltip="Send message"
-            side="bottom"
-            type="button"
-            className={cx(
-              "aui-composer-send",
-              styles.composerIconButton,
-              styles.composerSend,
-            )}
-            aria-label="Send message"
-            disabled={!canSend}
-            onClick={onSend}
-          >
-            <ArrowUpIcon
-              className={cx("aui-composer-send-icon", styles.composerIconSm)}
-            />
-          </TooltipIconButton>
-        </AuiIf>
-        <AuiIf
-          condition={(s) =>
-            s.composer.canCancel &&
-            (s.thread.voice === undefined ||
-              s.composer.submission !== undefined)
-          }
-        >
-          <ComposerPrimitive.Cancel
-            render={
-              <ActionIcon
-                type="button"
-                variant="subtle"
+          <ArrowUpIcon
+            className={cx("aui-composer-send-icon", styles.composerIconSm)}
+          />
+        </TooltipIconButton>
+        <VoiceSessionButton />
+        {listening ? null : (
+          <AuiIf condition={(s) => s.composer.canCancel}>
+            <ComposerPrimitive.Cancel
+              render={
+                <ActionIcon
+                  type="button"
+                  variant="subtle"
+                  className={cx(
+                    "aui-composer-cancel",
+                    styles.composerIconButton,
+                    styles.composerCancel,
+                  )}
+                  aria-label={isSending ? "Cancel sending" : "Stop generating"}
+                />
+              }
+            >
+              <SquareIcon
                 className={cx(
-                  "aui-composer-cancel",
-                  styles.composerIconButton,
-                  styles.composerCancel,
+                  "aui-composer-cancel-icon",
+                  styles.composerIconMd,
+                  styles.composerCancelIcon,
                 )}
-                aria-label={isSending ? "Cancel sending" : "Stop generating"}
               />
-            }
-          >
-            <SquareIcon
-              className={cx(
-                "aui-composer-cancel-icon",
-                styles.composerIconMd,
-                styles.composerCancelIcon,
-              )}
-            />
-          </ComposerPrimitive.Cancel>
-        </AuiIf>
+            </ComposerPrimitive.Cancel>
+          </AuiIf>
+        )}
       </div>
     </div>
   );

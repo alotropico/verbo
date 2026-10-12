@@ -5,6 +5,12 @@ import {
   type SettingsRecovery,
 } from "@shared/settings-recovery";
 import { chatSettingsSchema } from "@shared/storage-ipc";
+import {
+  DEFAULT_VOICE_SETTINGS,
+  sameVoiceSettings,
+  VOICE_SETTINGS_EVENT,
+  type VoiceSettings,
+} from "@shared/voice-settings";
 import type { FileScopeProposal, FileScopeRecord } from "@shared/files";
 import {
   ActionIcon,
@@ -12,7 +18,6 @@ import {
   Group,
   Modal,
   Select,
-  Slider,
   Stack,
   Switch,
   Tabs,
@@ -31,6 +36,7 @@ import {
 } from "react";
 import { z } from "zod";
 import { FileSettings } from "./FileSettings";
+import { ActionsSettings } from "./ActionsSettings";
 import {
   draftsFromScopes,
   filesDraftDirty,
@@ -38,6 +44,10 @@ import {
   type FileScopeDraft,
 } from "./file-scope-draft";
 import { MemorySettings } from "./MemorySettings";
+import { FileQueryPanel } from "./FileQueryPanel";
+import { ListeningSettings, SpeechSettings } from "./VoiceSettings";
+import { SettingsSlider } from "./SettingsSlider";
+import { SettingsLabel } from "./SettingsLabel";
 import styles from "./SettingsPanel.module.css";
 
 type ModelFormValues = {
@@ -67,23 +77,6 @@ function modelFormSchema(contextValues: string[]): z.ZodType<ModelFormValues> {
   });
 }
 
-function UnavailableTab({
-  title,
-  detail,
-}: {
-  title: string;
-  detail: string;
-}): ReactElement {
-  return (
-    <Stack gap="xs">
-      <Text fw={500}>{title}</Text>
-      <Text size="sm" c="dimmed">
-        {detail}
-      </Text>
-    </Stack>
-  );
-}
-
 function SettingsForm({
   report,
   opened,
@@ -107,7 +100,16 @@ function SettingsForm({
   const [proposal, setProposal] = useState<FileScopeProposal | null>(null);
   const [fileError, setFileError] = useState("");
   const [filesReady, setFilesReady] = useState(false);
+  const [savedVoice, setSavedVoice] = useState<VoiceSettings>(
+    DEFAULT_VOICE_SETTINGS,
+  );
+  const [voiceDraft, setVoiceDraft] = useState<VoiceSettings>(
+    DEFAULT_VOICE_SETTINGS,
+  );
+  const [voiceReady, setVoiceReady] = useState(false);
+  const [voiceError, setVoiceError] = useState("");
   const fileEdit = useRef(false);
+  const voiceEdit = useRef(false);
   const form = useForm<ModelFormValues>({
     mode: "uncontrolled",
     initialValues: {
@@ -158,22 +160,45 @@ function SettingsForm({
       });
   }, [setFileError, setFileRows, setFilesReady, setProposal, setSavedScopes]);
 
+  const loadVoice = useCallback((): void => {
+    voiceEdit.current = false;
+    void window.verbo.voice
+      .settings()
+      .then((next) => {
+        setSavedVoice(next);
+        if (!voiceEdit.current) setVoiceDraft(next);
+        setVoiceReady(true);
+      })
+      .catch(() => {
+        setVoiceReady(true);
+      });
+  }, [setSavedVoice, setVoiceDraft, setVoiceReady]);
+
   useEffect(() => {
     const openSettings = (event: Event): void => {
       const detail = (event as CustomEvent<{ tab?: string }>).detail;
-      setTab(detail?.tab ?? "memory");
+      const requested = detail?.tab ?? "memory";
+      setTab(requested === "voice" ? "listening" : requested);
       loadFiles();
+      loadVoice();
       onOpen();
     };
     window.addEventListener("verbo:open-settings", openSettings);
     return () =>
       window.removeEventListener("verbo:open-settings", openSettings);
-  }, [loadFiles, onOpen]);
+  }, [loadFiles, loadVoice, onOpen]);
 
   const scopesDirty = filesReady && filesDraftDirty(savedScopes, fileRows);
+  const voiceDirty = voiceReady && !sameVoiceSettings(savedVoice, voiceDraft);
+  const saveNote =
+    tab === "memory"
+      ? "Memory changes are saved immediately and apply to the next message."
+      : tab === "actions"
+        ? "Project and AGS changes are saved immediately."
+        : "Model, folder, and voice changes take effect when you save.";
 
   const requestClose = (): void => {
-    if (form.isDirty() || scopesDirty) {
+    if (form.isDirty() || scopesDirty || voiceDirty) {
       setConfirmDiscard(true);
       return;
     }
@@ -182,7 +207,7 @@ function SettingsForm({
 
   return (
     <>
-      <Tooltip label="Model settings">
+      <Tooltip label="Settings">
         <ActionIcon
           variant="subtle"
           size={32}
@@ -191,6 +216,7 @@ function SettingsForm({
           onClick={() => {
             onOpen();
             loadFiles();
+            loadVoice();
             void window.verbo.ollama.status().then((status) => {
               if (status.ok) setModels({ ok: true, models: status.models });
               else
@@ -214,8 +240,14 @@ function SettingsForm({
         trapFocus
         closeOnEscape
         returnFocus
-        classNames={{ content: styles.dialog, body: styles.body }}
+        classNames={{
+          content: styles.dialog,
+          header: styles.header,
+          body: styles.body,
+        }}
         size="900px"
+        xOffset={16}
+        yOffset={16}
         overlayProps={{ backgroundOpacity: 0.35, blur: 8 }}
         closeButtonProps={{ "aria-label": "Close settings" }}
       >
@@ -234,6 +266,26 @@ function SettingsForm({
               setSavedScopes(committed.scopes);
               setFileRows(draftsFromScopes(committed.scopes));
               setFileError("");
+            }
+            if (voiceDirty) {
+              try {
+                const nextVoice =
+                  await window.verbo.voice.setSettings(voiceDraft);
+                setSavedVoice(nextVoice);
+                setVoiceDraft(nextVoice);
+                window.dispatchEvent(
+                  new CustomEvent(VOICE_SETTINGS_EVENT, { detail: nextVoice }),
+                );
+              } catch (caught: unknown) {
+                setVoiceError(
+                  caught instanceof Error
+                    ? caught.message
+                    : "Could not save voice settings.",
+                );
+                setTab("listening");
+                return;
+              }
+              setVoiceError("");
             }
             const saved = chatSettingsSchema.parse({
               ...values,
@@ -254,16 +306,19 @@ function SettingsForm({
           })}
         >
           <Tabs
+            variant="pills"
             value={tab}
             onChange={(value) => setTab(value ?? "model")}
             className={styles.tabs}
+            classNames={{ list: styles.tabList, tab: styles.tab }}
             keepMounted={false}
           >
             <Tabs.List>
               <Tabs.Tab value="model">Model</Tabs.Tab>
               <Tabs.Tab value="memory">Memory</Tabs.Tab>
               <Tabs.Tab value="files">Files</Tabs.Tab>
-              <Tabs.Tab value="voice">Voice</Tabs.Tab>
+              <Tabs.Tab value="listening">Listening</Tabs.Tab>
+              <Tabs.Tab value="speech">Speech</Tabs.Tab>
               <Tabs.Tab value="actions">Actions</Tabs.Tab>
             </Tabs.List>
             <Tabs.Panel value="model" className={styles.panel}>
@@ -284,12 +339,16 @@ function SettingsForm({
                   </Text>
                 ) : null}
                 <Select
-                  label="Model"
-                  description="Exact installed Ollama tag."
+                  label={
+                    <SettingsLabel
+                      label="Model"
+                      tip="Choose an installed Ollama model for your conversations."
+                    />
+                  }
                   data={modelData}
                   allowDeselect={false}
                   searchable
-                  nothingFoundMessage="No installed model"
+                  nothingFoundMessage="No matching models"
                   key={form.key("model")}
                   {...form.getInputProps("model")}
                   error={
@@ -299,33 +358,37 @@ function SettingsForm({
                   }
                 />
                 <Switch
-                  label="Thinking mode"
-                  description="Ask the model to include its chain-of-thought before the answer."
+                  label={
+                    <SettingsLabel
+                      label="Thinking mode"
+                      tip="Let supported models reason before answering."
+                    />
+                  }
                   key={form.key("think")}
                   {...form.getInputProps("think", { type: "checkbox" })}
                 />
                 <Select
-                  label="Context window"
-                  description="Presets from 2K to 128K. A saved custom size stays until you change it. High values use more memory."
+                  label={
+                    <SettingsLabel
+                      label="Context window"
+                      tip="How much conversation the model can use at once. Larger windows use more memory."
+                    />
+                  }
                   data={choices}
                   allowDeselect={false}
                   key={form.key("numCtx")}
                   {...form.getInputProps("numCtx")}
                 />
-                <Stack gap={4}>
-                  <Text size="sm" fw={500}>
-                    Temperature {temperature.toFixed(1)}
-                  </Text>
-                  <Slider
-                    min={0}
-                    max={1}
-                    step={0.1}
-                    label={(value) => value.toFixed(1)}
-                    aria-label="Temperature"
-                    key={form.key("temperature")}
-                    {...form.getInputProps("temperature", { withError: false })}
-                  />
-                </Stack>
+                <SettingsSlider
+                  label="Temperature"
+                  description="Lower values give more consistent answers. Higher values add variety."
+                  display={temperature.toFixed(1)}
+                  min={0}
+                  max={1}
+                  step={0.1}
+                  key={form.key("temperature")}
+                  {...form.getInputProps("temperature", { withError: false })}
+                />
               </Stack>
             </Tabs.Panel>
             <Tabs.Panel value="memory" className={styles.panel}>
@@ -333,45 +396,63 @@ function SettingsForm({
             </Tabs.Panel>
             <Tabs.Panel value="files" className={styles.panel}>
               {filesReady ? (
-                <FileSettings
-                  proposal={proposal}
-                  rows={fileRows}
-                  error={fileError}
-                  onChange={(rows) => {
-                    fileEdit.current = true;
-                    setFileRows(rows);
-                  }}
-                  onError={setFileError}
-                />
+                <Stack gap="md">
+                  <FileSettings
+                    proposal={proposal}
+                    rows={fileRows}
+                    error={fileError}
+                    onChange={(rows) => {
+                      fileEdit.current = true;
+                      setFileRows(rows);
+                    }}
+                    onError={setFileError}
+                  />
+                  <FileQueryPanel />
+                </Stack>
               ) : (
                 <Text size="sm" c="dimmed">
                   {fileError || "Loading folders."}
                 </Text>
               )}
             </Tabs.Panel>
-            <Tabs.Panel value="voice" className={styles.panel}>
-              <UnavailableTab
-                title="Voice"
-                detail="The voice service is not connected. Typed chat still works. Voice preferences will stay staged until Save once the service is available."
+            <Tabs.Panel value="listening" className={styles.panel}>
+              {voiceError ? (
+                <Text className={styles.notice} size="sm">
+                  {voiceError}
+                </Text>
+              ) : null}
+              <ListeningSettings
+                value={voiceDraft}
+                onChange={(next) => {
+                  voiceEdit.current = true;
+                  setVoiceDraft(next);
+                }}
+              />
+            </Tabs.Panel>
+            <Tabs.Panel value="speech" className={styles.panel}>
+              <SpeechSettings
+                value={voiceDraft}
+                onChange={(next) => {
+                  voiceEdit.current = true;
+                  setVoiceDraft(next);
+                }}
               />
             </Tabs.Panel>
             <Tabs.Panel value="actions" className={styles.panel}>
-              <UnavailableTab
-                title="Actions"
-                detail="The capability catalog is not available yet. Action history will appear here when actions run."
-              />
+              <ActionsSettings />
             </Tabs.Panel>
           </Tabs>
           <Group justify="space-between" className={styles.footer}>
-            <Text size="xs" c="dimmed">
-              Save stores model settings and folder registrations. Cancel leaves
-              them unchanged.
+            <Text size="xs" c="dimmed" className={styles.footerNote}>
+              {confirmDiscard
+                ? "Discard unsaved model, folder, and voice changes?"
+                : saveNote}
             </Text>
             {confirmDiscard ? (
-              <Group gap="xs">
+              <Group gap="xs" className={styles.footerActions}>
                 <Button
                   type="button"
-                  size="xs"
+                  size="sm"
                   variant="default"
                   onClick={() => setConfirmDiscard(false)}
                 >
@@ -379,30 +460,35 @@ function SettingsForm({
                 </Button>
                 <Button
                   type="button"
-                  size="xs"
+                  size="sm"
+                  color="red"
+                  variant="light"
                   onClick={() => {
                     form.reset();
                     setFileRows(draftsFromScopes(savedScopes));
+                    setVoiceDraft(savedVoice);
+                    voiceEdit.current = false;
+                    setVoiceError("");
                     setFileError("");
                     setConfirmDiscard(false);
                     onClose();
                   }}
                 >
-                  Discard
+                  Discard changes
                 </Button>
               </Group>
             ) : (
-              <Group gap="xs">
+              <Group gap="xs" className={styles.footerActions}>
                 <Button
                   type="button"
-                  size="xs"
+                  size="sm"
                   variant="default"
                   onClick={requestClose}
                 >
                   Cancel
                 </Button>
-                <Button type="submit" size="xs" loading={form.submitting}>
-                  Save
+                <Button type="submit" size="sm" loading={form.submitting}>
+                  Save changes
                 </Button>
               </Group>
             )}

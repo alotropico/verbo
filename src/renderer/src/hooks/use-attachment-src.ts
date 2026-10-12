@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { useAuiState } from "@assistant-ui/react";
 import { useShallow } from "zustand/react/shallow";
 
-const useFileSrc = (file: File | undefined) => {
+const useFileSrc = (file: File | undefined): string | undefined => {
   const [entry, setEntry] = useState<{ file: File; url: string } | undefined>(
     undefined,
   );
@@ -30,17 +30,36 @@ const useFileSrc = (file: File | undefined) => {
   return entry !== undefined && entry.file === file ? entry.url : undefined;
 };
 
-export const useAttachmentSrc = () => {
-  const { file, src } = useAuiState(
-    useShallow((s): { file?: File; src?: string } => {
+export const useAttachmentSrc = (): string | undefined => {
+  const { file, src, attachmentId } = useAuiState(
+    useShallow((s): { file?: File; src?: string; attachmentId?: string } => {
       if (s.attachment.type !== "image") return {};
       if (s.attachment.file) return { file: s.attachment.file };
-      const src = s.attachment.content?.filter((c) => c.type === "image")[0]
+      const image = s.attachment.content?.filter((c) => c.type === "image")[0]
         ?.image;
-      if (!src) return {};
-      return { src };
+      if (image) return { src: image };
+      const stored = s.attachment.content?.find(
+        (part) =>
+          part.type === "file" &&
+          part.sourceType === "id" &&
+          part.mimeType.startsWith("image/"),
+      );
+      if (stored?.type === "file") return { attachmentId: stored.data };
+      return {};
     }),
   );
+  const [preview, setPreview] = useState<string | undefined>(undefined);
 
-  return useFileSrc(file) ?? src;
+  useEffect(() => {
+    if (!attachmentId) return undefined;
+    let cancelled = false;
+    void window.verbo.attachments.preview(attachmentId).then((result) => {
+      if (!cancelled && result.ok) setPreview(result.dataUrl);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [attachmentId]);
+
+  return useFileSrc(file) ?? src ?? (attachmentId ? preview : undefined);
 };

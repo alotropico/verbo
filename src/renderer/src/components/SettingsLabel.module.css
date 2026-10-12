@@ -1,0 +1,19 @@
+.label {
+  align-items: center;
+  display: inline-flex;
+  gap: rem(6px);
+  max-width: 100%;
+}
+
+.tip {
+  color: var(--muted-foreground);
+  cursor: default;
+  display: inline-flex;
+  flex-shrink: 0;
+  line-height: 0;
+}
+
+.tip:focus-visible {
+  outline: rem(1px) solid color-mix(in oklab, var(--ring) 50%, transparent);
+  outline-offset: rem(2px);
+}

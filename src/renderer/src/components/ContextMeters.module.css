@@ -11,11 +11,18 @@
 }
 
 .meters {
-  display: flex;
-  flex-direction: column;
+  border-collapse: collapse;
   font-size: rem(11px);
-  gap: rem(2px);
   line-height: 1.35;
+  table-layout: fixed;
+  width: 100%;
+}
+
+.meters th,
+.meters td {
+  font-weight: inherit;
+  text-align: start;
+  width: 50%;
 }
 
 .ok {

@@ -3,7 +3,13 @@
   flex-direction: column;
   height: min(rem(650px), calc(100dvh - rem(32px)));
   max-width: min(rem(900px), calc(100vw - rem(32px)));
+  overflow: clip;
   width: min(rem(900px), calc(100vw - rem(32px)));
+}
+
+.header {
+  flex-shrink: 0;
+  position: static;
 }
 
 .body {
@@ -11,12 +17,25 @@
   flex: 1;
   flex-direction: column;
   min-height: 0;
+  overflow: hidden;
 }
 
 .footer {
   border-top: rem(1px) solid var(--sidebar-border);
-  margin-top: auto;
-  padding-top: var(--mantine-spacing-md);
+  flex-shrink: 0;
+  gap: var(--mantine-spacing-md);
+  margin: auto rem(-24px) 0;
+  padding: var(--mantine-spacing-md) rem(24px) 0;
+}
+
+.footerActions {
+  flex-shrink: 0;
+  margin-inline-start: auto;
+}
+
+.footerNote {
+  flex: 1;
+  min-width: min(100%, rem(260px));
 }
 
 .form {
@@ -31,8 +50,50 @@
 }
 
 .panel {
+  flex: 1;
+  margin-inline: auto;
+  min-height: 0;
   overflow: auto;
-  padding-top: var(--mantine-spacing-md);
+  padding: var(--mantine-spacing-lg) var(--mantine-spacing-xs);
+  width: 100%;
+}
+
+.tab {
+  border: rem(1px) solid transparent;
+  border-radius: var(--radius-md);
+  color: var(--muted-foreground);
+  flex-shrink: 0;
+  font-size: rem(13px);
+  font-weight: 500;
+  padding: var(--mantine-spacing-xs) var(--mantine-spacing-md);
+  transition:
+    background-color 150ms,
+    color 150ms;
+}
+
+.tab[data-active] {
+  background: var(--sidebar-accent);
+  border-color: color-mix(in oklab, var(--primary) 18%, transparent);
+  color: var(--primary);
+}
+
+.tab:hover:not([data-active]) {
+  background: var(--accent);
+  color: var(--foreground);
+}
+
+.tabList {
+  --tab-border-color: var(--surface-edge);
+  --tab-hover-color: var(--accent);
+  --tabs-color: var(--primary);
+  background: color-mix(in oklab, var(--background) 30%, transparent);
+  border: rem(1px) solid var(--sidebar-border);
+  border-radius: var(--radius-lg);
+  flex-shrink: 0;
+  flex-wrap: nowrap;
+  gap: rem(4px);
+  overflow-x: auto;
+  padding: rem(4px);
 }
 
 .tabs {
@@ -50,4 +111,26 @@
 
 .trigger:hover {
   color: var(--foreground);
+}
+
+@media (max-width: em(600px)) {
+  .panel {
+    padding-inline: 0;
+  }
+
+  .tab {
+    padding-inline: var(--mantine-spacing-sm);
+  }
+
+  .tabList {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    overflow-x: visible;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tab {
+    transition: none;
+  }
 }

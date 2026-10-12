@@ -56,13 +56,17 @@
 }
 
 .trigger {
-  display: flex;
-  max-width: 75%;
-  transform-origin: left;
   align-items: center;
+  appearance: none;
+  background: transparent;
+  border: 0;
+  border-radius: var(--radius-md);
+  display: flex;
+  max-width: 100%;
+  transform-origin: left;
   gap: rem(8px);
-  padding-block: rem(6px);
-  font-size: rem(14px);
+  padding: var(--mantine-spacing-xs) var(--mantine-spacing-sm);
+  font-size: var(--mantine-font-size-xs);
   color: var(--muted-foreground);
   transition:
     color 150ms,
@@ -70,7 +74,13 @@
 }
 
 .trigger:hover {
+  background: var(--accent);
   color: var(--foreground);
+}
+
+.trigger:focus-visible {
+  outline: rem(2px) solid var(--ring);
+  outline-offset: rem(2px);
 }
 
 .trigger:active {
@@ -86,7 +96,7 @@
 
 .triggerLabel {
   display: inline-block;
-  line-height: 1;
+  line-height: 1.5;
   font-variant-numeric: tabular-nums;
 }
 

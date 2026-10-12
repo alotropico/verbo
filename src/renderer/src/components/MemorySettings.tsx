@@ -13,6 +13,7 @@ import { schemaResolver, useForm } from "@mantine/form";
 import { useAuiState } from "@assistant-ui/react";
 import { useCallback, useEffect, useState, type ReactElement } from "react";
 import { z } from "zod";
+import { SettingsLabel } from "./SettingsLabel";
 import styles from "./MemorySettings.module.css";
 
 type Browser = {
@@ -64,7 +65,12 @@ function MemoryRow({
   return (
     <li className={styles.entry}>
       <Textarea
-        aria-label="Memory text"
+        label={
+          <SettingsLabel
+            label="Memory text"
+            tip="The saved note. Save text writes your edit."
+          />
+        }
         autosize
         minRows={2}
         value={text}
@@ -72,7 +78,13 @@ function MemoryRow({
       />
       <div className={styles.entryActions}>
         <Select
-          aria-label="Inclusion"
+          label={
+            <SettingsLabel
+              label="When to use"
+              tip="Always includes the note in every message. On demand keeps it out until it is retrieved."
+            />
+          }
+          className={styles.inclusion}
           data={[
             { value: "always", label: "Always" },
             { value: "on_demand", label: "On demand" },
@@ -159,13 +171,18 @@ export function MemorySettings(): ReactElement {
   return (
     <Stack gap="md">
       <Text size="sm">
-        Always-on memory {usage?.tokens ?? 0} / {usage?.budget ?? 512} estimated
-        tokens ({percent}%). A change applies on the next turn. Cancel does not
-        undo a memory action that already completed.
+        Always-on memory uses {usage?.tokens ?? 0} of {usage?.budget ?? 512}{" "}
+        estimated tokens ({percent}%). Changes are saved immediately and apply
+        to the next message.
       </Text>
       <div className={styles.addForm}>
         <Textarea
-          label="New memory"
+          label={
+            <SettingsLabel
+              label="New memory"
+              tip="A note the model can use in later messages."
+            />
+          }
           autosize
           minRows={2}
           key={form.key("text")}
@@ -173,13 +190,19 @@ export function MemorySettings(): ReactElement {
         />
         <div className={styles.addActions}>
           <Select
-            label="Scope"
+            className={styles.addField}
+            label={
+              <SettingsLabel
+                label="Scope"
+                tip="All chats keeps the note everywhere. This chat keeps it in the open conversation."
+              />
+            }
             allowDeselect={false}
             data={[
-              { value: "global", label: "Global" },
+              { value: "global", label: "All chats" },
               {
                 value: "thread",
-                label: "This thread",
+                label: "This chat",
                 disabled: !persisted,
               },
             ]}
@@ -187,7 +210,13 @@ export function MemorySettings(): ReactElement {
             {...form.getInputProps("scope")}
           />
           <Select
-            label="Inclusion"
+            className={styles.addField}
+            label={
+              <SettingsLabel
+                label="When to use"
+                tip="Always includes the note in every message. On demand keeps it out until it is retrieved."
+              />
+            }
             allowDeselect={false}
             data={[
               { value: "on_demand", label: "On demand" },
@@ -224,7 +253,7 @@ export function MemorySettings(): ReactElement {
               })();
             }}
           >
-            Add
+            Add memory
           </Button>
         </div>
       </div>
@@ -235,11 +264,11 @@ export function MemorySettings(): ReactElement {
       ) : null}
       <section>
         <Text fw={500} size="sm">
-          Global
+          All chats
         </Text>
         {globalEntries.length === 0 ? (
           <Text size="sm" c="dimmed">
-            No global memories.
+            No memories shared across chats.
           </Text>
         ) : (
           <ul className={styles.list}>
@@ -255,11 +284,11 @@ export function MemorySettings(): ReactElement {
       </section>
       <section>
         <Text fw={500} size="sm">
-          This thread
+          This chat
         </Text>
         {threadEntries.length === 0 ? (
           <Text size="sm" c="dimmed">
-            No thread notes.
+            No memories for this chat.
           </Text>
         ) : (
           <ul className={styles.list}>

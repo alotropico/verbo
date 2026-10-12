@@ -97,9 +97,18 @@
 }
 
 .main {
-  min-height: 0;
+  display: flex;
   flex: 1;
+  flex-direction: column;
+  min-height: 0;
+  min-width: 0;
   overflow: hidden;
+}
+
+.threadPane {
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
 }
 
 @media (max-width: em(768px)) {

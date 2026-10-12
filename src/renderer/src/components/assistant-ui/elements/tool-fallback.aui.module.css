@@ -1,38 +1,56 @@
 .root {
+  min-width: 0;
   width: 100%;
 }
 
 .duration {
+  flex-shrink: 0;
   font-size: rem(12px);
   color: var(--muted-foreground);
   font-variant-numeric: tabular-nums;
 }
 
 .trigger {
+  align-items: center;
+  appearance: none;
+  background: transparent;
+  border: 0;
+  border-radius: var(--radius-md);
   display: flex;
   width: fit-content;
   max-width: 100%;
-  transform-origin: left;
-  align-items: center;
   gap: rem(8px);
-  padding-block: rem(6px);
-  font-size: rem(14px);
+  padding: var(--mantine-spacing-xs) var(--mantine-spacing-sm);
+  font-size: var(--mantine-font-size-xs);
   color: var(--muted-foreground);
-  transition: color 150ms, transform 150ms;
+  transition:
+    background-color 150ms,
+    color 150ms;
 }
 
 .trigger:hover {
+  background: var(--accent);
   color: var(--foreground);
 }
 
-.trigger:active {
-  transform: scale(0.98);
+.trigger:focus-visible {
+  outline: rem(2px) solid var(--ring);
+  outline-offset: rem(2px);
 }
 
 .triggerIcon {
+  color: var(--primary);
   width: rem(16px);
   height: rem(16px);
   flex-shrink: 0;
+}
+
+.trigger[data-status="incomplete"] .triggerIcon:not(.triggerIconCancelled) {
+  color: var(--destructive);
+}
+
+.trigger[data-status="requires-action"] .triggerIcon {
+  color: var(--insight);
 }
 
 .triggerIconCancelled {
@@ -47,8 +65,14 @@
   display: inline-block;
   min-width: 0;
   text-align: start;
-  line-height: 1;
+  line-height: 1.6;
   overflow-wrap: anywhere;
+}
+
+.toolName {
+  color: var(--foreground);
+  font-family: var(--font-mono);
+  font-weight: 400;
 }
 
 .triggerLabelCancelled {
@@ -70,8 +94,13 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .trigger,
   .chevron {
     transition: none;
+  }
+
+  .triggerIconRunning {
+    animation: none;
   }
 }
 
@@ -83,11 +112,13 @@
 }
 
 .content[data-open] {
-  animation: collapsible-down var(--animation-duration) cubic-bezier(0.32, 0.72, 0, 1);
+  animation: collapsible-down var(--animation-duration)
+    cubic-bezier(0.32, 0.72, 0, 1);
 }
 
 .content[data-closed] {
-  animation: collapsible-up var(--animation-duration) cubic-bezier(0.32, 0.72, 0, 1);
+  animation: collapsible-up var(--animation-duration)
+    cubic-bezier(0.32, 0.72, 0, 1);
   animation-fill-mode: forwards;
   pointer-events: none;
 }
@@ -100,20 +131,25 @@
 }
 
 .contentInner {
+  border-inline-start: rem(1px) solid var(--surface-edge);
   display: flex;
   flex-direction: column;
   gap: rem(8px);
-  padding-inline-start: rem(24px);
+  margin-inline-start: rem(20px);
+  min-width: 0;
+  padding-inline-start: var(--mantine-spacing-md);
   padding-top: rem(4px);
   padding-bottom: rem(8px);
 }
 
 .content[data-open] .contentInner {
-  animation: toolFallbackInnerIn var(--animation-duration) cubic-bezier(0.32, 0.72, 0, 1);
+  animation: toolFallbackInnerIn var(--animation-duration)
+    cubic-bezier(0.32, 0.72, 0, 1);
 }
 
 .content[data-closed] .contentInner {
-  animation: toolFallbackInnerOut var(--animation-duration) cubic-bezier(0.32, 0.72, 0, 1);
+  animation: toolFallbackInnerOut var(--animation-duration)
+    cubic-bezier(0.32, 0.72, 0, 1);
 }
 
 @keyframes toolFallbackInnerIn {
@@ -151,12 +187,18 @@
 
 .argsValue,
 .resultContent {
-  border-radius: var(--radius);
-  background: color-mix(in oklab, var(--muted) 50%, transparent);
-  color: color-mix(in oklab, var(--foreground) 90%, transparent);
-  padding: rem(10px);
-  font-size: rem(12px);
-  overflow-wrap: break-word;
+  background: var(--surface);
+  border: rem(1px) solid var(--sidebar-border);
+  border-radius: var(--radius-md);
+  color: var(--foreground);
+  font-family: var(--font-mono);
+  font-size: var(--mantine-font-size-xs);
+  line-height: 1.7;
+  margin: 0;
+  max-height: rem(320px);
+  overflow: auto;
+  overflow-wrap: anywhere;
+  padding: var(--mantine-spacing-sm);
   white-space: pre-wrap;
 }
 
@@ -164,6 +206,7 @@
   font-size: rem(12px);
   font-weight: 500;
   color: var(--muted-foreground);
+  margin: 0 0 var(--mantine-spacing-xs);
 }
 
 .resultContent {
@@ -172,11 +215,13 @@
 
 .errorHeader {
   font-weight: 600;
-  color: var(--muted-foreground);
+  color: var(--destructive);
+  margin: 0;
 }
 
 .errorReason {
-  color: var(--muted-foreground);
+  color: var(--destructive);
+  margin: var(--mantine-spacing-xs) 0;
   overflow-wrap: break-word;
   white-space: pre-line;
 }

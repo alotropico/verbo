@@ -1,9 +1,33 @@
 .root {
-  width: rem(24px);
+  background: transparent;
+  border: 0;
+  color: inherit;
   height: rem(24px);
   padding: rem(4px);
+  transition: color 150ms;
+  width: rem(24px);
+}
+
+.root:not(:disabled):not([data-disabled]):hover,
+.root[data-state="open"] {
+  color: var(--foreground);
+}
+
+.root:disabled,
+.root[data-disabled] {
+  color: var(--muted-foreground);
 }
 
 .root:active {
   transform: scale(0.9);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .root {
+    transition: none;
+  }
+
+  .root:active {
+    transform: none;
+  }
 }

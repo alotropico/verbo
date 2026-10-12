@@ -2,12 +2,15 @@ import {
   ExportedMessageRepository,
   RuntimeAdapterProvider,
   useAui,
+  type AttachmentAdapter,
   type RemoteThreadListAdapter,
   type ThreadHistoryAdapter,
   type ThreadMessage,
   type ThreadMessageLike,
 } from "@assistant-ui/react";
-import { useMemo, type PropsWithChildren } from "react";
+import { isPersistedThreadId } from "@shared/thread-identity";
+import { useMemo, type PropsWithChildren, type ReactElement } from "react";
+import { createVerboAttachmentAdapter } from "./attachment-adapter";
 
 function messageText(message: ThreadMessage): string {
   return message.content
@@ -16,7 +19,7 @@ function messageText(message: ThreadMessage): string {
     .trim();
 }
 
-function titleAssistantStream(title: string) {
+function titleAssistantStream(title: string): never {
   return new ReadableStream({
     start(controller) {
       controller.enqueue({
@@ -64,9 +67,27 @@ function useThreadHistoryAdapter(): ThreadHistoryAdapter {
   );
 }
 
-function ThreadAdaptersProvider({ children }: PropsWithChildren) {
+function useAttachmentAdapter(): AttachmentAdapter {
+  const aui = useAui();
+  return useMemo(
+    () =>
+      createVerboAttachmentAdapter(() => {
+        const remoteId = aui.threadListItem.getState().remoteId;
+        return isPersistedThreadId(remoteId) ? remoteId : null;
+      }),
+    [aui],
+  );
+}
+
+function ThreadAdaptersProvider({
+  children,
+}: PropsWithChildren): ReactElement {
   const history = useThreadHistoryAdapter();
-  const adapters = useMemo(() => ({ history }), [history]);
+  const attachments = useAttachmentAdapter();
+  const adapters = useMemo(
+    () => ({ history, attachments }),
+    [attachments, history],
+  );
   return (
     <RuntimeAdapterProvider adapters={adapters}>
       {children}
@@ -74,9 +95,13 @@ function ThreadAdaptersProvider({ children }: PropsWithChildren) {
   );
 }
 
-function useThreadAdapters() {
+function useThreadAdapters(): {
+  history: ThreadHistoryAdapter;
+  attachments: AttachmentAdapter;
+} {
   const history = useThreadHistoryAdapter();
-  return useMemo(() => ({ history }), [history]);
+  const attachments = useAttachmentAdapter();
+  return useMemo(() => ({ history, attachments }), [attachments, history]);
 }
 
 export const verboThreadListAdapter: RemoteThreadListAdapter = {

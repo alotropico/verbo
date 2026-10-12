@@ -17,7 +17,7 @@ export function draftsFromScopes(scopes: FileScopeRecord[]): FileScopeDraft[] {
   return scopes.map((scope) => ({
     key: scope.id,
     id: scope.id,
-    alias: scope.alias,
+    alias: scope.aliases.join(", "),
     path: scope.path,
     read: scope.read,
     write: scope.write,

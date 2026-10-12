@@ -16,6 +16,11 @@
   overflow: auto;
 }
 
+.searchClear {
+  color: var(--muted-foreground);
+  cursor: pointer;
+}
+
 .searchIcon {
   width: rem(16px);
   height: rem(16px);
@@ -30,7 +35,11 @@
   box-shadow: none !important;
   padding-top: 0;
   outline: none;
-  
+
+  &::-webkit-search-cancel-button {
+    appearance: none;
+  }
+
   &:focus-visible {
     background-color: color-mix(in oklab, var(--foreground) 3%, transparent);
   }
@@ -133,6 +142,16 @@
 
 .itemRoot[data-active] .itemTitle {
   font-weight: 600;
+}
+
+.itemRoot[data-selected] .trigger {
+  cursor: default;
+}
+
+.itemRoot[data-selected]:not([data-active]) {
+  background: var(--sidebar-accent);
+  border-color: color-mix(in oklab, var(--primary) 28%, transparent);
+  color: var(--foreground);
 }
 
 .itemRoot:focus-visible {

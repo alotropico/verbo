@@ -1,12 +1,19 @@
-import { displayFinalPath, type FileScopeProposal } from "@shared/files";
+import {
+  displayFinalPath,
+  splitScopeAliases,
+  type FileScopeProposal,
+} from "@shared/files";
 import { Button, Switch, Text, TextInput } from "@mantine/core";
 import { useState, type ReactElement } from "react";
 import type { FileScopeDraft } from "./file-scope-draft";
+import { SettingsLabel } from "./SettingsLabel";
 import styles from "./FileSettings.module.css";
 
 function uniqueAlias(alias: string, rows: readonly FileScopeDraft[]): string {
   const used = new Set(
-    rows.filter((row) => !row.removed).map((row) => row.alias),
+    rows
+      .filter((row) => !row.removed)
+      .flatMap((row) => splitScopeAliases(row.alias)),
   );
   if (!used.has(alias)) return alias;
   let suffix = 2;
@@ -33,7 +40,9 @@ export function FileSettings({
 }): ReactElement {
   const [picking, setPicking] = useState(false);
   const visible = rows.filter((row) => !row.removed);
-  const defaultTaken = visible.some((row) => row.alias === "tmp");
+  const defaultTaken = visible.some((row) =>
+    splitScopeAliases(row.alias).includes("tmp"),
+  );
 
   const patch = (key: string, change: Partial<FileScopeDraft>): void => {
     onChange(
@@ -51,9 +60,9 @@ export function FileSettings({
   return (
     <div className={styles.list}>
       <Text size="sm">
-        Folder aliases are saved with Save. The model can read other folders
-        through the backend. It can change files only inside a writable alias.
-        .tmp is the default save folder.
+        Save to apply folder registrations. Verbo can read other folders, but
+        file changes require a writable folder. Use .tmp as the default save
+        folder.
       </Text>
       {error ? (
         <Text className={styles.error} size="sm">
@@ -135,7 +144,13 @@ export function FileSettings({
           {visible.map((row) => (
             <li key={row.key} className={styles.entry}>
               <TextInput
-                label="Alias"
+                label={
+                  <SettingsLabel
+                    label="Alias"
+                    tip="Short names used in file paths, separated by commas, such as tmp, scratch."
+                  />
+                }
+                placeholder="tmp, scratch"
                 value={row.alias}
                 onChange={(event) =>
                   patch(row.key, {
@@ -148,7 +163,12 @@ export function FileSettings({
               </Text>
               <div className={styles.actions}>
                 <Switch
-                  label="Read"
+                  label={
+                    <SettingsLabel
+                      label="Read"
+                      tip="Allow listing and reading files in this folder."
+                    />
+                  }
                   checked={row.read}
                   onChange={(event) =>
                     patch(row.key, {
@@ -158,14 +178,24 @@ export function FileSettings({
                   }
                 />
                 <Switch
-                  label="Write"
+                  label={
+                    <SettingsLabel
+                      label="Write"
+                      tip="Allow changing files in this folder."
+                    />
+                  }
                   checked={row.write}
                   onChange={(event) =>
                     patch(row.key, { write: event.currentTarget.checked })
                   }
                 />
                 <Switch
-                  label="Default save"
+                  label={
+                    <SettingsLabel
+                      label="Default save"
+                      tip="Bare filenames are saved in this folder."
+                    />
+                  }
                   checked={row.defaultSave}
                   onChange={(event) =>
                     patch(row.key, {

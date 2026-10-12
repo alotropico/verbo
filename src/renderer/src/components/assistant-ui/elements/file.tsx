@@ -16,13 +16,13 @@ import { AudioPlayer, VideoPlayer } from "./media-player";
 import styles from "./file.module.css";
 
 export type FileVariant = "outline" | "ghost" | "muted";
-export type FileSize = "sm" | "default" | "lg";
+export type FileScale = "sm" | "default" | "lg";
 
 function fileVariants({
   className,
 }: {
   variant?: FileVariant;
-  size?: FileSize;
+  size?: FileScale;
   className?: string;
 } = {}) {
   return cx("aui-file-root", styles.root, className);
@@ -149,7 +149,7 @@ function formatFileSize(bytes: number): string {
 
 export type FileRootProps = React.ComponentProps<"div"> & {
   variant?: FileVariant;
-  size?: FileSize;
+  size?: FileScale;
 };
 
 function FileRoot({

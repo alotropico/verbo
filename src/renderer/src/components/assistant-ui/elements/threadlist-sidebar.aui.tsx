@@ -1,4 +1,5 @@
-import { ActionIcon } from "@mantine/core";
+import { useAui } from "@assistant-ui/react";
+import { ActionIcon, UnstyledButton } from "@mantine/core";
 import type { ReactElement } from "react";
 import { ContextMeters } from "@/components/ContextMeters";
 import { ThreadList } from "@/components/assistant-ui/elements/thread-list.aui";
@@ -12,15 +13,21 @@ export function ThreadListSidebar({
 }: {
   onToggle: () => void;
 }): ReactElement {
+  const aui = useAui();
+
   return (
     <>
       <div className={styles.headerRow}>
-        <div className={styles.identity}>
+        <UnstyledButton
+          className={styles.identity}
+          aria-label="New chat"
+          onClick={() => aui.threads().switchToNewThread()}
+        >
           <VerboMark className={styles.mark} />
           <span className={styles.brand}>
             verbo<span className={styles.brandDot}>.</span>
           </span>
-        </div>
+        </UnstyledButton>
         <ActionIcon
           variant="subtle"
           aria-label="Toggle Sidebar"
@@ -34,9 +41,6 @@ export function ThreadListSidebar({
       </div>
       <footer className={styles.footer}>
         <ContextMeters />
-        <span className={styles.shortcut}>
-          <kbd>Ctrl</kbd> + <kbd>B</kbd> to fold away
-        </span>
       </footer>
     </>
   );

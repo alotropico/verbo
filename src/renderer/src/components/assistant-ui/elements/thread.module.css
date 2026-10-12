@@ -457,6 +457,14 @@
   color: var(--muted-foreground);
 }
 
+.composerVoice {
+  color: var(--muted-foreground);
+}
+
+.composerVoiceLive {
+  color: var(--primary);
+}
+
 .composerDictate:hover {
   color: var(--foreground);
 }

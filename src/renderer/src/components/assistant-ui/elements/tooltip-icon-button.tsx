@@ -24,7 +24,7 @@ export const TooltipIconButton = forwardRef<
     <Tooltip label={tooltip} position={side}>
       <ActionIcon
         {...rest}
-        variant="subtle"
+        variant="transparent"
         className={cx("aui-button-icon", styles.root, className)}
         ref={ref}
       >

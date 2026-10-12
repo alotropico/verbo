@@ -1,0 +1,19 @@
+.field {
+  padding-block: var(--mantine-spacing-xs);
+}
+
+.label {
+  font-size: rem(13px);
+  font-weight: 500;
+}
+
+.value {
+  background: var(--sidebar-accent);
+  border: rem(1px) solid var(--sidebar-border);
+  border-radius: var(--radius-sm);
+  color: var(--primary);
+  flex-shrink: 0;
+  font-size: var(--mantine-font-size-xs);
+  font-variant-numeric: tabular-nums;
+  padding: rem(2px) var(--mantine-spacing-xs);
+}

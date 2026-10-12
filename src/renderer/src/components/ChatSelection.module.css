@@ -1,0 +1,35 @@
+.bar {
+  background:
+    linear-gradient(
+      90deg,
+      color-mix(in oklab, var(--primary) 4%, transparent),
+      transparent 60%
+    ),
+    var(--card);
+  border-bottom: rem(1px) solid var(--sidebar-border);
+  flex-shrink: 0;
+  padding: var(--mantine-spacing-sm) var(--mantine-spacing-lg);
+}
+
+.count {
+  background: color-mix(in oklab, var(--primary) 10%, transparent);
+  border-radius: var(--mantine-radius-xl);
+  color: var(--primary);
+  display: inline-block;
+  font-variant-numeric: tabular-nums;
+  margin-inline-end: var(--mantine-spacing-xs);
+  min-width: rem(28px);
+  padding: rem(3px) var(--mantine-spacing-xs);
+  text-align: center;
+}
+
+.error {
+  color: var(--destructive);
+  margin-top: var(--mantine-spacing-xs);
+}
+
+.label {
+  color: var(--foreground);
+  flex: 1;
+  min-width: rem(130px);
+}

@@ -37,6 +37,9 @@ import {
   CollapsibleContent,
   CollapsibleTrigger,
 } from "./collapsible-root";
+import { FilePageTable } from "@/components/FilePageTable";
+import { readFilePage, type FilePageView } from "@shared/file-page";
+import { isPersistedThreadId } from "@shared/thread-identity";
 import { OperationReviewCard } from "./operation-review";
 import { Button, Textarea } from "@mantine/core";
 
@@ -148,16 +151,19 @@ function ToolFallbackTrigger({
   const Icon = statusIconMap[statusType];
   const label =
     statusType === "running"
-      ? "Running tool"
+      ? "Running"
       : statusType === "requires-action"
-        ? "Waiting on tool"
+        ? "Awaiting input"
         : statusType === "incomplete"
-          ? `${isCancelled ? "Cancelled" : "Failed"} tool`
-          : "Used tool";
+          ? isCancelled
+            ? "Cancelled"
+            : "Failed"
+          : "Used";
 
   return (
     <CollapsibleTrigger
       data-slot="tool-fallback-trigger"
+      data-status={statusType}
       className={cx("aui-tool-fallback-trigger", styles.trigger, className)}
       {...props}
     >
@@ -179,7 +185,7 @@ function ToolFallbackTrigger({
           isRunning && "shimmer",
         )}
       >
-        {label}: <b>{toolName}</b>
+        {label} <span className={styles.toolName}>{toolName}</span>
       </span>
       <ToolFallbackDuration />
       <ChevronDownIcon
@@ -201,11 +207,7 @@ function ToolFallbackContent({
       className={cx("aui-tool-fallback-content", styles.content, className)}
       {...props}
     >
-      <div
-        className={styles.contentInner}
-      >
-        {children}
-      </div>
+      <div className={styles.contentInner}>{children}</div>
     </CollapsibleContent>
   );
 }
@@ -225,6 +227,7 @@ function ToolFallbackArgs({
       className={cx("aui-tool-fallback-args", className)}
       {...props}
     >
+      <p className={styles.resultHeader}>Input</p>
       <pre className={cx("aui-tool-fallback-args-value", styles.argsValue)}>
         {argsText}
       </pre>
@@ -255,8 +258,15 @@ function ToolFallbackResult({
   ...props
 }: React.ComponentProps<"div"> & {
   result?: unknown;
-}) {
+}): React.ReactElement | null {
+  const threadId = useAuiState((state) => state.threads.mainThreadId);
+  const parsed = readFilePage(result);
+  const [override, setOverride] = useState<{
+    source: unknown;
+    page: FilePageView;
+  } | null>(null);
   if (result === undefined) return null;
+  const shown = override?.source === result ? override.page : parsed;
 
   return (
     <div
@@ -265,12 +275,37 @@ function ToolFallbackResult({
       {...props}
     >
       <OperationReviewCard result={result} />
-      <p className={cx("aui-tool-fallback-result-header", styles.resultHeader)}>
-        Result:
-      </p>
-      <pre className={cx("aui-tool-fallback-result-content", styles.resultContent)}>
-        {formatUnknownValue(result, 2)}
-      </pre>
+      {shown ? (
+        <FilePageTable
+          page={shown}
+          {...(isPersistedThreadId(threadId)
+            ? {
+                threadId,
+                onPage: (page: FilePageView) =>
+                  setOverride({ source: result, page }),
+              }
+            : {})}
+        />
+      ) : (
+        <>
+          <p
+            className={cx(
+              "aui-tool-fallback-result-header",
+              styles.resultHeader,
+            )}
+          >
+            Output
+          </p>
+          <pre
+            className={cx(
+              "aui-tool-fallback-result-content",
+              styles.resultContent,
+            )}
+          >
+            {formatUnknownValue(result, 2)}
+          </pre>
+        </>
+      )}
     </div>
   );
 }
@@ -447,15 +482,29 @@ function ToolFallbackApprovalReceipt({
       data-slot="tool-fallback-approval-receipt"
       data-outcome={receipt.outcome}
       tabIndex={-1}
-      className={cx("aui-tool-fallback-approval-receipt", styles.approvalReceipt, className)}
+      className={cx(
+        "aui-tool-fallback-approval-receipt",
+        styles.approvalReceipt,
+        className,
+      )}
       {...props}
     >
       {approval.prompt ? (
-        <p className={cx("aui-tool-fallback-approval-prompt", styles.approvalPrompt)}>
+        <p
+          className={cx(
+            "aui-tool-fallback-approval-prompt",
+            styles.approvalPrompt,
+          )}
+        >
           {approval.prompt}
         </p>
       ) : null}
-      <p className={cx("aui-tool-fallback-approval-receipt-label", styles.receiptLabel)}>
+      <p
+        className={cx(
+          "aui-tool-fallback-approval-receipt-label",
+          styles.receiptLabel,
+        )}
+      >
         <Icon aria-hidden className={styles.receiptIcon} />
         <span className={styles.fontMedium}>{receipt.label}</span>
         {receipt.option !== undefined ? (
@@ -474,7 +523,10 @@ function ToolFallbackApprovalReceipt({
           return (
             <p
               key={question.id}
-              className={cx("aui-tool-fallback-approval-receipt-answer", styles.receiptAnswer)}
+              className={cx(
+                "aui-tool-fallback-approval-receipt-answer",
+                styles.receiptAnswer,
+              )}
             >
               <span className={styles.receiptOption}>
                 {question.header ?? question.prompt}
@@ -486,7 +538,10 @@ function ToolFallbackApprovalReceipt({
       {notes.map((text) => (
         <p
           key={text}
-          className={cx("aui-tool-fallback-approval-receipt-note", styles.receiptNote)}
+          className={cx(
+            "aui-tool-fallback-approval-receipt-note",
+            styles.receiptNote,
+          )}
         >
           {text}
         </p>
@@ -564,13 +619,19 @@ function ToolFallbackApprovalQuestions({
             role="group"
             aria-label={question.prompt}
             data-slot="tool-fallback-approval-question"
-            className={cx("aui-tool-fallback-approval-question", styles.approvalQuestion)}
+            className={cx(
+              "aui-tool-fallback-approval-question",
+              styles.approvalQuestion,
+            )}
           >
-            <p className={cx("aui-tool-fallback-approval-question-prompt", styles.questionPrompt)}>
+            <p
+              className={cx(
+                "aui-tool-fallback-approval-question-prompt",
+                styles.questionPrompt,
+              )}
+            >
               {question.header ? (
-                <span className={styles.questionHeader}>
-                  {question.header}
-                </span>
+                <span className={styles.questionHeader}>{question.header}</span>
               ) : null}
               {question.prompt}
             </p>
@@ -670,20 +731,21 @@ type ToolFallbackApprovalProps = React.ComponentPropsWithoutRef<"div"> &
     approval?: ToolCallMessagePart["approval"];
   };
 
-const ToolFallbackApproval = forwardRef<
-  HTMLDivElement,
-  ToolFallbackApprovalProps
->(function ToolFallbackApproval(props, ref) {
-  const carryFocusRef = useRef(false);
-  return (
-    <ToolFallbackApprovalImpl
-      key={props.approval?.id}
-      carryFocusRef={carryFocusRef}
-      forwardedRef={ref}
-      {...props}
-    />
-  );
-});
+const ToolFallbackApproval: React.ForwardRefExoticComponent<
+  ToolFallbackApprovalProps & React.RefAttributes<HTMLDivElement>
+> = forwardRef<HTMLDivElement, ToolFallbackApprovalProps>(
+  function ToolFallbackApproval(props, ref) {
+    const carryFocusRef = useRef(false);
+    return (
+      <ToolFallbackApprovalImpl
+        key={props.approval?.id}
+        carryFocusRef={carryFocusRef}
+        forwardedRef={ref}
+        {...props}
+      />
+    );
+  },
+);
 
 function ToolFallbackApprovalImpl({
   className,
@@ -788,7 +850,12 @@ function ToolFallbackApprovalImpl({
     return null;
 
   const promptText = approval?.prompt ? (
-    <p className={cx("aui-tool-fallback-approval-prompt", styles.approvalPromptForeground)}>
+    <p
+      className={cx(
+        "aui-tool-fallback-approval-prompt",
+        styles.approvalPromptForeground,
+      )}
+    >
       {approval.prompt}
     </p>
   ) : null;
@@ -799,7 +866,11 @@ function ToolFallbackApprovalImpl({
         <div
           data-slot="tool-fallback-approval"
           tabIndex={-1}
-          className={cx("aui-tool-fallback-approval", styles.approvalStack, className)}
+          className={cx(
+            "aui-tool-fallback-approval",
+            styles.approvalStack,
+            className,
+          )}
           {...props}
           ref={setPendingGroup}
         >
@@ -926,7 +997,9 @@ function ToolFallbackApprovalImpl({
   ) : null;
 
   const answerField = acceptsText ? (
-    <div className={cx("aui-tool-fallback-approval-answer", styles.approvalAnswer)}>
+    <div
+      className={cx("aui-tool-fallback-approval-answer", styles.approvalAnswer)}
+    >
       <Textarea
         value={answer}
         onChange={(event) => setAnswer(event.target.value)}
@@ -996,7 +1069,12 @@ function ToolFallbackApprovalImpl({
         {...props}
         ref={setPendingGroup}
       >
-        <p className={cx("aui-tool-fallback-approval-confirm-title", styles.confirmTitle)}>
+        <p
+          className={cx(
+            "aui-tool-fallback-approval-confirm-title",
+            styles.confirmTitle,
+          )}
+        >
           {confirmMeta?.title ?? `${approvalOptionLabel(confirming)}?`}
         </p>
         {confirmDescription && (
@@ -1010,10 +1088,20 @@ function ToolFallbackApprovalImpl({
           </p>
         )}
         {confirming.grants && confirming.grants.length > 0 && (
-          <ul className={cx("aui-tool-fallback-approval-confirm-grants", styles.confirmGrants)}>
+          <ul
+            className={cx(
+              "aui-tool-fallback-approval-confirm-grants",
+              styles.confirmGrants,
+            )}
+          >
             {confirming.grants.map((grant) => (
               <li key={grant}>
-                <code className={cx("aui-tool-fallback-approval-confirm-grant", styles.confirmGrant)}>
+                <code
+                  className={cx(
+                    "aui-tool-fallback-approval-confirm-grant",
+                    styles.confirmGrant,
+                  )}
+                >
                   {grant}
                 </code>
               </li>
@@ -1056,7 +1144,11 @@ function ToolFallbackApprovalImpl({
       <div
         data-slot="tool-fallback-approval"
         tabIndex={-1}
-        className={cx("aui-tool-fallback-approval", styles.approvalStack, className)}
+        className={cx(
+          "aui-tool-fallback-approval",
+          styles.approvalStack,
+          className,
+        )}
         {...props}
         ref={setPendingGroup}
       >
@@ -1102,7 +1194,11 @@ function ToolFallbackApprovalImpl({
       <div
         data-slot="tool-fallback-approval"
         tabIndex={-1}
-        className={cx("aui-tool-fallback-approval", styles.approvalStack, className)}
+        className={cx(
+          "aui-tool-fallback-approval",
+          styles.approvalStack,
+          className,
+        )}
         {...props}
         ref={setPendingGroup}
       >
@@ -1120,7 +1216,11 @@ function ToolFallbackApprovalImpl({
     <div
       data-slot="tool-fallback-approval"
       tabIndex={-1}
-      className={cx("aui-tool-fallback-approval", styles.approvalStack, className)}
+      className={cx(
+        "aui-tool-fallback-approval",
+        styles.approvalStack,
+        className,
+      )}
       {...props}
       ref={setPendingGroup}
     >

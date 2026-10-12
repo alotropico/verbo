@@ -1,46 +1,62 @@
 .root {
+  min-width: 0;
   width: 100%;
 }
 
-.root[data-variant='outline'] {
+.root[data-variant="outline"] {
+  background: var(--surface);
   border-radius: var(--radius-lg);
   border: rem(1px) solid var(--border);
-  padding-block: rem(12px);
+  padding: var(--mantine-spacing-xs);
 }
 
-.root[data-variant='muted'] {
+.root[data-variant="muted"] {
   border-radius: var(--radius-lg);
-  border: rem(1px) solid color-mix(in oklab, var(--muted-foreground) 30%, transparent);
+  border: rem(1px) solid
+    color-mix(in oklab, var(--muted-foreground) 30%, transparent);
   background: color-mix(in oklab, var(--muted) 30%, transparent);
-  padding-block: rem(12px);
+  padding: var(--mantine-spacing-xs);
 }
 
 .trigger {
-  display: flex;
-  transform-origin: left;
   align-items: center;
-  gap: rem(8px);
-  font-size: rem(14px);
-  transition: color 150ms, transform 150ms;
-}
-
-.trigger:active {
-  transform: scale(0.98);
-}
-
-.root[data-variant='ghost'] .trigger {
-  padding-block: rem(6px);
+  appearance: none;
+  background: transparent;
+  border: 0;
+  border-radius: var(--radius-md);
   color: var(--muted-foreground);
+  display: flex;
+  gap: rem(8px);
+  max-width: 100%;
+  padding: var(--mantine-spacing-xs) var(--mantine-spacing-sm);
+  text-align: start;
+  transition:
+    background-color 150ms,
+    color 150ms;
 }
 
-.root[data-variant='ghost'] .trigger:hover {
+.trigger:hover {
+  background: var(--accent);
   color: var(--foreground);
 }
 
-.root[data-variant='outline'] .trigger,
-.root[data-variant='muted'] .trigger {
+.trigger:focus-visible {
+  outline: rem(2px) solid var(--ring);
+  outline-offset: rem(2px);
+}
+
+.root[data-variant="ghost"] .trigger {
+  color: var(--muted-foreground);
+}
+
+.root[data-variant="ghost"] .trigger:hover {
+  color: var(--foreground);
+}
+
+.root[data-variant="outline"] .trigger,
+.root[data-variant="muted"] .trigger {
   width: 100%;
-  padding-inline: rem(16px);
+  padding-inline: var(--mantine-spacing-sm);
 }
 
 .loader {
@@ -54,16 +70,16 @@
   display: inline-block;
   text-align: start;
   font-size: rem(12px);
-  line-height: 1;
+  line-height: 1.5;
   font-weight: 500;
 }
 
-.root[data-variant='ghost'] .label {
+.root[data-variant="ghost"] .label {
   font-weight: 400;
 }
 
-.root[data-variant='outline'] .label,
-.root[data-variant='muted'] .label {
+.root[data-variant="outline"] .label,
+.root[data-variant="muted"] .label {
   flex-grow: 1;
 }
 
@@ -81,8 +97,13 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .trigger,
   .chevron {
     transition: none;
+  }
+
+  .loader {
+    animation: none;
   }
 }
 
@@ -94,11 +115,13 @@
 }
 
 .content[data-open] {
-  animation: collapsible-down var(--animation-duration) cubic-bezier(0.32, 0.72, 0, 1);
+  animation: collapsible-down var(--animation-duration)
+    cubic-bezier(0.32, 0.72, 0, 1);
 }
 
 .content[data-closed] {
-  animation: collapsible-up var(--animation-duration) cubic-bezier(0.32, 0.72, 0, 1);
+  animation: collapsible-up var(--animation-duration)
+    cubic-bezier(0.32, 0.72, 0, 1);
   animation-fill-mode: forwards;
   pointer-events: none;
 }
@@ -117,21 +140,25 @@
   gap: rem(8px);
 }
 
-.root[data-variant='ghost'] .contentInner {
+.root[data-variant="ghost"] .contentInner {
+  border-inline-start: rem(1px) solid var(--surface-edge);
+  margin-inline-start: var(--mantine-spacing-sm);
   margin-top: rem(4px);
+  padding-inline-start: var(--mantine-spacing-xs);
   gap: rem(4px);
 }
 
-.root[data-variant='outline'] .contentInner,
-.root[data-variant='muted'] .contentInner {
-  margin-top: rem(12px);
+.root[data-variant="outline"] .contentInner,
+.root[data-variant="muted"] .contentInner {
+  margin-top: var(--mantine-spacing-xs);
   border-top: rem(1px) solid var(--border);
-  padding-inline: rem(16px);
-  padding-top: rem(12px);
+  padding-inline: var(--mantine-spacing-xs);
+  padding-top: var(--mantine-spacing-xs);
 }
 
 .contentInner > * {
-  animation: toolGroupChildIn var(--animation-duration) cubic-bezier(0.32, 0.72, 0, 1);
+  animation: toolGroupChildIn var(--animation-duration)
+    cubic-bezier(0.32, 0.72, 0, 1);
 }
 
 .contentInner > *:nth-child(2) {
