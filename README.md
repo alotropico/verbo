@@ -8,7 +8,7 @@ Verbo is a local AI chat app for exploring ideas, making things, and questioning
 
 ### Conversations
 
-- **Streamed answers:** replies appear as they arrive. While the microphone is live, the composer square stops listening and leaves a turn already sent to Ollama, its reply, and the queue running. After listening ends, **Stop generating** cancels a turn that is still running.
+- **Streamed answers:** replies appear as they arrive. While the microphone is live, the composer square stops listening and leaves a turn already sent to Ollama running. **Stop generating** cancels that turn, including one waiting on approval.
 - **Editable starting points:** “Explore an idea,” “Create something,” and “Challenge a belief” fill the composer with a prompt you can change before sending.
 - **Iteration:** edit a user message, regenerate an assistant response, and navigate alternative message branches using assistant-ui controls.
 - **Markdown:** answers support headings, lists, tables, links, blockquotes, and fenced code blocks through GitHub-flavored Markdown.
@@ -31,21 +31,21 @@ Create, switch, search by title, rename, archive, and delete conversations from 
 
 ### Files and changes
 
-Registered folders are the write boundary. Reads go through the same path checks, including Windows junctions and protected locations. Settings → Files can list, search, read, stat, hash, inspect, and compare. The same actions are available to the model and to `/files` and `/action`.
+Registered folders are the write boundary. Reads go through the same path checks, including Windows junctions and protected locations. Settings → Files can list, search, read, stat, hash, inspect, and compare. The same actions are available to the model and to `/files` and `/action`. A list or summary reports an observed count and an exact total. The exact total is absent when the scan stops early. Hidden names and folders that are not entered, such as `.git` and `node_modules`, stay out of an exact total and are named in the scan.
 
 Attachments are copies kept with the app data. Messages store ids, not the file bytes. Chat images are sent only when the selected model reports vision support, and only up to 1 MB.
 
-A change is an immutable plan: create, copy, move, rename, edit, or trash. One collision-free create, copy, move, or rename can run and return a receipt. Trash, edits, and any plan with two or more items wait for a confirmation dialog owned by the main process. Trash uses the Windows Recycle Bin. A failed trash is left in place. Finished renames and moves can be undone. An interrupted plan is marked for review and is not replayed.
+A change is an immutable plan: create, copy, move, rename, edit, or trash. One new regular file, one new empty directory, or one ordinary same-volume copy, move, or rename of a regular file or empty directory can run after preflight. An edit, trash, any batch, a non-empty directory transfer, or a cross-volume transfer waits on the operation card. Approving or denying continues the same turn and writes one receipt. Trash uses the Windows Recycle Bin. A failed trash is left in place. Finished renames and moves can be undone. An interrupted plan is marked for review and is not replayed. Reloading the window does not cancel the turn or run the change again.
 
 ### Queue
 
-One turn runs at a time. Further sends wait in a persistent FIFO queue for that conversation. You can remove a waiting item before it reaches Ollama. A failure pauses the queue until you resume or discard it. Restart keeps unsent drafts and does not replay a mutation. Editing or regenerating a branch pins queued drafts until you rebind them.
+One turn runs at a time. Further sends wait in a persistent per-conversation queue. The main process starts the next eligible item when the current turn finishes. The queue sits in a right sidebar: each row shows a two-line preview and its status, and you can edit, remove, or move a waiting item up or down. Save keeps that item's identity and place. A minimized rail shows one marker per item. Narrow windows open the same list as a drawer. A failure pauses the queue until you resume or discard it. Restart keeps unsent drafts and does not replay a mutation. Editing or regenerating a branch pins queued drafts until you rebind them.
 
 ### Voice
 
-The microphone button sits to the right of Send. One click starts listening after the system grants microphone permission. A short quiet stretch of about one second sends the accumulated draft when the model is idle. While a reply is running, later speech joins that same draft and waits behind anything already queued. The draft is visible: you can edit it, send it, or discard it. Stopping the microphone keeps unsent text. Switching conversations stops capture and leaves the draft on the conversation that owns it.
+The microphone button sits to the right of Send. One click starts listening after the system grants microphone permission. The voice service starts on that first request, or from the header Start control. Typed chat does not start it. A short quiet stretch of about one second sends the accumulated draft when the model is idle. While a reply is running, ordinary speech is ignored. Exact standalone `stop` or `cancel` cancels the active turn. Speech that started while idle and finishes after typing has begun stays in the composer and is not queued. The idle draft is visible: you can edit it, send it, or discard it. Older drafts stay for review. Stopping the microphone keeps unsent text. Switching conversations stops capture and leaves the draft on the conversation that owns it.
 
-Spoken `clear chat` or `empty chat`, alone, opens a blank conversation and leaves stored chats in the list. Any extra words stay ordinary text.
+Spoken `clear chat` or `empty chat`, alone and while idle, opens a blank conversation and leaves stored chats in the list. Any extra words stay ordinary text.
 
 Completed replies are spoken while the voice session is on. The microphone pauses during playback so the reply is not transcribed again. Mute replies leaves the text in the transcript and skips speech. Speech recognition accepts English and Spanish. A clip detected as another language is decoded again as whichever of those two scored higher.
 
@@ -53,7 +53,7 @@ Typed chat keeps working when the voice service or the microphone is unavailable
 
 ### Actions
 
-Settings → Actions shows the registered catalog and recent history. `/capabilities` lists the same actions. `/action <id> <JSON>` runs one. `/help` lists the local commands. A leading slash is always handled locally, including a malformed command. Approval is a dialog, not a command.
+Settings → Actions shows the registered catalog and recent history. `/capabilities` lists the same actions. `/action <id> <JSON>` runs one. `/help` lists the local commands. A leading slash is always handled locally, including a malformed command. Approval is the operation card, not a command.
 
 | Command | Effect |
 | --- | --- |
@@ -78,7 +78,7 @@ Settings has Model, Memory, Files, Voice, and Actions tabs. Generation and voice
 | Context window | `8192` | Presets from `2048` to `131072`. Larger windows need more memory. |
 | Keep alive | `5m` | Sent to Ollama as `keep_alive`. The form keeps the stored value. |
 
-The header polls Ollama every 15 seconds and shows the configured model's readiness. Its tooltip provides the full model tag or connection details.
+The header has one Ollama and model control, then a Voice control, to the left of Settings. Each popover separates daemon state from model load, and speech-service readiness from the microphone session. Stop asks for confirmation and names the service. Quitting the app stops only processes this launch started. A reused Ollama or voice service stays up. A confirmed Stop also pauses new sends until you start that service again in this session.
 
 ### Visual language and controls
 
@@ -132,15 +132,9 @@ ollama pull qwen3.5:4b-q4_K_M
 pnpm start
 ```
 
-`pnpm start` runs [the development launcher](scripts/start.mjs), which:
+`pnpm start` runs [the development launcher](scripts/start.mjs), which starts electron-vite and the Electron window. The app process then starts Ollama, reusing a compatible server when one is already up, and waits for it to become ready. Voice stays stopped until the first voice request or the header Start control. `pnpm voice:start` still starts only the voice service.
 
-1. Checks whether Ollama is reachable and reuses an existing server.
-2. Starts `ollama serve` if needed and waits up to 30 seconds for it to become ready.
-3. Checks that the startup model is installed and prints an `ollama pull` command if it is missing.
-4. Starts the voice service, or adopts a compatible one already on port `8765`.
-5. Launches electron-vite and the Electron window.
-
-When development exits, the launcher stops an Ollama process it started itself and stops a voice service it started or adopted. It leaves a pre-existing Ollama server running. An incompatible program already bound to the voice port is left running.
+When the app exits, it stops an Ollama process and a voice process that this launch started. A server it reused stays running. An incompatible program already bound to the voice port is left running.
 
 The renderer development server uses port `5273`. Use the Electron window for the application: its chat, history, files, and voice depend on the preload bridge and cannot run independently in a browser tab.
 
@@ -175,7 +169,7 @@ POSIX shell:
 VERBO_MODEL='your-installed-model:tag' pnpm start
 ```
 
-`pnpm dev` launches electron-vite directly and skips the Ollama and voice startup checks. It is useful when you manage those processes yourself.
+`pnpm dev` launches electron-vite directly. The Electron process uses the same service manager as `pnpm start`: it starts or reuses Ollama, and it starts voice only when voice is requested.
 
 ### Local data
 
