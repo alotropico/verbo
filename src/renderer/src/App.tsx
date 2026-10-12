@@ -7,6 +7,7 @@ import {
 import { ContextMeters } from "@/components/ContextMeters";
 import { OllamaStatusBanner } from "@/components/OllamaStatusBanner";
 import { SettingsPanel } from "@/components/SettingsPanel";
+import { WindowControls } from "@/components/WindowControls";
 import { VerboRuntimeProvider } from "@/runtime/VerboRuntimeProvider";
 import { useAui, useAuiState, type AssistantState } from "@assistant-ui/react";
 import { chatPlaceholderTitle } from "@shared/thread-title";
@@ -88,7 +89,7 @@ function VerboShell(): ReactElement {
           <ThreadListSidebar onToggle={toggleSidebar} />
         </AppShell.Navbar>
         <AppShell.Main className={styles.inset}>
-          <header className={styles.header}>
+          <header className={styles.header} data-window-chrome>
             {showHeaderToggle ? (
               <ActionIcon
                 variant="subtle"
@@ -102,6 +103,7 @@ function VerboShell(): ReactElement {
             {sidebarHidden ? <ContextMeters compact /> : null}
             <OllamaStatusBanner />
             <SettingsPanel />
+            <WindowControls />
           </header>
           <div className={styles.main}>
             <ChatSelectionBar />

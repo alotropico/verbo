@@ -194,6 +194,15 @@ button:disabled {
   }
 }
 
+[data-window-chrome] button,
+[data-window-chrome] a,
+[data-window-chrome] input,
+[data-window-chrome] select,
+[data-window-chrome] textarea,
+[data-window-chrome] [role="button"] {
+  -webkit-app-region: no-drag;
+}
+
 .shimmer {
   background-image: linear-gradient(
     90deg,

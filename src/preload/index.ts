@@ -6,6 +6,7 @@ import {
   type ChatRequest,
 } from "../shared/chat-ipc";
 import { IPC_CHANNELS } from "../shared/ipc-channels";
+import type { WindowControlsApi, WindowState } from "../shared/window-controls";
 import type { ChatSettings } from "../shared/config";
 import type { FileUiAction } from "../shared/file-query";
 import type { LocalCommandResult } from "../shared/local-commands";
@@ -72,6 +73,22 @@ const assistantAI: AssistantAI = {
 };
 
 const verbo = {
+  window: {
+    getState: () => ipcRenderer.invoke(IPC_CHANNELS.windowState),
+    minimize: () => ipcRenderer.send(IPC_CHANNELS.windowMinimize),
+    toggleMaximize: () => ipcRenderer.send(IPC_CHANNELS.windowToggleMaximize),
+    close: () => ipcRenderer.send(IPC_CHANNELS.windowClose),
+    subscribe(listener: (state: WindowState) => void): () => void {
+      const onChange = (
+        _event: Electron.IpcRendererEvent,
+        state: WindowState,
+      ): void => listener(state);
+      ipcRenderer.on(IPC_CHANNELS.windowStateChanged, onChange);
+      return () => {
+        ipcRenderer.removeListener(IPC_CHANNELS.windowStateChanged, onChange);
+      };
+    },
+  } satisfies WindowControlsApi,
   storage: {
     list: () => ipcRenderer.invoke(IPC_CHANNELS.threadsList),
     initialize: (localId: string) =>

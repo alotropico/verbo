@@ -6,6 +6,7 @@ import type {
 import type { ActionsOverview } from "../shared/actions-overview";
 import type { ActionResult } from "../shared/action-contract";
 import type { AssistantAI } from "../shared/chat-ipc";
+import type { WindowControlsApi } from "../shared/window-controls";
 import type {
   OperationReview,
   OperationReviewFailure,
@@ -51,6 +52,7 @@ type MemoryMutation = (
 ) & { usage: MemoryUsage };
 
 type VerboApi = {
+  window: WindowControlsApi;
   storage: {
     list: () => Promise<{ threads: RemoteThreadMetadata[] }>;
     initialize: (

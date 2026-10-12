@@ -38,6 +38,8 @@ function createWindow(): void {
     autoHideMenuBar: true,
     icon,
     backgroundColor: "#16151a",
+    titleBarStyle: "hidden",
+    titleBarOverlay: process.platform === "darwin" ? { height: 48 } : false,
     webPreferences: {
       preload: join(__dirname, "../preload/index.js"),
       contextIsolation: true,

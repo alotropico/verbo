@@ -1,0 +1,18 @@
+.controls {
+  -webkit-app-region: no-drag;
+  flex-shrink: 0;
+}
+
+.control {
+  color: var(--muted-foreground);
+
+  @mixin hover {
+    color: var(--foreground);
+  }
+}
+
+.close {
+  @mixin hover {
+    color: var(--destructive);
+  }
+}

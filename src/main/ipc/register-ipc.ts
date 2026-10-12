@@ -5,6 +5,7 @@ import {
   type BrowserWindow,
   type IpcMainInvokeEvent,
 } from "electron";
+import { registerWindowIpc } from "./window-ipc";
 import {
   IPC_CHANNELS,
   messageAppendSchema,
@@ -98,6 +99,7 @@ function assertTrustedWindow(
 }
 
 export function registerIpc(mainWindow: BrowserWindow): void {
+  registerWindowIpc(mainWindow);
   registerQueueIpc(mainWindow);
   registerVoiceIpc(mainWindow);
   registerAttachmentIpc(mainWindow);

@@ -1,4 +1,9 @@
 export const IPC_CHANNELS = {
+  windowState: "verbo:window:state",
+  windowMinimize: "verbo:window:minimize",
+  windowToggleMaximize: "verbo:window:toggleMaximize",
+  windowClose: "verbo:window:close",
+  windowStateChanged: "verbo:window:stateChanged",
   threadsList: "verbo:threads:list",
   threadsInitialize: "verbo:threads:initialize",
   threadsRename: "verbo:threads:rename",

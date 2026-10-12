@@ -69,6 +69,7 @@
 }
 
 .header {
+  -webkit-app-region: drag;
   background: color-mix(in oklab, var(--background) 14%, transparent);
   border-bottom: rem(1px) solid var(--sidebar-border);
   position: relative;
@@ -76,7 +77,12 @@
   flex-shrink: 0;
   align-items: center;
   gap: rem(16px);
+  min-height: env(titlebar-area-height, rem(48px));
   padding: rem(8px) rem(24px);
+  padding-inline-end: max(
+    var(--mantine-spacing-xs),
+    calc(100vw - env(titlebar-area-x, 0px) - env(titlebar-area-width, 100vw))
+  );
 }
 
 .headerSpacer {
@@ -119,6 +125,6 @@
 
   .header {
     gap: var(--mantine-spacing-xs);
-    padding-inline: var(--mantine-spacing-md);
+    padding-inline-start: var(--mantine-spacing-md);
   }
 }
