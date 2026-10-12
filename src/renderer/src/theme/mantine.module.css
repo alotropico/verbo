@@ -138,10 +138,22 @@
   color: var(--foreground);
 }
 
+.dropdown {
+  max-width: calc(100vw - rem(16px));
+  overflow-x: hidden;
+}
+
+.dropdown :global(.mantine-ScrollArea-viewport),
+.dropdown :global(.mantine-Combobox-options) {
+  overflow-x: hidden;
+}
+
 .option {
   border-radius: var(--radius-sm);
   font-size: var(--mantine-font-size-sm);
+  overflow-wrap: anywhere;
   padding: var(--mantine-spacing-xs) var(--mantine-spacing-sm);
+  white-space: normal;
 }
 
 .option[data-combobox-selected] {

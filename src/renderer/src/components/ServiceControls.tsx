@@ -1,4 +1,5 @@
-import { Button, Group, Popover, Select, Text } from "@mantine/core";
+import { Button, Group, Popover, Text } from "@mantine/core";
+import { ChoiceInput } from "./ChoiceInput";
 import { useEffect, useState, type ReactElement } from "react";
 import styles from "./ServiceControls.module.css";
 
@@ -115,7 +116,7 @@ export function ServiceControls(): ReactElement {
         <Popover.Dropdown>
           <div className={styles.panel}>
             <Text size="sm">{ollama?.detail ?? "Checking Ollama."}</Text>
-            <Select
+            <ChoiceInput
               label="Model"
               data={models}
               value={model}

@@ -16,7 +16,6 @@ import {
   Button,
   Group,
   Modal,
-  Select,
   Stack,
   Switch,
   Tabs,
@@ -45,6 +44,7 @@ import { MemorySettings } from "./MemorySettings";
 import { FileQueryPanel } from "./FileQueryPanel";
 import { ListeningSettings, SpeechSettings } from "./VoiceSettings";
 import { SettingsSlider } from "./SettingsSlider";
+import { ChoiceInput } from "./ChoiceInput";
 import { SettingsLabel } from "./SettingsLabel";
 import styles from "./SettingsPanel.module.css";
 
@@ -338,7 +338,7 @@ function SettingsForm({
                     Could not list installed models. {models.error}
                   </Text>
                 ) : null}
-                <Select
+                <ChoiceInput
                   label={
                     <SettingsLabel
                       label="Model"
@@ -367,7 +367,7 @@ function SettingsForm({
                   key={form.key("think")}
                   {...form.getInputProps("think", { type: "checkbox" })}
                 />
-                <Select
+                <ChoiceInput
                   label={
                     <SettingsLabel
                       label="Context window"

@@ -8,7 +8,8 @@ import {
   type MemoryUsage,
 } from "@shared/memory";
 import { isPersistedThreadId } from "@shared/thread-identity";
-import { Button, Select, Stack, Text, Textarea } from "@mantine/core";
+import { Button, Stack, Text, Textarea } from "@mantine/core";
+import { ChoiceInput } from "./ChoiceInput";
 import { schemaResolver, useForm } from "@mantine/form";
 import { useAuiState } from "@assistant-ui/react";
 import {
@@ -116,7 +117,7 @@ function MemoryRow({
         }}
       />
       <div className={styles.entryActions}>
-        <Select
+        <ChoiceInput
           label={
             <SettingsLabel
               label="When to use"
@@ -228,7 +229,7 @@ export function MemorySettings(): ReactElement {
           {...form.getInputProps("text")}
         />
         <div className={styles.addActions}>
-          <Select
+          <ChoiceInput
             className={styles.addField}
             label={
               <SettingsLabel
@@ -248,7 +249,7 @@ export function MemorySettings(): ReactElement {
             key={form.key("scope")}
             {...form.getInputProps("scope")}
           />
-          <Select
+          <ChoiceInput
             className={styles.addField}
             label={
               <SettingsLabel

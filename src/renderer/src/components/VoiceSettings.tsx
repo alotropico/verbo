@@ -1,4 +1,5 @@
-import { Select, Stack, Switch, Text } from "@mantine/core";
+import { Stack, Switch, Text } from "@mantine/core";
+import { ChoiceInput } from "./ChoiceInput";
 import { useEffect, useState, type ReactElement } from "react";
 import type { VoiceStatus } from "@shared/voice";
 import type { VoiceSettings } from "@shared/voice-settings";
@@ -87,7 +88,7 @@ export function ListeningSettings({
   return (
     <Stack gap="md">
       <EngineStatus status={status} />
-      <Select
+      <ChoiceInput
         label={
           <SettingsLabel
             label="Recognition language"
@@ -200,7 +201,7 @@ export function SpeechSettings({
           onChange({ ...value, speakReplies: event.currentTarget.checked })
         }
       />
-      <Select
+      <ChoiceInput
         label={
           <SettingsLabel
             label="Reply voice"
