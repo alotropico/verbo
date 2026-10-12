@@ -8,7 +8,7 @@ import {
 import { File, getFileHref } from "./file";
 import { ThreadFollowupSuggestions } from "./follow-up-suggestions.aui";
 import { Image } from "./image";
-import { MarkdownText } from "./markdown-text";
+import { SpeechSyncedText } from "./speech-synced-text";
 import {
   Reasoning,
   ReasoningContent,
@@ -27,11 +27,7 @@ import { CommandNotice } from "@/components/CommandNotice";
 import { ContextMeters } from "@/components/ContextMeters";
 import { ChatBlob } from "@/features/chat-blob";
 import { noteThreadActivity, timestampMs } from "@/runtime/thread-activity";
-import {
-  VoiceDraftPanel,
-  VoiceSessionButton,
-  VoiceSessionProvider,
-} from "@/components/VoiceSession";
+import { VoiceDraftPanel, VoiceSessionButton } from "@/components/VoiceSession";
 import { useVoiceListening } from "@/components/voice-session-context";
 import { getQueueEdit, subscribeQueueEdit } from "@/runtime/queue-edit";
 import {
@@ -276,17 +272,15 @@ const ThreadRoot: FC<{ isEmpty: boolean; autoFocus: boolean }> = ({
             )}
           >
             {!isEmpty && <div aria-hidden className={styles.threadFade} />}
-            <VoiceSessionProvider>
-              <ThreadFollowupSuggestions />
-              <CommandNotice />
-              <VoiceDraftPanel />
-              <div className={styles.composerBlock}>
-                <Composer autoFocus={autoFocus} />
-                <AuiIf condition={(s) => s.thread.messages.length > 0}>
-                  <ContextMeters />
-                </AuiIf>
-              </div>
-            </VoiceSessionProvider>
+            <ThreadFollowupSuggestions />
+            <CommandNotice />
+            <VoiceDraftPanel />
+            <div className={styles.composerBlock}>
+              <Composer autoFocus={autoFocus} />
+              <AuiIf condition={(s) => s.thread.messages.length > 0}>
+                <ContextMeters />
+              </AuiIf>
+            </div>
             <AuiIf condition={(s) => isNewChatView(s) && s.composer.isEmpty}>
               <ThreadSuggestions />
             </AuiIf>
@@ -323,9 +317,7 @@ const useVoiceRunPosition = (): VoiceRunPosition =>
     return after ? "start" : "single";
   });
 
-const SpokenText: TextMessagePartComponent = ({ text }: { text: string }) => (
-  <p className={styles.spokenText}>{text}</p>
-);
+const SpokenText: TextMessagePartComponent = () => <SpeechSyncedText plain />;
 
 const SpokenMessage: FC = () => {
   const role = useAuiState((s) => s.message.role);
@@ -976,7 +968,7 @@ const AssistantMessage: FC = () => {
                     <span>{USER_ABORT_NOTICE}</span>
                   </p>
                 ) : (
-                  <MarkdownText />
+                  <SpeechSyncedText />
                 );
               case "reasoning":
                 return <Reasoning {...part} />;

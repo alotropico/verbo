@@ -5,6 +5,7 @@ import {
   ChatSelectionProvider,
 } from "@/components/ChatSelection";
 import { QueueSidebar } from "@/components/QueueSidebar";
+import { VoiceSessionProvider } from "@/components/VoiceSession";
 import { ServiceControls } from "@/components/ServiceControls";
 import { WindowControls } from "@/components/WindowControls";
 import { VerboRuntimeProvider } from "@/runtime/VerboRuntimeProvider";
@@ -104,10 +105,12 @@ function VerboShell(): ReactElement {
           </header>
           <div className={styles.main}>
             <ChatSelectionBar />
-            <div className={styles.threadPane}>
-              <Thread />
-              <QueueSidebar />
-            </div>
+            <VoiceSessionProvider>
+              <div className={styles.threadPane}>
+                <Thread />
+                <QueueSidebar />
+              </div>
+            </VoiceSessionProvider>
           </div>
         </AppShell.Main>
       </AppShell>

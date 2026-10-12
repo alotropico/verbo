@@ -1,3 +1,4 @@
+import type { SpeechCaption } from "@shared/speech-reveal";
 import type { VoiceInfo } from "@shared/voice";
 import { createContext, useContext } from "react";
 
@@ -7,6 +8,7 @@ export type VoiceSessionValue = {
   muted: boolean;
   showDraft: boolean;
   speaking: boolean;
+  speechCaption: SpeechCaption | null;
   status: string;
   visible: boolean;
   voiceId: string | null;

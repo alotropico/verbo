@@ -13,6 +13,8 @@ import {
 } from "lucide-react";
 import { useEffect, useState, type ReactElement } from "react";
 import { appendUserTurn } from "@/runtime/attachment-message";
+import { TtsControls } from "@/components/VoiceSession";
+import { useVoiceSession } from "@/components/voice-session-context";
 import { holdQueueLease } from "@/runtime/queue-lease";
 import {
   suppressHistoryAppends,
@@ -36,6 +38,7 @@ export function QueueSidebar(): ReactElement | null {
     getInitialValueInEffect: false,
   });
   const [items, setItems] = useState<QueuedTurn[]>([]);
+  const [outgoingId, setOutgoingId] = useState<string | null>(null);
   const [open, setOpen] = useState(true);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [drawer, setDrawer] = useState(false);
@@ -45,7 +48,9 @@ export function QueueSidebar(): ReactElement | null {
     let cancelled = false;
     const load = (): void => {
       void window.verbo.queue.list(threadId).then((snapshot) => {
-        if (!cancelled) setItems(snapshot.items);
+        if (cancelled) return;
+        setItems(snapshot.items);
+        setOutgoingId(snapshot.outgoingId);
       });
     };
     load();
@@ -88,7 +93,9 @@ export function QueueSidebar(): ReactElement | null {
     };
   }, [aui, threadId]);
 
-  if (!isPersistedThreadId(threadId) || items.length === 0) return null;
+  const queued = isPersistedThreadId(threadId);
+  const voiceOn = useVoiceSession()?.active === true;
+  const waiting = items.filter((item) => item.id !== outgoingId);
 
   const edit = (item: QueuedTurn): void => {
     const lock = window.dispatchEvent;
@@ -141,33 +148,32 @@ export function QueueSidebar(): ReactElement | null {
     });
   };
 
-  if (!open) {
-    return (
-      <div className={styles.rail} aria-label="Queued messages">
-        {items.map((item) => (
-          <button
-            key={item.id}
-            type="button"
-            className={
-              item.status === "editing"
-                ? `${styles.marker} ${styles.markerEditing}`
-                : styles.marker
-            }
-            aria-label={`${statusLabel(item)}. ${item.text}`}
-            onClick={() => setOpen(true)}
-          />
-        ))}
-      </div>
-    );
-  }
-
   const body = (
     <aside
       className={
         narrow && drawer ? `${styles.sidebar} ${styles.drawer}` : styles.sidebar
       }
-      aria-label="Queued messages"
+      aria-label="Queue and speech"
     >
+      <div className={styles.queueBody}>
+      {!open ? (
+        <div className={styles.rail} aria-label="Queued messages">
+          {waiting.map((item) => (
+            <button
+              key={item.id}
+              type="button"
+              className={
+                item.status === "editing"
+                  ? `${styles.marker} ${styles.markerEditing}`
+                  : styles.marker
+              }
+              aria-label={`${statusLabel(item)}. ${item.text}`}
+              onClick={() => setOpen(true)}
+            />
+          ))}
+        </div>
+      ) : queued && waiting.length > 0 ? (
+        <>
       <Group justify="space-between">
         <Text size="xs">Queue</Text>
         <ActionIcon
@@ -182,7 +188,7 @@ export function QueueSidebar(): ReactElement | null {
           <XIcon size={14} />
         </ActionIcon>
       </Group>
-      {items.map((item, index) => (
+      {waiting.map((item, index) => (
         <article
           key={item.id}
           className={styles.row}
@@ -230,7 +236,6 @@ export function QueueSidebar(): ReactElement | null {
               variant="subtle"
               size="sm"
               aria-label={`Edit queued message ${index + 1}`}
-              disabled={item.status !== "queued" && item.status !== "editing"}
               onClick={() => edit(item)}
             >
               <PencilIcon size={14} />
@@ -239,7 +244,6 @@ export function QueueSidebar(): ReactElement | null {
               variant="subtle"
               size="sm"
               aria-label={`Remove queued message ${index + 1}`}
-              disabled={item.status !== "queued" && item.status !== "editing"}
               onClick={() => remove(item)}
             >
               <Trash2Icon size={14} />
@@ -248,7 +252,6 @@ export function QueueSidebar(): ReactElement | null {
               variant="subtle"
               size="sm"
               aria-label={`Move queued message ${index + 1} up`}
-              disabled={index === 0 || item.status === "pinned"}
               onClick={() =>
                 void window.verbo.queue.reorder({
                   id: item.id,
@@ -264,7 +267,6 @@ export function QueueSidebar(): ReactElement | null {
               variant="subtle"
               size="sm"
               aria-label={`Move queued message ${index + 1} down`}
-              disabled={index === items.length - 1 || item.status === "pinned"}
               onClick={() =>
                 void window.verbo.queue.reorder({
                   id: item.id,
@@ -279,8 +281,14 @@ export function QueueSidebar(): ReactElement | null {
           </div>
         </article>
       ))}
+        </>
+      ) : null}
+      </div>
+      <TtsControls />
     </aside>
   );
+
+  if (!voiceOn && (!queued || waiting.length === 0)) return null;
 
   if (narrow && !drawer) {
     return (

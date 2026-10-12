@@ -4,6 +4,7 @@ import {
   joinSpeech,
   silenceSendDecision,
   speechChunks,
+  spokenText,
   voiceStatusLine,
 } from "./voice-draft";
 import { idleLevelClock, signalRms, stepLevel } from "./voice-audio";
@@ -123,7 +124,10 @@ describe("voice draft policy", () => {
         silenceSendMs: 400,
       }),
     ).toBe("send");
-    expect(speechChunks("one two three", 2_000, 1)).toEqual(["one two three"]);
+    expect(speechChunks("one two three", 2_000, 1)).toEqual(["one two three."]);
+    expect(
+      spokenText("**Hello** 😀\n- first item\n1. second, still here."),
+    ).toBe("Hello.\nfirst item.\nsecond, still here.");
   });
 });
 

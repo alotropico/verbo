@@ -65,12 +65,34 @@ export function joinSpeech(existing: string, segment: string): string {
   return `${left} ${right}`;
 }
 
+export function spokenText(text: string): string {
+  const stripped = text
+    .replace(/```[\w-]*\n?/g, " ")
+    .replace(/!\[([^\]]*)\]\([^)]*\)/g, "$1")
+    .replace(/\[([^\]]+)\]\([^)]*\)/g, "$1")
+    .replace(/^#{1,6}\s+/gm, "")
+    .replace(/^>\s?/gm, "")
+    .replace(/^\s*[-*+•]\s+/gm, "")
+    .replace(/^\s*\d+[.)]\s+/gm, "")
+    .replace(/[*_~`#|[\]{}<>]/g, "")
+    .replace(/\p{Extended_Pictographic}/gu, "")
+    .replace(/[\u200d\uFE0F]/g, "")
+    .replace(/[ \t]{2,}/g, " ")
+    .replace(/[ \t]*\n[ \t]*/g, "\n")
+    .replace(/\n{2,}/g, "\n")
+    .trim();
+  return stripped
+    .split("\n")
+    .map((line) => (/[\p{L}\p{N}]$/u.test(line) ? `${line}.` : line))
+    .join("\n");
+}
+
 export function speechChunks(
   text: string,
   limit = MAX_VOICE_TEXT_CHARS,
   maxChunks = MAX_SPOKEN_CHUNKS,
 ): string[] {
-  const trimmed = text.trim();
+  const trimmed = spokenText(text);
   if (!trimmed) return [];
   const chunks: string[] = [];
   let rest = trimmed;

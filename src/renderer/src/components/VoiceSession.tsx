@@ -7,7 +7,13 @@ import {
 import { holdQueueLease, takeQueueLease } from "@/runtime/queue-lease";
 import { startVoiceCapture, type VoiceCapture } from "@/runtime/voice-capture";
 import { useAui, useAuiState, type ThreadMessage } from "@assistant-ui/react";
-import { Button, Select, Textarea } from "@mantine/core";
+import { Button, Textarea } from "@mantine/core";
+import { ChoiceInput } from "./ChoiceInput";
+import {
+  revealTextPrefix,
+  speechProgress,
+  type SpeechCaption,
+} from "@shared/speech-reveal";
 import {
   silenceSendDecision,
   speechChunks,
@@ -55,6 +61,9 @@ function VoiceSessionProvider({ children }: PropsWithChildren): ReactElement {
   );
   const [paused, setPaused] = useState(false);
   const [speaking, setSpeaking] = useState(false);
+  const [speechCaption, setSpeechCaption] = useState<SpeechCaption | null>(
+    null,
+  );
   const [muted, setMuted] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [draftState, setDraftState] = useState({ threadId: "", text: "" });
@@ -98,9 +107,11 @@ function VoiceSessionProvider({ children }: PropsWithChildren): ReactElement {
   const applyRef = useRef<(result: VoiceDraftResult) => Promise<void>>(
     async () => undefined,
   );
-  const speakRef = useRef<(text: string, origin: string) => Promise<void>>(
-    async () => undefined,
-  );
+  const speakRef = useRef<
+    (text: string, origin: string, messageId: string | null) => Promise<void>
+  >(async () => undefined);
+  const shownRef = useRef("");
+  const captionRef = useRef<SpeechCaption | null>(null);
   const flushRef = useRef<() => Promise<void>>(async () => undefined);
   const considerRef = useRef<() => void>(() => undefined);
   const sendingRef = useRef(false);
@@ -120,6 +131,13 @@ function VoiceSessionProvider({ children }: PropsWithChildren): ReactElement {
   const anchor = (): string | null =>
     aui.thread().getState().messages.at(-1)?.id ?? null;
 
+  const clearCaption = (): void => {
+    if (!captionRef.current && shownRef.current.length === 0) return;
+    captionRef.current = null;
+    shownRef.current = "";
+    setSpeechCaption(null);
+  };
+
   const stopSpeech = (): void => {
     const wasSpeaking = speakingRef.current;
     playToken.current += 1;
@@ -129,6 +147,7 @@ function VoiceSessionProvider({ children }: PropsWithChildren): ReactElement {
     pausedRef.current = false;
     setSpeaking(false);
     setPaused(false);
+    clearCaption();
     if (wasSpeaking) void window.verbo.voice.cancel();
   };
 
@@ -184,7 +203,11 @@ function VoiceSessionProvider({ children }: PropsWithChildren): ReactElement {
     return remoteId;
   };
 
-  const playWav = (audio: Uint8Array, token: number): Promise<void> => {
+  const playWav = (
+    audio: Uint8Array,
+    token: number,
+    onProgress: (ratio: number) => void,
+  ): Promise<void> => {
     const copy = new Uint8Array(audio.byteLength);
     copy.set(audio);
     const url = URL.createObjectURL(
@@ -193,22 +216,58 @@ function VoiceSessionProvider({ children }: PropsWithChildren): ReactElement {
     return new Promise((resolve) => {
       const element = new Audio(url);
       audioRef.current = element;
-      const finish = (): void => {
+      let frame = 0;
+      let settled = false;
+      const stopTick = (): void => {
+        if (frame === 0) return;
+        cancelAnimationFrame(frame);
+        frame = 0;
+      };
+      const tick = (): void => {
+        frame = 0;
+        if (token !== playToken.current || audioRef.current !== element) return;
+        const duration = element.duration;
+        if (Number.isFinite(duration) && duration > 0) {
+          onProgress(Math.min(1, element.currentTime / duration));
+        }
+        frame = requestAnimationFrame(tick);
+      };
+      const finish = (completed: boolean): void => {
+        if (settled) return;
+        settled = true;
+        stopTick();
+        element.onended = null;
+        element.onerror = null;
+        element.onplay = null;
         URL.revokeObjectURL(url);
         if (audioRef.current === element) audioRef.current = null;
+        if (completed && token === playToken.current) onProgress(1);
         resolve();
       };
-      element.onended = finish;
-      element.onerror = finish;
+      const startTick = (): void => {
+        if (token !== playToken.current || audioRef.current !== element) return;
+        if (frame !== 0) return;
+        frame = requestAnimationFrame(tick);
+      };
+      element.onended = () => finish(true);
+      element.onerror = () => finish(false);
       if (token !== playToken.current) {
-        finish();
+        finish(false);
         return;
       }
-      void element.play().catch(finish);
+      element.onplay = startTick;
+      void element
+        .play()
+        .then(startTick)
+        .catch(() => finish(false));
     });
   };
 
-  const speakText = async (text: string, origin: string): Promise<void> => {
+  const speakText = async (
+    text: string,
+    origin: string,
+    messageId: string | null,
+  ): Promise<void> => {
     if (!activeRef.current || mutedRef.current) return;
     const chunks = speechChunks(
       text,
@@ -222,8 +281,25 @@ function VoiceSessionProvider({ children }: PropsWithChildren): ReactElement {
     pausedRef.current = true;
     setSpeaking(true);
     setPaused(true);
+    if (messageId) {
+      const caption = { messageId, ratio: 0 };
+      captionRef.current = caption;
+      shownRef.current = "";
+      setSpeechCaption(caption);
+    }
+    const publish = (ratio: number): void => {
+      if (!messageId || token !== playToken.current) return;
+      const shown = revealTextPrefix(text, ratio);
+      if (shown === shownRef.current) return;
+      shownRef.current = shown;
+      const caption = { messageId, ratio };
+      captionRef.current = caption;
+      setSpeechCaption(caption);
+    };
     try {
-      for (const chunk of chunks) {
+      for (let index = 0; index < chunks.length; index += 1) {
+        const chunk = chunks[index];
+        if (!chunk) continue;
         if (token !== playToken.current || threadRef.current !== origin) return;
         const voiceId = settingsRef.current.voiceId || selectedVoiceId;
         const result = await window.verbo.voice.synthesize({
@@ -235,7 +311,9 @@ function VoiceSessionProvider({ children }: PropsWithChildren): ReactElement {
           if (result.code !== "cancelled") setError(result.detail);
           return;
         }
-        await playWav(result.audio, token);
+        await playWav(result.audio, token, (chunkRatio) => {
+          publish(speechProgress({ chunks, index, chunkRatio }));
+        });
       }
     } finally {
       if (token === playToken.current) {
@@ -243,6 +321,7 @@ function VoiceSessionProvider({ children }: PropsWithChildren): ReactElement {
         pausedRef.current = false;
         setSpeaking(false);
         setPaused(false);
+        clearCaption();
       }
     }
   };
@@ -516,7 +595,7 @@ function VoiceSessionProvider({ children }: PropsWithChildren): ReactElement {
     const onRunEnd = (): void => {
       const last = aui.thread().getState().messages.at(-1);
       const text = last ? replyText(last) : "";
-      void speakRef.current(text, threadId);
+      void speakRef.current(text, threadId, last?.id ?? null);
       onQueue();
     };
     const stopQueue = window.verbo.queue.subscribe(onQueue);
@@ -543,6 +622,7 @@ function VoiceSessionProvider({ children }: PropsWithChildren): ReactElement {
     muted,
     showDraft,
     speaking,
+    speechCaption,
     status,
     visible: active || showDraft || speaking || error !== null,
     voiceId: selectedVoiceId,
@@ -642,38 +722,7 @@ export function VoiceDraftPanel(): ReactElement | null {
             <span>{session.status}</span>
           </p>
         ) : null}
-        <Button
-          type="button"
-          size="xs"
-          variant="subtle"
-          aria-pressed={session.muted}
-          leftSection={
-            session.muted ? (
-              <VolumeXIcon size={14} />
-            ) : (
-              <Volume2Icon size={14} />
-            )
-          }
-          onClick={session.toggleMuted}
-        >
-          {session.muted ? "Speak replies" : "Mute replies"}
-        </Button>
       </div>
-      {session.voices.length > 0 && session.voiceId ? (
-        <Select
-          label="Reply voice"
-          size="xs"
-          allowDeselect={false}
-          data={session.voices.map((voice) => ({
-            value: voice.id,
-            label: `${voice.id} (${voice.language})`,
-          }))}
-          value={session.voiceId}
-          onChange={(value) => {
-            if (value) session.setVoiceId(value);
-          }}
-        />
-      ) : null}
       {session.showDraft ? (
         <Textarea
           label="Voice draft"
@@ -686,40 +735,73 @@ export function VoiceDraftPanel(): ReactElement | null {
           onChange={(event) => session.setDraft(event.currentTarget.value)}
         />
       ) : null}
-      {session.speaking || session.showDraft ? (
+      {session.showDraft ? (
         <div className={styles.actions}>
-          {session.speaking ? (
-            <Button
-              type="button"
-              size="xs"
-              variant="default"
-              onClick={session.stopSpeech}
-            >
-              Stop playback
-            </Button>
-          ) : null}
-          {session.showDraft ? (
-            <Button
-              type="button"
-              size="xs"
-              variant="filled"
-              onClick={session.sendDraft}
-            >
-              Send draft
-            </Button>
-          ) : null}
-          {session.showDraft ? (
-            <Button
-              type="button"
-              size="xs"
-              variant="subtle"
-              onClick={session.discardDraft}
-            >
-              Discard
-            </Button>
-          ) : null}
+          <Button
+            type="button"
+            size="xs"
+            variant="filled"
+            onClick={session.sendDraft}
+          >
+            Send draft
+          </Button>
+          <Button
+            type="button"
+            size="xs"
+            variant="subtle"
+            onClick={session.discardDraft}
+          >
+            Discard
+          </Button>
         </div>
       ) : null}
+    </section>
+  );
+}
+
+export function TtsControls(): ReactElement | null {
+  const session = useVoiceSession();
+  if (!session?.active) return null;
+  return (
+    <section className={styles.tts} aria-label="Speech">
+      <ChoiceInput
+        label="Voice"
+        size="xs"
+        allowDeselect={false}
+        placeholder="First installed voice"
+        nothingFoundMessage="No voice installed"
+        data={session.voices.map((voice) => ({
+          value: voice.id,
+          label: `${voice.id} (${voice.language})`,
+        }))}
+        value={session.voiceId}
+        onChange={(value) => {
+          if (value) session.setVoiceId(value);
+        }}
+      />
+      <Button
+        type="button"
+        size="xs"
+        variant="default"
+        fullWidth
+        aria-pressed={session.muted}
+        leftSection={
+          session.muted ? <VolumeXIcon size={14} /> : <Volume2Icon size={14} />
+        }
+        onClick={session.toggleMuted}
+      >
+        {session.muted ? "Speak replies" : "Mute replies"}
+      </Button>
+      <Button
+        type="button"
+        size="xs"
+        variant="default"
+        fullWidth
+        disabled={!session.speaking}
+        onClick={session.stopSpeech}
+      >
+        Stop playback
+      </Button>
     </section>
   );
 }
