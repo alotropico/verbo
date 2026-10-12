@@ -58,7 +58,9 @@ export function ensureInstalledFileScopes(
 ): void {
   const tmp = ensureProposedDefaultDirectory(projectRoot);
   const current = store.list();
-  const aliases = new Set(current.map((scope) => scope.alias.toLowerCase()));
+  const aliases = new Set(
+    current.flatMap((scope) => scope.aliases.map((alias) => alias.toLowerCase())),
+  );
   const paths = new Set(current.map((scope) => pathKey(scope.path)));
   const hasDefault = current.some((scope) => scope.defaultSave);
   const additions: ScopeAddition[] = [];

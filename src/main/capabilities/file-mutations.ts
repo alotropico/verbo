@@ -48,11 +48,13 @@ export function fileMutationCapabilities(
     {
       id: "files.create",
       description:
-        "Create a file or folder inside a writable alias. One collision-free item runs immediately and returns a receipt. Two or more items need confirmation. Existing paths are never overwritten.",
+        "Create a file or folder. A bare filename is saved in the default folder (.tmp). One collision-free item runs immediately and returns a receipt. Two or more items need confirmation. Existing paths are never overwritten.",
       kind: "mutation",
       approval: "none",
       args: filesCreateArgsSchema,
-      example: { path: "tmp:/note.md", kind: "file", content: "# Note\n" },
+      syntax:
+        '{path, kind:"file"|"directory", content?, format?:"text"|"json"|"markdown"} or {items:[{path, kind:"file"|"directory", content?, format?}]}',
+      example: { path: "note.md", kind: "file", content: "# Note\n" },
       execute(args, context): ActionResult {
         const opened = open("files.create", context);
         if ("status" in opened) return opened;
@@ -70,6 +72,8 @@ export function fileMutationCapabilities(
       kind: "mutation",
       approval: "required",
       args: filesEditArgsSchema,
+      syntax:
+        '{path, mode:"full", content, format?:"text"|"json"|"markdown"} or {path, mode:"replace", find, replace, expectedMatches, format?:"text"|"json"|"markdown"} or {path, mode:"lines", content, startLine, endLine, format?:"text"|"json"|"markdown"}',
       example: {
         path: "tmp:/note.md",
         mode: "replace",
@@ -94,6 +98,7 @@ export function fileMutationCapabilities(
       kind: "mutation",
       approval: "none",
       args: filesTransferArgsSchema,
+      syntax: "{from, to} or {items:[{from, to}]} or {resultSet, toDirectory}",
       example: { from: "tmp:/note.md", to: "tmp:/copy.md" },
       execute(args, context): ActionResult {
         const opened = open("files.copy", context);
@@ -112,6 +117,7 @@ export function fileMutationCapabilities(
       kind: "mutation",
       approval: "none",
       args: filesTransferArgsSchema,
+      syntax: "{from, to} or {items:[{from, to}]} or {resultSet, toDirectory}",
       example: { from: "tmp:/Inbox/a.md", to: "tmp:/Sorted/a.md" },
       execute(args, context): ActionResult {
         const opened = open("files.move", context);
@@ -130,6 +136,7 @@ export function fileMutationCapabilities(
       kind: "mutation",
       approval: "none",
       args: filesTransferArgsSchema,
+      syntax: "{from, to} or {items:[{from, to}]} or {resultSet, toDirectory}",
       example: { from: "tmp:/draft.md", to: "tmp:/final.md" },
       execute(args, context): ActionResult {
         const opened = open("files.rename", context);
@@ -148,6 +155,7 @@ export function fileMutationCapabilities(
       kind: "mutation",
       approval: "required",
       args: filesTrashArgsSchema,
+      syntax: "{path} or {paths:[path]} or {resultSet}",
       example: { path: "tmp:/old.md" },
       execute(args, context): ActionResult {
         const opened = open("files.trash", context);
@@ -166,6 +174,8 @@ export function fileMutationCapabilities(
       kind: "mutation",
       approval: "required",
       args: filesBatchArgsSchema,
+      syntax:
+        '{items:[{action:"files.create", path, kind:"file"|"directory", content?, format?:"text"|"json"|"markdown"} | {action:"files.copy"|"files.move"|"files.rename", from, to} | {action:"files.trash", path}]}',
       example: {
         items: [
           { action: "files.create", kind: "directory", path: "tmp:/Sorted" },

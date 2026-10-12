@@ -1,15 +1,28 @@
-import { app, nativeTheme, shell, BrowserWindow, session } from 'electron'
-import { join } from 'path'
-import { electronApp, optimizer, is } from '@electron-toolkit/utils'
-import { registerIpc } from './ipc/register-ipc'
-import { closeDatabase, getDatabase } from './db/database'
-import { createScopeStore } from './db/scopes'
-import { ensureInstalledFileScopes } from './files/installed-scopes'
-import { reconcileOperations } from './files/mutation-plan'
+import { app, nativeTheme, shell, BrowserWindow, session } from "electron";
+import { join } from "path";
+import { electronApp, optimizer, is } from "@electron-toolkit/utils";
+import { registerIpc } from "./ipc/register-ipc";
+import {
+  allowsMicrophoneCheck,
+  allowsMicrophoneRequest,
+} from "./voice/microphone";
+import { closeDatabase, getDatabase } from "./db/database";
+import { turnDispatcher } from "./runtime/queue-service";
+import { voiceBridge } from "./voice/client";
+import { attachVoiceService } from "./voice/lifecycle";
+import { createScopeStore } from "./db/scopes";
+import { createAssetStore } from "./files/asset-store";
+import { ensureInstalledFileScopes } from "./files/installed-scopes";
+import { reconcileOperations } from "./files/mutation-plan";
 
-nativeTheme.themeSource = 'dark'
+nativeTheme.themeSource = "dark";
 
-let mainWindow: BrowserWindow | null = null
+let mainWindow: BrowserWindow | null = null;
+let stopVoiceService = (): void => {};
+
+app.on("will-quit", () => {
+  stopVoiceService();
+});
 
 function createWindow(): void {
   mainWindow = new BrowserWindow({
@@ -17,70 +30,111 @@ function createWindow(): void {
     height: 800,
     show: false,
     autoHideMenuBar: true,
-    backgroundColor: '#16151a',
+    backgroundColor: "#16151a",
     webPreferences: {
-      preload: join(__dirname, '../preload/index.js'),
+      preload: join(__dirname, "../preload/index.js"),
       contextIsolation: true,
       sandbox: true,
-      nodeIntegration: false
-    }
-  })
+      nodeIntegration: false,
+    },
+  });
 
-  mainWindow.on('ready-to-show', () => {
-    mainWindow?.show()
-  })
+  mainWindow.on("ready-to-show", () => {
+    mainWindow?.show();
+  });
 
   mainWindow.webContents.setWindowOpenHandler((details) => {
-    shell.openExternal(details.url)
-    return { action: 'deny' }
-  })
+    shell.openExternal(details.url);
+    return { action: "deny" };
+  });
 
-  registerIpc(mainWindow)
+  registerIpc(mainWindow);
 
-  if (is.dev && process.env['ELECTRON_RENDERER_URL']) {
-    mainWindow.loadURL(process.env['ELECTRON_RENDERER_URL'])
+  if (is.dev && process.env["ELECTRON_RENDERER_URL"]) {
+    mainWindow.loadURL(process.env["ELECTRON_RENDERER_URL"]);
   } else {
-    mainWindow.loadFile(join(__dirname, '../renderer/index.html'))
+    mainWindow.loadFile(join(__dirname, "../renderer/index.html"));
   }
 }
 
-app.whenReady().then(() => {
-  electronApp.setAppUserModelId('com.alotropico.verbo')
+app.whenReady().then(async () => {
+  electronApp.setAppUserModelId("com.alotropico.verbo");
+
+  session.defaultSession.setPermissionRequestHandler(
+    (webContents, permission, callback, details) => {
+      const mediaTypes =
+        "mediaTypes" in details ? details.mediaTypes : undefined;
+      callback(
+        webContents.id === mainWindow?.webContents.id &&
+          allowsMicrophoneRequest(permission, mediaTypes),
+      );
+    },
+  );
+  session.defaultSession.setPermissionCheckHandler(
+    (webContents, permission, _requestingOrigin, details) => {
+      return (
+        webContents?.id === mainWindow?.webContents.id &&
+        allowsMicrophoneCheck(permission, details.mediaType)
+      );
+    },
+  );
 
   session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
     const devExtras = is.dev
       ? " script-src 'self' 'unsafe-inline'; connect-src 'self' http://127.0.0.1:11434 http://127.0.0.1:* ws://127.0.0.1:* http://localhost:* ws://localhost:*"
-      : " script-src 'self'; connect-src 'self' http://127.0.0.1:11434"
+      : " script-src 'self'; connect-src 'self' http://127.0.0.1:11434";
     callback({
       responseHeaders: {
         ...details.responseHeaders,
-        'Content-Security-Policy': [
-          `default-src 'self';${devExtras}; style-src 'self' 'unsafe-inline'; img-src 'self' data:; frame-src 'none';`
-        ]
+        "Content-Security-Policy": [
+          `default-src 'self';${devExtras}; style-src 'self' 'unsafe-inline'; img-src 'self' data:; media-src 'self' blob:; frame-src 'none';`,
+        ],
+      },
+    });
+  });
+
+  app.on("browser-window-created", (_, window) => {
+    optimizer.watchWindowShortcuts(window);
+  });
+
+  const database = getDatabase();
+  reconcileOperations(database);
+  createAssetStore(
+    database,
+    join(app.getPath("userData"), "attachments"),
+  ).sweep(Date.now());
+  turnDispatcher();
+  ensureInstalledFileScopes(createScopeStore(database), app.getAppPath());
+  await attachVoiceService(app.getAppPath(), (stop) => {
+    stopVoiceService = stop;
+  });
+  void voiceBridge()
+    .status()
+    .then((status) => {
+      if (status.ok) {
+        console.log("Voice service reachable.");
+        return;
       }
+      console.log(`${status.detail}`);
     })
-  })
+    .catch((error: unknown) => {
+      const message =
+        error instanceof Error ? error.message : "Voice status failed.";
+      console.log(`${message} Typed chat still works.`);
+    });
+  createWindow();
 
-  app.on('browser-window-created', (_, window) => {
-    optimizer.watchWindowShortcuts(window)
-  })
+  app.on("activate", () => {
+    if (BrowserWindow.getAllWindows().length === 0) createWindow();
+  });
+});
 
-  const database = getDatabase()
-  reconcileOperations(database)
-  ensureInstalledFileScopes(createScopeStore(database), app.getAppPath())
-  createWindow()
-
-  app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) createWindow()
-  })
-})
-
-app.on('window-all-closed', () => {
-  if (process.platform !== 'darwin') {
-    app.quit()
+app.on("window-all-closed", () => {
+  if (process.platform !== "darwin") {
+    app.quit();
   }
-})
+});
 
-app.on('before-quit', () => {
-  closeDatabase()
-})
+app.on("before-quit", () => {
+  closeDatabase();
+});

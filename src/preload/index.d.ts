@@ -1,3 +1,9 @@
+import type {
+  AttachmentAddResult,
+  AttachmentPreview,
+  AttachmentRef,
+} from "../shared/attachments";
+import type { ActionsOverview } from "../shared/actions-overview";
 import type { ActionResult } from "../shared/action-contract";
 import type { AssistantAI } from "../shared/chat-ipc";
 import type {
@@ -5,6 +11,7 @@ import type {
   OperationReviewFailure,
 } from "../shared/file-mutation";
 import type { ChatSettings } from "../shared/config";
+import type { FileUiAction } from "../shared/file-query";
 import type { LocalCommandResult } from "../shared/local-commands";
 import type {
   FileScopeProposal,
@@ -20,6 +27,22 @@ import type {
   MemoryUsage,
 } from "../shared/memory";
 import type { SettingsRecovery } from "../shared/settings-recovery";
+import type {
+  QueueClaimResult,
+  QueueEnqueueResult,
+  QueueMutationResult,
+  QueueSnapshot,
+  QueueSource,
+} from "../shared/turn-queue";
+import type { VoiceDraftResult } from "../shared/voice-draft";
+import type { VoiceSettings } from "../shared/voice-settings";
+import type {
+  VoiceAudioResult,
+  VoiceStatus,
+  VoiceSynthInput,
+  VoiceTextResult,
+} from "../shared/voice";
+import type { RegisteredRoot } from "../shared/projects";
 import type { RemoteThreadMetadata } from "../shared/storage-ipc";
 
 type MemoryMutation = (
@@ -105,6 +128,11 @@ type VerboApi = {
       scopes: FileScopeRecord[];
       proposal: FileScopeProposal;
     }>;
+    query: (input: {
+      threadId: string;
+      actionId: FileUiAction;
+      args: Record<string, unknown>;
+    }) => Promise<ActionResult>;
     pick: () => Promise<
       | { ok: true; pickId: string; path: string; suggestedAlias: string }
       | { ok: false; code: string; summary: string }
@@ -125,6 +153,106 @@ type VerboApi = {
       operationId: string;
       threadId: string;
     }) => Promise<ActionResult | OperationReviewFailure>;
+  };
+  actions: {
+    overview: () => Promise<ActionsOverview>;
+  };
+  projects: {
+    add: (input: {
+      pickId: string;
+      alias: string;
+    }) => Promise<
+      | { ok: true; summary: string; root: RegisteredRoot }
+      | { ok: false; code: string; summary: string }
+    >;
+    remove: (
+      id: string,
+    ) => Promise<
+      | { ok: true; summary: string }
+      | { ok: false; code: string; summary: string }
+    >;
+  };
+  ags: {
+    addHost: (input: {
+      pickId: string;
+      alias: string;
+    }) => Promise<
+      | { ok: true; summary: string; root: RegisteredRoot }
+      | { ok: false; code: string; summary: string }
+    >;
+    removeHost: (
+      id: string,
+    ) => Promise<
+      | { ok: true; summary: string }
+      | { ok: false; code: string; summary: string }
+    >;
+    chooseCheck: () => Promise<
+      { ok: true; path: string } | { ok: false; code: string; summary: string }
+    >;
+    clearCheck: () => Promise<{ ok: true; summary: string }>;
+  };
+  queue: {
+    list: (threadId: string) => Promise<QueueSnapshot>;
+    enqueue: (input: {
+      threadId: string;
+      text: string;
+      branchAnchor: string | null;
+      source: QueueSource;
+      attachmentRefs?: AttachmentRef[];
+    }) => Promise<QueueEnqueueResult>;
+    claim: (threadId: string) => Promise<QueueClaimResult>;
+    remove: (id: string) => Promise<QueueMutationResult>;
+    acknowledge: (id: string) => Promise<QueueMutationResult>;
+    discard: (id: string) => Promise<QueueMutationResult>;
+    rebind: (id: string) => Promise<QueueMutationResult>;
+    sendAgain: (id: string) => Promise<QueueMutationResult>;
+    clear: (threadId: string) => Promise<QueueMutationResult>;
+    releaseHold: () => Promise<{ ok: true }>;
+    release: (id: string) => Promise<{ ok: true }>;
+    subscribe: (listener: () => void) => () => void;
+  };
+  voice: {
+    settings: () => Promise<VoiceSettings>;
+    setSettings: (settings: VoiceSettings) => Promise<VoiceSettings>;
+    status: () => Promise<VoiceStatus>;
+    transcribe: (input: {
+      audio: Uint8Array;
+      language?: "en" | "es";
+    }) => Promise<VoiceTextResult>;
+    synthesize: (input: VoiceSynthInput) => Promise<VoiceAudioResult>;
+    cancel: () => Promise<{ ok: true }>;
+    draft: (threadId: string) => Promise<VoiceDraftResult>;
+    commit: (input: {
+      threadId: string;
+      text: string;
+      branchAnchor: string | null;
+    }) => Promise<VoiceDraftResult>;
+    flush: (input: {
+      threadId: string;
+      branchAnchor: string | null;
+    }) => Promise<VoiceDraftResult>;
+    save: (input: {
+      threadId: string;
+      text: string;
+    }) => Promise<VoiceDraftResult>;
+    discard: (threadId: string) => Promise<VoiceDraftResult>;
+    send: (input: {
+      threadId: string;
+      branchAnchor: string | null;
+    }) => Promise<VoiceDraftResult>;
+  };
+  attachments: {
+    add: (input: {
+      threadId: string;
+      name: string;
+      mediaType: string;
+      bytesBase64: string;
+    }) => Promise<AttachmentAddResult>;
+    remove: (input: {
+      threadId: string;
+      id: string;
+    }) => Promise<{ ok: true } | { ok: false; summary: string }>;
+    preview: (id: string) => Promise<AttachmentPreview>;
   };
 };
 

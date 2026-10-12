@@ -210,6 +210,79 @@ const VERSION_7 = `
   );
 `;
 
+const VERSION_9 = `
+  CREATE TABLE IF NOT EXISTS queued_turns (
+    id TEXT PRIMARY KEY,
+    thread_id TEXT NOT NULL,
+    branch_anchor TEXT,
+    source TEXT NOT NULL CHECK (source IN ('typed', 'voice')),
+    text TEXT NOT NULL,
+    attachment_refs_json TEXT NOT NULL,
+    status TEXT NOT NULL CHECK (status IN (
+      'queued', 'running', 'awaiting_approval', 'failed',
+      'interrupted', 'pinned', 'completed', 'cancelled'
+    )),
+    sequence INTEGER NOT NULL,
+    released INTEGER NOT NULL DEFAULT 0 CHECK (released IN (0, 1)),
+    turn_id TEXT,
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL,
+    FOREIGN KEY (thread_id) REFERENCES threads(id) ON DELETE CASCADE
+  );
+  CREATE INDEX IF NOT EXISTS idx_queued_turns_thread
+    ON queued_turns(thread_id, sequence);
+`;
+
+const VERSION_10 = `
+  CREATE TABLE IF NOT EXISTS voice_drafts (
+    thread_id TEXT PRIMARY KEY,
+    text TEXT NOT NULL,
+    updated_at INTEGER NOT NULL,
+    FOREIGN KEY (thread_id) REFERENCES threads(id) ON DELETE CASCADE
+  );
+`;
+
+const VERSION_11 = `
+  CREATE TABLE IF NOT EXISTS attachments (
+    id TEXT PRIMARY KEY,
+    thread_id TEXT NOT NULL,
+    name TEXT NOT NULL,
+    media_type TEXT NOT NULL,
+    byte_size INTEGER NOT NULL,
+    created_at INTEGER NOT NULL,
+    FOREIGN KEY (thread_id) REFERENCES threads(id) ON DELETE CASCADE
+  );
+  CREATE INDEX IF NOT EXISTS idx_attachments_thread
+    ON attachments(thread_id, created_at);
+`;
+
+const VERSION_12 = `
+  ALTER TABLE attachments ADD COLUMN content_sha256 TEXT NOT NULL DEFAULT '';
+`;
+
+const VERSION_13 = `
+  ALTER TABLE file_scopes ADD COLUMN extra_aliases TEXT NOT NULL DEFAULT '';
+`;
+
+const VERSION_8 = `
+  CREATE TABLE IF NOT EXISTS registered_projects (
+    id TEXT PRIMARY KEY,
+    alias TEXT NOT NULL COLLATE NOCASE UNIQUE,
+    canonical_path TEXT NOT NULL,
+    created_at INTEGER NOT NULL
+  );
+  CREATE TABLE IF NOT EXISTS ags_hosts (
+    id TEXT PRIMARY KEY,
+    alias TEXT NOT NULL COLLATE NOCASE UNIQUE,
+    canonical_path TEXT NOT NULL,
+    created_at INTEGER NOT NULL
+  );
+  CREATE TABLE IF NOT EXISTS ags_check_command (
+    id INTEGER PRIMARY KEY CHECK (id = 1),
+    executable_path TEXT NOT NULL
+  );
+`;
+
 export const VERBO_MIGRATIONS: readonly MigrationStep[] = [
   { version: 1, up: (database) => database.exec(VERSION_1) },
   {
@@ -238,6 +311,12 @@ export const VERBO_MIGRATIONS: readonly MigrationStep[] = [
   { version: 5, up: (database) => database.exec(VERSION_5) },
   { version: 6, up: (database) => database.exec(VERSION_6) },
   { version: 7, up: (database) => database.exec(VERSION_7) },
+  { version: 8, up: (database) => database.exec(VERSION_8) },
+  { version: 9, up: (database) => database.exec(VERSION_9) },
+  { version: 10, up: (database) => database.exec(VERSION_10) },
+  { version: 11, up: (database) => database.exec(VERSION_11) },
+  { version: 12, up: (database) => database.exec(VERSION_12) },
+  { version: 13, up: (database) => database.exec(VERSION_13) },
 ];
 
 export function backupDatabase(

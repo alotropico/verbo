@@ -62,6 +62,7 @@ describe("file scopes and path policy", () => {
     expect(saved.ok).toBe(true);
     if (!saved.ok) return;
     expect(saved.scopes[0]?.alias).toBe("notes");
+    expect(saved.scopes[0]?.aliases).toEqual(["notes"]);
     expect(store.generation()).toBe(2);
 
     const resolved = resolveFileReference({
@@ -75,7 +76,61 @@ describe("file scopes and path policy", () => {
     if (!resolved.ok) return;
     expect(resolved.path.display).toBe("notes:/idea.md");
     expect(resolved.path.write).toBe(true);
+    const bare = resolveFileReference({
+      reference: "idea.md",
+      purpose: "read",
+      actor: "model",
+      scopes: saved.scopes,
+      grants: [],
+    });
+    expect(bare.ok).toBe(true);
+    if (!bare.ok) return;
+    expect(bare.path.display).toBe("notes:/idea.md");
+    expect(
+      resolveFileReference({
+        reference: "../secret.txt",
+        purpose: "write",
+        actor: "model",
+        scopes: saved.scopes,
+        grants: [],
+      }),
+    ).toMatchObject({ ok: false, code: "invalid_reference" });
+  });
 
+  it("resolves every comma-separated alias for one folder", () => {
+    const root = folder("verbo-alias-list-");
+    writeFileSync(join(root, "idea.md"), "idea");
+    const store = createScopeStore(database());
+    const saved = store.apply({
+      removeIds: [],
+      updates: [],
+      additions: [
+        {
+          alias: "Notes, Docs",
+          path: root,
+          read: true,
+          write: true,
+          defaultSave: false,
+        },
+      ],
+    });
+    expect(saved.ok).toBe(true);
+    if (!saved.ok) return;
+    expect(saved.scopes[0]?.aliases).toEqual(["notes", "docs"]);
+    const resolved = resolveFileReference({
+      reference: "docs:/idea.md",
+      purpose: "read",
+      actor: "model",
+      scopes: saved.scopes,
+      grants: [],
+    });
+    expect(resolved.ok).toBe(true);
+    if (!resolved.ok) return;
+    expect(resolved.path.display).toBe("docs:/idea.md");
+  });
+
+  it("lists a registered folder alias", () => {
+    const root = folder("verbo-notes-list-");
     const detail = dispatchModelTool(
       registryForDatabase(database()),
       "actions.invoke",

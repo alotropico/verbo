@@ -3,7 +3,8 @@ import type { DatabaseSync } from "node:sqlite";
 import type { ActorKind } from "../../shared/action-contract";
 import {
   displayFinalPath,
-  scopeAliasSchema,
+  scopeAliasListSchema,
+  splitScopeAliases,
   type FileGrantKind,
   type FileGrantRecord,
   type FileScopeProposal,
@@ -19,6 +20,7 @@ import { describeExistingPath } from "../files/windows-containment";
 type ScopeRow = {
   id: string;
   alias: string;
+  extra_aliases: string;
   canonical_path: string;
   can_read: number;
   can_write: number;
@@ -89,9 +91,14 @@ function failure(code: string, summary: string): ScopeFailure {
 }
 
 function mapScope(row: ScopeRow): FileScopeRecord {
+  const aliases = [
+    row.alias,
+    ...splitScopeAliases(row.extra_aliases ?? ""),
+  ];
   return {
     id: row.id,
     alias: row.alias,
+    aliases,
     path: row.canonical_path,
     read: row.can_read === 1,
     write: row.can_write === 1,
@@ -134,7 +141,7 @@ export function createScopeStore(
   function list(): FileScopeRecord[] {
     const rows = database
       .prepare(
-        `SELECT id, alias, canonical_path, can_read, can_write, is_default, created_at, updated_at
+        `SELECT id, alias, extra_aliases, canonical_path, can_read, can_write, is_default, created_at, updated_at
          FROM file_scopes
          ORDER BY alias`,
       )
@@ -150,15 +157,25 @@ export function createScopeStore(
       .run();
   }
 
-  function checkedAlias(alias: string): ScopeFailure | { alias: string } {
-    const parsed = scopeAliasSchema.safeParse(alias);
+  function checkedAlias(
+    alias: string,
+  ): ScopeFailure | { alias: string; aliases: string[] } {
+    const parsed = scopeAliasListSchema.safeParse(alias);
+    if (!parsed.success) {
+      return failure(
+        "alias_invalid",
+        parsed.error.issues[0]?.message ?? "Use a short lowercase alias.",
+      );
+    }
+    const aliases = splitScopeAliases(parsed.data);
     if (
-      !parsed.success ||
-      /^(con|prn|aux|nul|com[1-9]|lpt[1-9])$/iu.test(parsed.data)
+      aliases.some((name) =>
+        /^(con|prn|aux|nul|com[1-9]|lpt[1-9])$/iu.test(name),
+      )
     ) {
       return failure("alias_invalid", "Use a short lowercase alias.");
     }
-    return { alias: parsed.data };
+    return { alias: aliases[0] ?? parsed.data, aliases };
   }
 
   function checkedDirectory(path: string): ScopeFailure | { path: string } {
@@ -192,7 +209,7 @@ export function createScopeStore(
         path,
         saved: list().some(
           (scope) =>
-            scope.alias === DEFAULT_SCOPE_ALIAS ||
+            scope.aliases.includes(DEFAULT_SCOPE_ALIAS) ||
             scope.path.toLowerCase() === path.toLowerCase(),
         ),
       };
@@ -243,6 +260,7 @@ export function createScopeStore(
         next.push({
           ...scope,
           alias: alias.alias,
+          aliases: alias.aliases,
           read: access.read,
           write: access.write,
           defaultSave: update.defaultSave,
@@ -257,7 +275,7 @@ export function createScopeStore(
         const directory = checkedDirectory(addition.path);
         if ("ok" in directory) return directory;
         additions.push({
-          alias: alias.alias,
+          alias: alias.aliases.join(", "),
           path: directory.path,
           read: access.read,
           write: access.write,
@@ -265,8 +283,10 @@ export function createScopeStore(
         });
       }
       const aliases = [
-        ...next.map((scope) => ("id" in scope ? scope.alias : scope.alias)),
-        ...additions.map((scope) => scope.alias),
+        ...next.flatMap((scope) =>
+          "aliases" in scope ? scope.aliases : splitScopeAliases(scope.alias),
+        ),
+        ...additions.flatMap((scope) => splitScopeAliases(scope.alias)),
       ];
       if (new Set(aliases).size !== aliases.length) {
         return failure("alias_taken", "That alias is already used.");
@@ -294,7 +314,7 @@ export function createScopeStore(
         for (const id of removed) remove.run(id);
         const update = database.prepare(
           `UPDATE file_scopes
-           SET alias = ?, can_read = ?, can_write = ?, is_default = ?, updated_at = ?
+           SET alias = ?, extra_aliases = ?, can_read = ?, can_write = ?, is_default = ?, updated_at = ?
            WHERE id = ?`,
         );
         for (const scope of next) {
@@ -302,6 +322,7 @@ export function createScopeStore(
           if (!updates.has(scope.id)) continue;
           update.run(
             scope.alias,
+            scope.aliases.slice(1).join(", "),
             scope.read ? 1 : 0,
             scope.write ? 1 : 0,
             scope.defaultSave ? 1 : 0,
@@ -311,13 +332,15 @@ export function createScopeStore(
         }
         const insert = database.prepare(
           `INSERT INTO file_scopes (
-             id, alias, canonical_path, can_read, can_write, is_default, created_at, updated_at
-           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+             id, alias, extra_aliases, canonical_path, can_read, can_write, is_default, created_at, updated_at
+           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         );
         for (const addition of additions) {
+          const names = splitScopeAliases(addition.alias);
           insert.run(
             randomUUID(),
-            addition.alias,
+            names[0],
+            names.slice(1).join(", "),
             addition.path,
             addition.read ? 1 : 0,
             addition.write ? 1 : 0,

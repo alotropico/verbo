@@ -40,6 +40,7 @@ import { mutationPorts, operationSession } from "./mutation-ports";
 import {
   isProtectedLocation,
   parseFileReference,
+  qualifyFileReference,
   resolveFileReference,
 } from "./path-policy";
 import {
@@ -146,7 +147,7 @@ function summaryFor(code: ContainmentCode | string): string {
   if (code === "missing") return "That path does not exist.";
   if (code === "unopenable") return "That path could not be opened.";
   if (code === "invalid" || code === "invalid_reference") {
-    return "That path is not valid.";
+    return "That path is not valid. A filename is saved in the default folder.";
   }
   if (code === "outside" || code === "outside_scope") {
     return "Writes stay inside a writable folder alias.";
@@ -250,7 +251,10 @@ function locate(input: {
   grants: ReturnType<ScopeStore["activeGrants"]>;
   allowMissing: boolean;
 }): { ok: true; path: Located } | StepFailure {
-  const parsed = parseFileReference(input.reference);
+  const parsed = qualifyFileReference(
+    parseFileReference(input.reference),
+    input.scopes,
+  );
   if (parsed.kind === "invalid") {
     return {
       ok: false,
@@ -258,8 +262,18 @@ function locate(input: {
       summary: summaryFor("invalid_reference"),
     };
   }
+  if (parsed.kind === "no_default") {
+    return {
+      ok: false,
+      code: "no_default_scope",
+      summary:
+        "No default save folder is registered. Use an alias such as tmp:/note.md.",
+    };
+  }
   if (parsed.kind === "alias") {
-    const scope = input.scopes.find((item) => item.alias === parsed.alias);
+    const scope = input.scopes.find((item) =>
+      item.aliases.includes(parsed.alias),
+    );
     if (!scope) {
       return {
         ok: false,
@@ -271,21 +285,21 @@ function locate(input: {
       return {
         ok: false,
         code: "write_denied",
-        summary: `${scope.alias}: is not writable.`,
+        summary: `${parsed.alias}: is not writable.`,
       };
     }
     if (input.purpose === "read" && !scope.read) {
       return {
         ok: false,
         code: "read_denied",
-        summary: `${scope.alias}: is not readable.`,
+        summary: `${parsed.alias}: is not readable.`,
       };
     }
     const candidate =
       parsed.parts.length === 0
         ? scope.path
         : win32.join(scope.path, ...parsed.parts);
-    return finishLocate(scope, candidate, input);
+    return finishLocate(scope, candidate, input, parsed.alias);
   }
   if (isProtectedLocation(parsed.path)) {
     return { ok: false, code: "protected", summary: summaryFor("protected") };
@@ -348,6 +362,7 @@ function finishLocate(
   scope: FileScopeRecord,
   candidate: string,
   input: { purpose: "read" | "write"; allowMissing: boolean },
+  displayAlias = scope.alias,
 ): { ok: true; path: Located } | StepFailure {
   if (namedReparse(candidate)) {
     return {
@@ -381,7 +396,7 @@ function finishLocate(
       ok: true,
       path: {
         absolute,
-        display: aliasDisplay(scope.alias, scope.path, absolute),
+        display: aliasDisplay(displayAlias, scope.path, absolute),
         exists: true,
         directory: state.directory,
         write: scope.write,
@@ -408,7 +423,7 @@ function finishLocate(
     ok: true,
     path: {
       absolute,
-      display: aliasDisplay(scope.alias, scope.path, absolute),
+      display: aliasDisplay(displayAlias, scope.path, absolute),
       exists: false,
       directory: false,
       write: scope.write,

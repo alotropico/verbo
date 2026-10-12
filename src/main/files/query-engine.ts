@@ -9,6 +9,7 @@ import {
   filesListArgsSchema,
   filesSearchArgsSchema,
   filesStatArgsSchema,
+  filesNextArgsSchema,
   filesSummaryArgsSchema,
   type FileQuerySort,
   type FilesListArgs,
@@ -1054,4 +1055,71 @@ export function summarizeFiles(
       ? { totalItems: files.length + directories.length }
       : {}),
   };
+}
+
+export function continueFilePage(
+  request: FileQueryRequest,
+  args: unknown,
+): ActionResult {
+  const parsed = filesNextArgsSchema.safeParse(args);
+  if (!parsed.success) {
+    return failure("files.next", "invalid_args", "Next needs a page cursor.");
+  }
+  const now = request.now ?? Date.now();
+  const store = createQuerySnapshotStore(request.database);
+  store.purge(now);
+  const cursor = store.takeCursor(parsed.data.cursor);
+  if (!cursor || cursor.expiresAt <= now) {
+    return failure(
+      "files.next",
+      "stale_cursor",
+      "That page cursor expired. Run the query again.",
+    );
+  }
+  const snapshot = store.snapshot(cursor.snapshotId);
+  if (!snapshot || snapshot.expiresAt <= now) {
+    return failure(
+      "files.next",
+      "stale_cursor",
+      "That result set expired. Run the query again.",
+    );
+  }
+  if (snapshot.threadId !== request.threadId) {
+    return failure(
+      "files.next",
+      "session_mismatch",
+      "That page cursor belongs to another conversation.",
+    );
+  }
+  if (snapshot.scopeGeneration !== request.store.generation()) {
+    store.remove(snapshot.id);
+    return failure(
+      "files.next",
+      "stale_cursor",
+      "Folders changed since that page. Run the query again.",
+    );
+  }
+  if (!snapshotFresh(store, snapshot.id)) {
+    store.remove(snapshot.id);
+    return failure(
+      "files.next",
+      "stale_cursor",
+      "Files changed since that page. Run the query again.",
+    );
+  }
+  const total = store.countItems(snapshot.id);
+  const page = store.page(
+    snapshot.id,
+    cursor.offset,
+    parsed.data.pageSize,
+    snapshot.sort,
+  );
+  return pageResult({
+    action: "files.next",
+    snapshot,
+    items: page,
+    offset: cursor.offset,
+    total,
+    store,
+  });
 }

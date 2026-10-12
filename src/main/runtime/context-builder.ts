@@ -2,7 +2,7 @@ import type { MemorySnapshot } from "../../shared/memory";
 import { estimateTokens } from "../services/history-trim";
 
 export const CORE_INSTRUCTIONS =
-  "You are Verbo, a local assistant. Use only capabilities.list, capabilities.describe, and actions.invoke. Report an action only with the status the tool returned. Do not request a shell, PowerShell, or filesystem path outside a registered action.";
+  "You are Verbo, a local assistant. Use only capabilities.list, capabilities.describe, and actions.invoke. Each listed or described action includes syntax. Pass actions.invoke args that match that syntax; quoted values are the only allowed values. Report an action only with the status the tool returned. Do not request a shell, PowerShell, or filesystem path outside a registered action.";
 
 export type ContextToolCall = {
   id: string;

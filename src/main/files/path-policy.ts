@@ -72,12 +72,33 @@ export function aliasFromFolderName(folderPath: string): string {
   return named.slice(0, 32);
 }
 
-export function parseFileReference(
-  reference: string,
-):
+export type ParsedFileReference =
   | { kind: "alias"; alias: string; parts: string[] }
   | { kind: "absolute"; path: string }
-  | { kind: "invalid" } {
+  | { kind: "relative"; parts: string[] }
+  | { kind: "invalid" };
+
+function relativeParts(trimmed: string): string[] | undefined {
+  if (trimmed.startsWith("/") || trimmed.startsWith("\\")) return undefined;
+  const stripped = trimmed.replace(/^(?:\.\/|\.\\)+/u, "");
+  if (!stripped || /^[a-z]:/iu.test(stripped)) return undefined;
+  const parts = stripped.split(/[\\/]+/u).filter((part) => part.length > 0);
+  if (parts.length === 0) return undefined;
+  if (
+    parts.some(
+      (part) =>
+        part === "." ||
+        part === ".." ||
+        part.includes(":") ||
+        DEVICE_ALIAS.test(part),
+    )
+  ) {
+    return undefined;
+  }
+  return parts;
+}
+
+export function parseFileReference(reference: string): ParsedFileReference {
   const trimmed = reference.trim();
   if (!trimmed || trimmed.includes("\0")) return { kind: "invalid" };
   if (win32.isAbsolute(trimmed)) return { kind: "absolute", path: trimmed };
@@ -93,8 +114,24 @@ export function parseFileReference(
     }
     return { kind: "alias", alias: alias[1].toLowerCase(), parts };
   }
-  if (win32.isAbsolute(trimmed)) return { kind: "absolute", path: trimmed };
+  const relative = relativeParts(trimmed);
+  if (relative) return { kind: "relative", parts: relative };
   return { kind: "invalid" };
+}
+
+export type QualifiedFileReference =
+  | Exclude<ParsedFileReference, { kind: "relative" }>
+  | { kind: "no_default" };
+
+/** A bare filename or relative path uses the one default save folder. */
+export function qualifyFileReference(
+  parsed: ParsedFileReference,
+  scopes: readonly FileScopeRecord[],
+): QualifiedFileReference {
+  if (parsed.kind !== "relative") return parsed;
+  const scope = scopes.find((item) => item.defaultSave);
+  if (!scope) return { kind: "no_default" };
+  return { kind: "alias", alias: scope.alias, parts: parsed.parts };
 }
 
 function failure(code: string, summary: string): PathFailure {
@@ -151,18 +188,29 @@ export function resolveFileReference(input: {
   grants: readonly FileGrantRecord[];
   now?: number;
 }): PathFailure | PathSuccess {
-  const parsed = parseFileReference(input.reference);
+  const parsed = qualifyFileReference(
+    parseFileReference(input.reference),
+    input.scopes,
+  );
   if (parsed.kind === "invalid") {
     return failure(
       "invalid_reference",
-      "Use a scope alias such as notes:/Inbox/idea.md.",
+      "Use a filename, or a scope alias such as tmp:/note.md.",
+    );
+  }
+  if (parsed.kind === "no_default") {
+    return failure(
+      "no_default_scope",
+      "No default save folder is registered. Use an alias such as tmp:/note.md.",
     );
   }
   if (parsed.kind === "alias") {
     if (!scopeAliasSchema.safeParse(parsed.alias).success) {
       return failure("invalid_reference", "That scope alias is not valid.");
     }
-    const scope = input.scopes.find((item) => item.alias === parsed.alias);
+    const scope = input.scopes.find((item) =>
+      item.aliases.includes(parsed.alias),
+    );
     if (!scope)
       return failure(
         "unknown_alias",
@@ -183,7 +231,7 @@ export function resolveFileReference(input: {
     return {
       ok: true,
       path: {
-        display: relativeDisplay(scope.alias, scope.path, contained.finalPath),
+        display: relativeDisplay(parsed.alias, scope.path, contained.finalPath),
         absolute: contained.finalPath,
         scopeId: scope.id,
         read: scope.read,

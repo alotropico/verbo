@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { PERMANENT_MODEL_TOOLS } from "../../shared/model-tools";
-import { PERMANENT_OLLAMA_TOOLS, toOllamaMessages } from "./ollama-wire";
+import {
+  PERMANENT_OLLAMA_TOOLS,
+  toOllamaMessages,
+  withUserImages,
+} from "./ollama-wire";
 
 describe("Ollama wire messages", () => {
   it("keeps assistant tool calls ahead of their tool results", () => {
@@ -35,5 +39,21 @@ describe("Ollama wire messages", () => {
     expect(PERMANENT_OLLAMA_TOOLS.map((tool) => tool.function.name)).toEqual([
       ...PERMANENT_MODEL_TOOLS,
     ]);
+  });
+
+  it("attaches images to the latest user message", () => {
+    const wire = withUserImages(
+      [
+        { role: "user", content: "earlier" },
+        { role: "assistant", content: "ok" },
+        { role: "user", content: "see this" },
+      ],
+      ["abc"],
+    );
+    expect(wire[0]?.images).toBeUndefined();
+    expect(wire[2]?.images).toEqual(["abc"]);
+    expect(
+      withUserImages([{ role: "user", content: "see this" }], [])[0]?.images,
+    ).toBeUndefined();
   });
 });

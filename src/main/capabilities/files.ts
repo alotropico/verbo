@@ -3,19 +3,35 @@ import type { DatabaseSync } from "node:sqlite";
 import type { ActionResult } from "../../shared/action-contract";
 import {
   filesListArgsSchema,
+  filesNextArgsSchema,
   filesSearchArgsSchema,
   filesStatArgsSchema,
   filesSummaryArgsSchema,
 } from "../../shared/file-query";
+import {
+  filesCompareArgsSchema,
+  filesHashArgsSchema,
+  filesInspectImageArgsSchema,
+  filesReadArgsSchema,
+} from "../../shared/file-readers";
 import { displayFinalPath } from "../../shared/files";
 import type { ScopeStore } from "../db/scopes";
 import {
+  continueFilePage,
   listFiles,
   searchFiles,
   statFiles,
   summarizeFiles,
   type FileQueryRequest,
 } from "../files/query-engine";
+import {
+  compareFiles,
+  hashFiles,
+  inspectImages,
+  readFileContent,
+} from "../files/readers";
+import { modelSupportsVision } from "../runtime/model-vision";
+import { loadSettings } from "../services/settings-store";
 import type { Capability } from "./registry";
 import { z } from "zod";
 
@@ -73,13 +89,15 @@ export function filesCapabilities(
         }
         const all = store.list();
         const scopes = all.slice(0, 50);
-        const entries = scopes.map((scope) => ({
-          alias: `${scope.alias}:`,
-          label: win32.basename(displayFinalPath(scope.path)) || scope.alias,
-          read: scope.read,
-          write: scope.write,
-          defaultSave: scope.defaultSave,
-        }));
+        const entries = scopes.flatMap((scope) =>
+          scope.aliases.map((alias) => ({
+            alias: `${alias}:`,
+            label: win32.basename(displayFinalPath(scope.path)) || alias,
+            read: scope.read,
+            write: scope.write,
+            defaultSave: scope.defaultSave,
+          })),
+        );
         return {
           action: "files.scopes",
           status: "success",
@@ -153,6 +171,79 @@ export function filesCapabilities(
         const opened = request("files.summary", context);
         if (isFailure(opened)) return opened;
         return summarizeFiles(opened, args);
+      },
+    },
+    {
+      id: "files.next",
+      description:
+        "Continue a saved file list or search. The cursor stays bound to the original query, conversation, and snapshot.",
+      kind: "read",
+      approval: "none",
+      args: filesNextArgsSchema,
+      example: { cursor: "00000000-0000-4000-8000-000000000000" },
+      execute(args, context): ActionResult {
+        const opened = request("files.next", context);
+        if (isFailure(opened)) return opened;
+        return continueFilePage(opened, args);
+      },
+    },
+    {
+      id: "files.read",
+      description:
+        "Read a bounded line range, JSON pointer, or PDF page range. Binary files and unknown encodings are reported, not guessed.",
+      kind: "read",
+      approval: "none",
+      args: filesReadArgsSchema,
+      example: { path: "tmp:/notes.md", startLine: 1, lineCount: 80 },
+      execute(args, context): ActionResult {
+        const opened = request("files.read", context);
+        if (isFailure(opened)) return opened;
+        return readFileContent(opened, args);
+      },
+    },
+    {
+      id: "files.compare",
+      description:
+        "Capped read-only text diff of two files, or one file against proposed text. Nothing is written.",
+      kind: "read",
+      approval: "none",
+      args: filesCompareArgsSchema,
+      syntax: "{left, right} or {left, proposed}",
+      example: { left: "tmp:/a.md", right: "tmp:/b.md" },
+      execute(args, context): ActionResult {
+        const opened = request("files.compare", context);
+        if (isFailure(opened)) return opened;
+        return compareFiles(opened, args);
+      },
+    },
+    {
+      id: "files.hash",
+      description:
+        "SHA-256 for explicit files, size capped. Filename similarity is not equality.",
+      kind: "read",
+      approval: "none",
+      args: filesHashArgsSchema,
+      example: { paths: ["tmp:/notes.md"] },
+      execute(args, context): ActionResult {
+        const opened = request("files.hash", context);
+        if (isFailure(opened)) return opened;
+        return hashFiles(opened, args);
+      },
+    },
+    {
+      id: "files.inspect_image",
+      description:
+        "Image width, height, and format. Image bytes are included only when the selected model supports vision and the payload fits the result cap.",
+      kind: "read",
+      approval: "none",
+      args: filesInspectImageArgsSchema,
+      example: { paths: ["tmp:/diagram.png"] },
+      execute(args, context): ActionResult {
+        const opened = request("files.inspect_image", context);
+        if (isFailure(opened)) return opened;
+        return inspectImages(opened, args, {
+          visionSupported: modelSupportsVision(loadSettings().model),
+        });
       },
     },
   ];

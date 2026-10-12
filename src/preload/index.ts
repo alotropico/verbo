@@ -7,6 +7,7 @@ import {
 } from "../shared/chat-ipc";
 import { IPC_CHANNELS } from "../shared/ipc-channels";
 import type { ChatSettings } from "../shared/config";
+import type { FileUiAction } from "../shared/file-query";
 import type { LocalCommandResult } from "../shared/local-commands";
 import type {
   FileScopeProposal,
@@ -21,12 +22,34 @@ import type {
   MemoryScope,
   MemoryUsage,
 } from "../shared/memory";
+import type {
+  AttachmentAddResult,
+  AttachmentPreview,
+  AttachmentRef,
+} from "../shared/attachments";
+import type { ActionsOverview } from "../shared/actions-overview";
 import type { ActionResult } from "../shared/action-contract";
 import type {
   OperationReview,
   OperationReviewFailure,
 } from "../shared/file-mutation";
+import type { RegisteredRoot } from "../shared/projects";
 import type { SettingsRecovery } from "../shared/settings-recovery";
+import type {
+  QueueClaimResult,
+  QueueEnqueueResult,
+  QueueMutationResult,
+  QueueSnapshot,
+  QueueSource,
+} from "../shared/turn-queue";
+import type { VoiceDraftResult } from "../shared/voice-draft";
+import type { VoiceSettings } from "../shared/voice-settings";
+import type {
+  VoiceAudioResult,
+  VoiceStatus,
+  VoiceSynthInput,
+  VoiceTextResult,
+} from "../shared/voice";
 
 const assistantAI: AssistantAI = {
   streamChat(request: ChatRequest, onEvent: (event: ChatEvent) => void) {
@@ -144,6 +167,12 @@ const verbo = {
       scopes: FileScopeRecord[];
       proposal: FileScopeProposal;
     }> => ipcRenderer.invoke(IPC_CHANNELS.filesList),
+    query: (input: {
+      threadId: string;
+      actionId: FileUiAction;
+      args: Record<string, unknown>;
+    }): Promise<ActionResult> =>
+      ipcRenderer.invoke(IPC_CHANNELS.filesQuery, input),
     pick: (): Promise<
       | { ok: true; pickId: string; path: string; suggestedAlias: string }
       | { ok: false; code: string; summary: string }
@@ -166,6 +195,140 @@ const verbo = {
       threadId: string;
     }): Promise<ActionResult | OperationReviewFailure> =>
       ipcRenderer.invoke(IPC_CHANNELS.operationsConfirm, input),
+  },
+  actions: {
+    overview: (): Promise<ActionsOverview> =>
+      ipcRenderer.invoke(IPC_CHANNELS.actionsOverview),
+  },
+  projects: {
+    add: (input: {
+      pickId: string;
+      alias: string;
+    }): Promise<
+      | { ok: true; summary: string; root: RegisteredRoot }
+      | { ok: false; code: string; summary: string }
+    > => ipcRenderer.invoke(IPC_CHANNELS.projectsAdd, input),
+    remove: (
+      id: string,
+    ): Promise<
+      | { ok: true; summary: string }
+      | { ok: false; code: string; summary: string }
+    > => ipcRenderer.invoke(IPC_CHANNELS.projectsRemove, { id }),
+  },
+  ags: {
+    addHost: (input: {
+      pickId: string;
+      alias: string;
+    }): Promise<
+      | { ok: true; summary: string; root: RegisteredRoot }
+      | { ok: false; code: string; summary: string }
+    > => ipcRenderer.invoke(IPC_CHANNELS.agsHostAdd, input),
+    removeHost: (
+      id: string,
+    ): Promise<
+      | { ok: true; summary: string }
+      | { ok: false; code: string; summary: string }
+    > => ipcRenderer.invoke(IPC_CHANNELS.agsHostRemove, { id }),
+    chooseCheck: (): Promise<
+      { ok: true; path: string } | { ok: false; code: string; summary: string }
+    > => ipcRenderer.invoke(IPC_CHANNELS.agsCheckChoose),
+    clearCheck: (): Promise<{ ok: true; summary: string }> =>
+      ipcRenderer.invoke(IPC_CHANNELS.agsCheckClear),
+  },
+  queue: {
+    list: (threadId: string): Promise<QueueSnapshot> =>
+      ipcRenderer.invoke(IPC_CHANNELS.queueList, { threadId }),
+    enqueue: (input: {
+      threadId: string;
+      text: string;
+      branchAnchor: string | null;
+      source: QueueSource;
+      attachmentRefs?: AttachmentRef[];
+    }): Promise<QueueEnqueueResult> =>
+      ipcRenderer.invoke(IPC_CHANNELS.queueEnqueue, input),
+    claim: (threadId: string): Promise<QueueClaimResult> =>
+      ipcRenderer.invoke(IPC_CHANNELS.queueClaim, { threadId }),
+    remove: (id: string): Promise<QueueMutationResult> =>
+      ipcRenderer.invoke(IPC_CHANNELS.queueRemove, { id }),
+    acknowledge: (id: string): Promise<QueueMutationResult> =>
+      ipcRenderer.invoke(IPC_CHANNELS.queueAcknowledge, { id }),
+    discard: (id: string): Promise<QueueMutationResult> =>
+      ipcRenderer.invoke(IPC_CHANNELS.queueDiscard, { id }),
+    rebind: (id: string): Promise<QueueMutationResult> =>
+      ipcRenderer.invoke(IPC_CHANNELS.queueRebind, { id }),
+    sendAgain: (id: string): Promise<QueueMutationResult> =>
+      ipcRenderer.invoke(IPC_CHANNELS.queueSendAgain, { id }),
+    clear: (threadId: string): Promise<QueueMutationResult> =>
+      ipcRenderer.invoke(IPC_CHANNELS.queueClear, { threadId }),
+    releaseHold: (): Promise<{ ok: true }> =>
+      ipcRenderer.invoke(IPC_CHANNELS.queueReleaseHold),
+    release: (id: string): Promise<{ ok: true }> =>
+      ipcRenderer.invoke(IPC_CHANNELS.queueRelease, { id }),
+    subscribe(listener: () => void): () => void {
+      const wrapped = (): void => listener();
+      ipcRenderer.on(IPC_CHANNELS.queueChanged, wrapped);
+      return () => {
+        ipcRenderer.removeListener(IPC_CHANNELS.queueChanged, wrapped);
+      };
+    },
+  },
+  voice: {
+    settings: (): Promise<VoiceSettings> =>
+      ipcRenderer.invoke(IPC_CHANNELS.voiceSettingsGet),
+    setSettings: (settings: VoiceSettings): Promise<VoiceSettings> =>
+      ipcRenderer.invoke(IPC_CHANNELS.voiceSettingsSet, settings),
+    status: (): Promise<VoiceStatus> =>
+      ipcRenderer.invoke(IPC_CHANNELS.voiceStatus),
+    transcribe: (input: {
+      audio: Uint8Array;
+      language?: "en" | "es";
+    }): Promise<VoiceTextResult> =>
+      ipcRenderer.invoke(IPC_CHANNELS.voiceTranscribe, input),
+    synthesize: (input: VoiceSynthInput): Promise<VoiceAudioResult> =>
+      ipcRenderer.invoke(IPC_CHANNELS.voiceSynthesize, input),
+    cancel: (): Promise<{ ok: true }> =>
+      ipcRenderer.invoke(IPC_CHANNELS.voiceCancel),
+    draft: (threadId: string): Promise<VoiceDraftResult> =>
+      ipcRenderer.invoke(IPC_CHANNELS.voiceDraftGet, { threadId }),
+    commit: (input: {
+      threadId: string;
+      text: string;
+      branchAnchor: string | null;
+    }): Promise<VoiceDraftResult> =>
+      ipcRenderer.invoke(IPC_CHANNELS.voiceDraftCommit, input),
+    flush: (input: {
+      threadId: string;
+      branchAnchor: string | null;
+    }): Promise<VoiceDraftResult> =>
+      ipcRenderer.invoke(IPC_CHANNELS.voiceDraftFlush, input),
+    save: (input: {
+      threadId: string;
+      text: string;
+    }): Promise<VoiceDraftResult> =>
+      ipcRenderer.invoke(IPC_CHANNELS.voiceDraftSave, input),
+    discard: (threadId: string): Promise<VoiceDraftResult> =>
+      ipcRenderer.invoke(IPC_CHANNELS.voiceDraftDiscard, { threadId }),
+    send: (input: {
+      threadId: string;
+      branchAnchor: string | null;
+    }): Promise<VoiceDraftResult> =>
+      ipcRenderer.invoke(IPC_CHANNELS.voiceDraftSend, input),
+  },
+  attachments: {
+    add: (input: {
+      threadId: string;
+      name: string;
+      mediaType: string;
+      bytesBase64: string;
+    }): Promise<AttachmentAddResult> =>
+      ipcRenderer.invoke(IPC_CHANNELS.attachmentsAdd, input),
+    remove: (input: {
+      threadId: string;
+      id: string;
+    }): Promise<{ ok: true } | { ok: false; summary: string }> =>
+      ipcRenderer.invoke(IPC_CHANNELS.attachmentsRemove, input),
+    preview: (id: string): Promise<AttachmentPreview> =>
+      ipcRenderer.invoke(IPC_CHANNELS.attachmentsPreview, { id }),
   },
 };
 

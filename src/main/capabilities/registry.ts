@@ -12,6 +12,7 @@ export {
 
 const LIST_LIMIT = 20;
 const DESCRIBE_LIMIT = 8;
+const DETAIL_LIMIT = 4000;
 
 export type ActionContext = {
   actor: ActorKind;
@@ -24,6 +25,8 @@ export type Capability = {
   description: string;
   kind: "read" | "mutation";
   args: z.ZodType;
+  /** Call shape when the JSON schema hides required fields or allowed values. */
+  syntax?: string;
   example: Record<string, unknown>;
   approval: "none" | "required";
   execute: (
@@ -46,6 +49,7 @@ type Child = {
   id: string;
   description: string;
   kind: "read" | "mutation" | "category";
+  syntax?: string;
 };
 
 export type ListResult = {
@@ -64,6 +68,7 @@ export type DescribeResult = {
     kind?: "read" | "mutation" | "category";
     approval?: "none" | "required";
     args?: unknown;
+    syntax?: string;
     example?: Record<string, unknown>;
     code?: "unknown" | "truncated";
   }>;
@@ -108,6 +113,226 @@ function errorResult(
   summary: string,
 ): ActionResult {
   return actionResultSchema.parse({ action, status: "error", code, summary });
+}
+
+function jsonWithin(value: unknown): string | undefined {
+  const detail = JSON.stringify(value);
+  return detail.length <= DETAIL_LIMIT ? detail : undefined;
+}
+
+function clip(text: string, cap: number): string {
+  if (text.length <= cap) return text;
+  if (cap <= 3) return text.slice(0, cap);
+  return `${text.slice(0, cap - 3)}...`;
+}
+
+type JsonSchema = {
+  type?: string;
+  enum?: unknown[];
+  const?: unknown;
+  properties?: Record<string, JsonSchema>;
+  required?: string[];
+  items?: JsonSchema;
+  anyOf?: JsonSchema[];
+  oneOf?: JsonSchema[];
+  default?: unknown;
+};
+
+function renderSchema(schema: JsonSchema, depth = 0): string {
+  const options = schema.anyOf ?? schema.oneOf;
+  if (options && options.length > 0) {
+    return `(${options.map((option) => renderSchema(option, depth)).join(" | ")})`;
+  }
+  if (schema.const !== undefined) return JSON.stringify(schema.const);
+  if (schema.enum) {
+    const values = schema.enum.map((value) => JSON.stringify(value)).join("|");
+    return schema.default === undefined
+      ? values
+      : `${values}=${JSON.stringify(schema.default)}`;
+  }
+  if (schema.type === "array") {
+    return `[${schema.items ? renderSchema(schema.items, depth + 1) : ""}]`;
+  }
+  if (schema.type === "object" && schema.properties) {
+    if (depth > 2) return "{...}";
+    const required = new Set(schema.required ?? []);
+    const fields = Object.entries(schema.properties).map(([name, property]) => {
+      const optional =
+        required.has(name) && property.default === undefined ? "" : "?";
+      const rendered = renderSchema(property, depth + 1);
+      if (
+        rendered === "string" ||
+        rendered === "number" ||
+        rendered === "boolean"
+      ) {
+        const fallback =
+          property.default === undefined
+            ? ""
+            : `=${JSON.stringify(property.default)}`;
+        return `${name}${optional}${fallback}`;
+      }
+      return `${name}${optional}:${rendered}`;
+    });
+    return `{${fields.join(", ")}}`;
+  }
+  if (schema.type === "integer" || schema.type === "number") return "number";
+  if (schema.type === "boolean") return "boolean";
+  if (schema.type === "string") return "string";
+  return "value";
+}
+
+function argumentSyntax(schema: z.ZodType): string {
+  const json = z.toJSONSchema(schema) as JsonSchema;
+  return clip(renderSchema(json), 700);
+}
+
+function shownSyntax(capability: Capability): string {
+  return capability.syntax ?? argumentSyntax(capability.args);
+}
+
+function contractResult(result: ActionResult): ActionResult {
+  const parsed = actionResultSchema.safeParse(result);
+  if (parsed.success) return parsed.data;
+  const detail =
+    result.detail && result.detail.length > DETAIL_LIMIT
+      ? result.detail.slice(0, DETAIL_LIMIT)
+      : result.detail;
+  const retry = actionResultSchema.safeParse({
+    ...result,
+    summary: result.summary.slice(0, DETAIL_LIMIT),
+    ...(detail !== undefined
+      ? { detail, detailsAvailable: true as const }
+      : {}),
+  });
+  if (retry.success) return retry.data;
+  return errorResult(
+    result.action.slice(0, 128) || "action",
+    "invalid_result",
+    "The action result did not fit the response contract.",
+  );
+}
+
+function fitListDetail(listed: ListResult): {
+  detail: string;
+  detailsAvailable?: true;
+} {
+  const full = jsonWithin({
+    path: listed.path,
+    children: listed.children,
+    more: listed.more,
+  });
+  if (full) return { detail: full };
+
+  const longest = listed.children.reduce(
+    (max, child) => Math.max(max, child.description.length),
+    0,
+  );
+  let low = 0;
+  let high = longest;
+  let fitted: string | undefined;
+  while (low <= high) {
+    const cap = Math.floor((low + high) / 2);
+    const detail = jsonWithin({
+      path: listed.path,
+      children: listed.children.map((child) => ({
+        id: child.id,
+        kind: child.kind,
+        ...(child.syntax ? { syntax: child.syntax } : {}),
+        description: clip(child.description, cap),
+      })),
+      more: listed.more,
+    });
+    if (detail) {
+      fitted = detail;
+      low = cap + 1;
+    } else {
+      high = cap - 1;
+    }
+  }
+  if (fitted) return { detail: fitted, detailsAvailable: true };
+
+  const ids = listed.children.map((child) => ({
+    id: child.id,
+    kind: child.kind,
+    ...(child.syntax ? { syntax: child.syntax } : {}),
+  }));
+  let count = ids.length;
+  while (count > 0) {
+    const detail = jsonWithin({
+      path: listed.path,
+      children: ids.slice(0, count),
+      more: listed.more || count < ids.length,
+    });
+    if (detail) return { detail, detailsAvailable: true };
+    count -= 1;
+  }
+  return {
+    detail: JSON.stringify({ path: listed.path, children: [], more: true }),
+    detailsAvailable: true,
+  };
+}
+
+function fitDescribeDetail(described: DescribeResult): {
+  detail: string;
+  detailsAvailable?: true;
+} {
+  const full = jsonWithin(described);
+  if (full) return { detail: full };
+
+  const withoutArgs = {
+    entries: described.entries.map(
+      ({ id, description, kind, approval, syntax, example, code }) => ({
+        id,
+        ...(description ? { description } : {}),
+        ...(kind ? { kind } : {}),
+        ...(approval ? { approval } : {}),
+        ...(syntax ? { syntax } : {}),
+        ...(example ? { example } : {}),
+        ...(code ? { code } : {}),
+      }),
+    ),
+    truncated: described.truncated,
+  };
+  const dropped = jsonWithin(withoutArgs);
+  if (dropped) return { detail: dropped, detailsAvailable: true };
+
+  const longest = withoutArgs.entries.reduce(
+    (max, entry) => Math.max(max, entry.description?.length ?? 0),
+    0,
+  );
+  let low = 0;
+  let high = longest;
+  let fitted: string | undefined;
+  while (low <= high) {
+    const cap = Math.floor((low + high) / 2);
+    const detail = jsonWithin({
+      entries: withoutArgs.entries.map((entry) => ({
+        ...entry,
+        ...(entry.description
+          ? { description: clip(entry.description, cap) }
+          : {}),
+      })),
+      truncated: true,
+    });
+    if (detail) {
+      fitted = detail;
+      low = cap + 1;
+    } else {
+      high = cap - 1;
+    }
+  }
+  if (fitted) return { detail: fitted, detailsAvailable: true };
+
+  return {
+    detail: JSON.stringify({
+      entries: described.entries.map((entry) => ({
+        id: entry.id,
+        ...(entry.syntax ? { syntax: entry.syntax } : {}),
+      })),
+      truncated: true,
+    }),
+    detailsAvailable: true,
+  };
 }
 
 export function createRegistry(capabilities: Capability[]): CapabilityRegistry {
@@ -170,6 +395,7 @@ export function createRegistry(capabilities: Capability[]): CapabilityRegistry {
         id: capability.id,
         description: capability.description,
         kind: capability.kind,
+        syntax: shownSyntax(capability),
       })),
       more: children.length > LIST_LIMIT,
     };
@@ -186,6 +412,7 @@ export function createRegistry(capabilities: Capability[]): CapabilityRegistry {
         kind: capability.kind,
         approval: capability.approval,
         args: z.toJSONSchema(capability.args),
+        syntax: shownSyntax(capability),
         example: capability.example,
       };
     });
@@ -210,10 +437,13 @@ export function createRegistry(capabilities: Capability[]): CapabilityRegistry {
       return errorResult(
         name,
         "invalid_args",
-        parsed.error.issues.map((issue) => issue.message).join(" "),
+        clip(
+          `${parsed.error.issues.map((issue) => issue.message).join(" ")} Syntax: ${shownSyntax(capability)}`,
+          DETAIL_LIMIT,
+        ),
       );
     }
-    return actionResultSchema.parse(
+    return contractResult(
       capability.execute(parsed.data as Record<string, unknown>, context),
     );
   }
@@ -237,16 +467,19 @@ export function dispatchModelTool(
       );
     }
     const listed = registry.list(parsed.data.path);
-    return actionResultSchema.parse({
+    const packed = fitListDetail(listed);
+    return contractResult({
       action: name,
       status: listed.status === "error" ? "error" : "success",
       code: listed.code,
-      summary: listed.summary ?? `Listed ${listed.path || "catalog"}.`,
-      detail: JSON.stringify({
-        path: listed.path,
-        children: listed.children,
-        more: listed.more,
-      }),
+      summary:
+        listed.status === "error"
+          ? (listed.summary ?? "List failed.")
+          : packed.detailsAvailable
+            ? `Listed ${listed.path || "catalog"}. Descriptions were shortened. Syntax remains.`
+            : (listed.summary ?? `Listed ${listed.path || "catalog"}.`),
+      detail: packed.detail,
+      ...(packed.detailsAvailable ? { detailsAvailable: true } : {}),
     });
   }
   if (name === "capabilities.describe") {
@@ -259,13 +492,17 @@ export function dispatchModelTool(
       );
     }
     const described = registry.describe(parsed.data.ids);
-    return actionResultSchema.parse({
+    const packed = fitDescribeDetail(described);
+    return contractResult({
       action: name,
       status: "success",
       summary: described.truncated
         ? `Described the first ${DESCRIBE_LIMIT} ids.`
-        : `Described ${described.entries.length} ids.`,
-      detail: JSON.stringify(described),
+        : packed.detailsAvailable
+          ? `Described ${described.entries.length} ids. Full schemas were omitted; syntax remains.`
+          : `Described ${described.entries.length} ids.`,
+      detail: packed.detail,
+      ...(packed.detailsAvailable ? { detailsAvailable: true } : {}),
     });
   }
   if (name === "actions.invoke") {

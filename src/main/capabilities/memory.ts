@@ -144,6 +144,7 @@ export function memoryCapabilities(resolve: () => MemoryStore): Capability[] {
       kind: "mutation",
       approval: "none",
       args: memoryUpdateArgsSchema,
+      syntax: '{id, text} or {id, inclusion:"always"|"on_demand"}',
       example: { id: "memory-id", inclusion: "on_demand" },
       execute(args, context): ActionResult {
         const parsed = memoryUpdateArgsSchema.parse(args);

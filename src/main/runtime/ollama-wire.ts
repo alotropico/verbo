@@ -22,7 +22,7 @@ const toolParameters: Record<
 > = {
   "capabilities.list": {
     description:
-      "List capability categories, or the children of one category path.",
+      "List capability categories, or the actions in one category. Each action includes syntax with required fields and allowed values.",
     parameters: {
       type: "object",
       properties: {
@@ -34,7 +34,8 @@ const toolParameters: Record<
     },
   },
   "capabilities.describe": {
-    description: "Describe registered capability ids.",
+    description:
+      "Describe registered capability ids. Each entry includes syntax and an example. Match syntax when invoking.",
     parameters: {
       type: "object",
       properties: {
@@ -44,7 +45,8 @@ const toolParameters: Record<
     },
   },
   "actions.invoke": {
-    description: "Invoke one registered action by id.",
+    description:
+      "Invoke one registered action by id. args must match the syntax from list or describe.",
     parameters: {
       type: "object",
       properties: {
@@ -92,4 +94,25 @@ export function toOllamaMessages(
     }
     return { role: message.role, content: message.content };
   });
+}
+
+/** Attach capped image bytes to the latest user message. Ollama wants raw base64. */
+export function withUserImages(
+  messages: readonly OllamaWireMessage[],
+  images: readonly string[],
+): OllamaWireMessage[] {
+  if (images.length === 0) return [...messages];
+  let index = -1;
+  for (let cursor = messages.length - 1; cursor >= 0; cursor -= 1) {
+    if (messages[cursor]?.role === "user") {
+      index = cursor;
+      break;
+    }
+  }
+  if (index < 0) return [...messages];
+  const target = messages[index];
+  if (!target) return [...messages];
+  const next = [...messages];
+  next[index] = { ...target, images: [...images] };
+  return next;
 }

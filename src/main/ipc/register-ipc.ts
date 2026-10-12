@@ -23,8 +23,17 @@ import {
   memoryUpdateArgsSchema,
 } from "../../shared/memory";
 import { approvalReviewSchema } from "../../shared/action-contract";
-import { displayFinalPath, scopeCommitSchema } from "../../shared/files";
-import type { OperationReview } from "../../shared/file-mutation";
+import { fileUiQuerySchema } from "../../shared/file-query";
+import { refreshModelVision } from "../runtime/model-vision";
+import {
+  displayFinalPath,
+  scopeCommitSchema,
+  splitScopeAliases,
+} from "../../shared/files";
+import {
+  operationInventoryLine,
+  type OperationReview,
+} from "../../shared/file-mutation";
 import {
   appendMessage,
   archiveThread,
@@ -44,7 +53,16 @@ import {
 } from "../services/settings-store";
 import { generateThreadTitle } from "../services/thread-title";
 import { generateWelcomeLine } from "../services/welcome-line";
+import { agsHostAddSchema } from "../../shared/ags";
+import {
+  projectAddSchema,
+  registeredRootRemoveSchema,
+} from "../../shared/projects";
+import { buildActionsOverview } from "../capabilities/overview";
 import { registryForDatabase } from "../capabilities/catalog";
+import { clearAgsCheck, saveAgsCheck } from "../db/ags-check";
+import { recordActionAudit } from "../db/action-audit";
+import { createRootStore } from "../db/registered-roots";
 import { createScopeStore, type ScopeAddition } from "../db/scopes";
 import { getDatabase } from "../db/database";
 import { createMemoryStore } from "../db/memory";
@@ -61,6 +79,11 @@ import { estimateContextMeters } from "../runtime/context-estimate";
 import { executeLocalCommand } from "../runtime/local-command";
 import { readPromptEval } from "../runtime/prompt-eval";
 import { registerAssistantStreamIpc } from "./chat-stream";
+import { registerAttachmentIpc } from "./attachment-ipc";
+import { registerQueueIpc } from "./queue-ipc";
+import { registerVoiceIpc } from "./voice-ipc";
+import { createOperationStore } from "../db/operations";
+import { turnDispatcher } from "../runtime/queue-service";
 
 function assertTrustedWindow(
   event: IpcMainInvokeEvent,
@@ -75,6 +98,9 @@ function assertTrustedWindow(
 }
 
 export function registerIpc(mainWindow: BrowserWindow): void {
+  registerQueueIpc(mainWindow);
+  registerVoiceIpc(mainWindow);
+  registerAttachmentIpc(mainWindow);
   registerAssistantStreamIpc(mainWindow);
 
   ipcMain.handle(IPC_CHANNELS.threadsList, (event) => {
@@ -228,6 +254,7 @@ export function registerIpc(mainWindow: BrowserWindow): void {
     return executeLocalCommand({
       text: data.text,
       ...(data.threadId ? { threadId: data.threadId } : {}),
+      ...(data.source ? { source: data.source } : {}),
       store: createMemoryStore(database),
       registry: registryForDatabase(database),
     });
@@ -241,6 +268,18 @@ export function registerIpc(mainWindow: BrowserWindow): void {
       ...(data.threadId ? { threadId: data.threadId } : {}),
       numCtx: loadSettings().numCtx,
       lastPromptEval: readPromptEval(),
+    });
+  });
+
+  ipcMain.handle(IPC_CHANNELS.filesQuery, async (event, payload: unknown) => {
+    assertTrustedWindow(event, mainWindow);
+    const data = fileUiQuerySchema.parse(payload);
+    if (data.actionId === "files.inspect_image") {
+      await refreshModelVision(loadSettings().model);
+    }
+    return registryForDatabase(getDatabase()).invoke(data.actionId, data.args, {
+      actor: "ui",
+      threadId: data.threadId,
     });
   });
 
@@ -318,16 +357,16 @@ export function registerIpc(mainWindow: BrowserWindow): void {
       store
         .list()
         .filter((scope) => !removed.has(scope.id))
-        .map((scope) => {
+        .flatMap((scope) => {
           const update = data.updates.find((item) => item.id === scope.id);
-          return (update?.alias ?? scope.alias).toLowerCase();
+          return splitScopeAliases(update?.alias ?? scope.aliases.join(", "));
         }),
     );
     if (
       data.acceptDefault &&
       !aliases.has(DEFAULT_SCOPE_ALIAS) &&
-      !additions.some(
-        (item) => item.alias.toLowerCase() === DEFAULT_SCOPE_ALIAS,
+      !additions.some((item) =>
+        splitScopeAliases(item.alias).includes(DEFAULT_SCOPE_ALIAS),
       )
     ) {
       additions.push({
@@ -390,7 +429,7 @@ export function registerIpc(mainWindow: BrowserWindow): void {
         message: review.summary,
         detail: confirmationDetail(review),
       });
-      return decideOperation({
+      const decision = decideOperation({
         database,
         scopes,
         operationId: data.operationId,
@@ -398,12 +437,167 @@ export function registerIpc(mainWindow: BrowserWindow): void {
         sessionId: operationSession(),
         decision: response === 1 ? "approve" : "deny",
       });
+      const plan = createOperationStore(database).get(data.operationId);
+      if (
+        plan?.turnId &&
+        plan.status !== "pending" &&
+        plan.status !== "executing"
+      ) {
+        turnDispatcher().settleApproval(plan.turnId);
+      }
+      return decision;
     },
   );
+
+  ipcMain.handle(IPC_CHANNELS.actionsOverview, (event) => {
+    assertTrustedWindow(event, mainWindow);
+    return buildActionsOverview(getDatabase());
+  });
+
+  ipcMain.handle(IPC_CHANNELS.projectsAdd, (event, payload: unknown) => {
+    assertTrustedWindow(event, mainWindow);
+    const data = projectAddSchema.parse(payload);
+    const path = consumePick(data.pickId);
+    if (!path) {
+      return {
+        ok: false as const,
+        code: "pick_expired",
+        summary: "Choose the folder again.",
+      };
+    }
+    const database = getDatabase();
+    const saved = createRootStore(
+      database,
+      "registered_projects",
+      "project",
+    ).add(data.alias, path);
+    if (saved.ok) {
+      recordActionAudit(database, {
+        actor: "ui",
+        actionId: "projects.register",
+        request: saved.root.alias,
+        summary: saved.summary,
+        status: "success",
+      });
+    }
+    return saved;
+  });
+
+  ipcMain.handle(IPC_CHANNELS.projectsRemove, (event, payload: unknown) => {
+    assertTrustedWindow(event, mainWindow);
+    const data = registeredRootRemoveSchema.parse(payload);
+    const database = getDatabase();
+    const removed = createRootStore(
+      database,
+      "registered_projects",
+      "project",
+    ).remove(data.id);
+    if (removed.ok) {
+      recordActionAudit(database, {
+        actor: "ui",
+        actionId: "projects.remove",
+        request: data.id,
+        summary: removed.summary,
+        status: "success",
+      });
+    }
+    return removed;
+  });
+
+  ipcMain.handle(IPC_CHANNELS.agsHostAdd, (event, payload: unknown) => {
+    assertTrustedWindow(event, mainWindow);
+    const data = agsHostAddSchema.parse(payload);
+    const path = consumePick(data.pickId);
+    if (!path) {
+      return {
+        ok: false as const,
+        code: "pick_expired",
+        summary: "Choose the folder again.",
+      };
+    }
+    const database = getDatabase();
+    const saved = createRootStore(database, "ags_hosts", "AGS host").add(
+      data.alias,
+      path,
+    );
+    if (saved.ok) {
+      recordActionAudit(database, {
+        actor: "ui",
+        actionId: "ags.register",
+        request: saved.root.alias,
+        summary: saved.summary,
+        status: "success",
+      });
+    }
+    return saved;
+  });
+
+  ipcMain.handle(IPC_CHANNELS.agsHostRemove, (event, payload: unknown) => {
+    assertTrustedWindow(event, mainWindow);
+    const data = registeredRootRemoveSchema.parse(payload);
+    const database = getDatabase();
+    const removed = createRootStore(database, "ags_hosts", "AGS host").remove(
+      data.id,
+    );
+    if (removed.ok) {
+      recordActionAudit(database, {
+        actor: "ui",
+        actionId: "ags.remove",
+        request: data.id,
+        summary: removed.summary,
+        status: "success",
+      });
+    }
+    return removed;
+  });
+
+  ipcMain.handle(IPC_CHANNELS.agsCheckChoose, async (event) => {
+    assertTrustedWindow(event, mainWindow);
+    const chosen = await dialog.showOpenDialog(mainWindow, {
+      title: "Choose the ags executable",
+      properties: ["openFile"],
+      filters: [{ name: "ags", extensions: ["exe", "cmd"] }],
+    });
+    const selected = chosen.filePaths[0];
+    if (chosen.canceled || !selected) {
+      return {
+        ok: false as const,
+        code: "cancelled",
+        summary: "No ags executable selected.",
+      };
+    }
+    const database = getDatabase();
+    const saved = saveAgsCheck(database, selected);
+    if (saved.ok) {
+      recordActionAudit(database, {
+        actor: "ui",
+        actionId: "ags.check.configure",
+        request: "allowlisted executable",
+        summary: "Configured the fixed ags check command.",
+        status: "success",
+      });
+    }
+    return saved;
+  });
+
+  ipcMain.handle(IPC_CHANNELS.agsCheckClear, (event) => {
+    assertTrustedWindow(event, mainWindow);
+    const database = getDatabase();
+    clearAgsCheck(database);
+    recordActionAudit(database, {
+      actor: "ui",
+      actionId: "ags.check.configure",
+      request: "clear",
+      summary: "Cleared the ags check command.",
+      status: "success",
+    });
+    return { ok: true as const, summary: "Cleared the ags check command." };
+  });
 }
 
 function confirmationDetail(review: OperationReview): string {
   const lines = [
+    operationInventoryLine(review),
     ...review.risks,
     ...review.items
       .slice(0, 40)

@@ -105,6 +105,51 @@ function approve(
 }
 
 describe("file mutations", () => {
+  it("refuses a bare filename when no default folder is set", () => {
+    const root = folder("verbo-nodefault-");
+    const db = register(root);
+    const created = invoke(db, "files.create", {
+      path: "test.txt",
+      kind: "file",
+      content: "dummy",
+    });
+    expect(created.code).toBe("no_default_scope");
+    expect(existsSync(join(root, "test.txt"))).toBe(false);
+  });
+
+  it("saves a bare filename in the default folder", () => {
+    const root = folder("verbo-default-");
+    const db = database();
+    const saved = createScopeStore(db).apply({
+      removeIds: [],
+      updates: [],
+      additions: [
+        {
+          alias: "tmp",
+          path: root,
+          read: true,
+          write: true,
+          defaultSave: true,
+        },
+      ],
+    });
+    expect(saved.ok).toBe(true);
+    const created = invoke(db, "files.create", {
+      path: "test.txt",
+      kind: "file",
+      content: "dummy",
+    });
+    expect(created.status).toBe("success");
+    expect(readFileSync(join(root, "test.txt"), "utf8")).toBe("dummy");
+    const refused = invoke(db, "files.create", {
+      path: "test.txt",
+      kind: "file",
+      content: "again",
+    });
+    expect(refused.status).not.toBe("success");
+    expect(readFileSync(join(root, "test.txt"), "utf8")).toBe("dummy");
+  });
+
   it("writes one new file immediately and keeps its content out of the audit", () => {
     const root = folder("verbo-create-");
     const db = register(root);

@@ -1,11 +1,24 @@
+import type { ActionResult } from "../../shared/action-contract";
 import {
   LOCAL_COMMANDS,
   parseLocalCommand,
+  routeUtterance,
   type LocalCommandResult,
 } from "../../shared/local-commands";
 import { memoryTextSchema } from "../../shared/memory";
 import type { CapabilityRegistry } from "../capabilities/registry";
 import type { MemoryStore } from "../db/memory";
+
+function presentAction(result: ActionResult): LocalCommandResult {
+  const handled =
+    result.status === "success" ||
+    result.status === "partial" ||
+    result.status === "requires_confirmation";
+  const summary = result.detail
+    ? `${result.summary}\n${result.detail}`
+    : result.summary;
+  return { status: handled ? "success" : "error", summary };
+}
 
 function helpText(registry: CapabilityRegistry): string {
   return LOCAL_COMMANDS.map((command) => {
@@ -30,10 +43,22 @@ function catalogText(registry: CapabilityRegistry): string {
 
 export function executeLocalCommand(input: {
   text: string;
+  source?: "typed" | "voice";
   threadId?: string;
   store: MemoryStore;
   registry: CapabilityRegistry;
 }): LocalCommandResult {
+  const route = routeUtterance(input.text, input.source ?? "typed");
+  if (route.kind === "new-chat") {
+    return {
+      status: "success",
+      summary: "Opened a blank conversation. Stored chats stay in the list.",
+      newThread: true,
+    };
+  }
+  if (route.kind === "model") {
+    return { status: "error", summary: "That text is not a local command." };
+  }
   const parsed = parseLocalCommand(input.text);
   if (!parsed.handled) {
     return { status: "error", summary: "That text is not a local command." };
@@ -71,6 +96,23 @@ export function executeLocalCommand(input: {
     return saved.ok
       ? { status: "success", summary: saved.summary }
       : { status: "error", summary: saved.summary };
+  }
+  if (parsed.name === "files" || parsed.name === "action") {
+    if (!input.threadId) {
+      return {
+        status: "error",
+        summary: "That command needs an open conversation.",
+      };
+    }
+    return presentAction(
+      input.registry.invoke(parsed.actionId, parsed.args, {
+        actor: "user_command",
+        threadId: input.threadId,
+      }),
+    );
+  }
+  if (parsed.name !== "forget") {
+    return { status: "error", summary: "That text is not a local command." };
   }
   const removed = input.store.remove(parsed.id, "user_command");
   return removed.ok

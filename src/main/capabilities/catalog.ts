@@ -1,10 +1,13 @@
 import { createMemoryStore, type MemoryStore } from "../db/memory";
 import { createScopeStore, type ScopeStore } from "../db/scopes";
 import type { DatabaseSync } from "node:sqlite";
+import { agsCapabilities } from "./ags";
+import { environmentCapabilities } from "./environment";
 import { fileMutationCapabilities } from "./file-mutations";
 import { filesCapabilities } from "./files";
 import { memoryCapabilities } from "./memory";
-import { platformCapability } from "./environment";
+import { projectCapabilities } from "./projects";
+import { softwareCapabilities } from "./software";
 import { createRegistry, type CapabilityRegistry } from "./registry";
 
 /** Production catalog. Tests add fixture actions on their own registry. */
@@ -20,7 +23,7 @@ export function createProductionRegistry(
       throw new Error("Memory store is not configured.");
     });
   return createRegistry([
-    platformCapability(),
+    ...environmentCapabilities(resolveScopes, resolveDatabase),
     ...memoryCapabilities(() => {
       store ??= resolve();
       return store;
@@ -47,6 +50,9 @@ export function createProductionRegistry(
         return resolveDatabase();
       },
     ),
+    ...projectCapabilities(resolveScopes, resolveDatabase),
+    ...softwareCapabilities(),
+    ...agsCapabilities(resolveDatabase, resolveScopes),
   ]);
 }
 
