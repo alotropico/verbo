@@ -1,0 +1,1556 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`production command compatibility > preserves the shipped IDs, schemas, defaults and approval contracts 1`] = `
+[
+  {
+    "approval": "none",
+    "args": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {
+        "host": {
+          "maxLength": 1024,
+          "minLength": 1,
+          "type": "string",
+        },
+      },
+      "required": [
+        "host",
+      ],
+      "type": "object",
+    },
+    "description": "Run the fixed ags check command on a registered host. No caller-supplied command or arguments.",
+    "example": {
+      "host": "verbo",
+    },
+    "id": "ags.check",
+    "kind": "read",
+    "syntax": "{host}",
+  },
+  {
+    "approval": "none",
+    "args": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {},
+      "type": "object",
+    },
+    "description": "Registered AGS hosts. A repository is not an AGS host unless it was registered.",
+    "example": {},
+    "id": "ags.hosts",
+    "kind": "read",
+    "syntax": "{}",
+  },
+  {
+    "approval": "none",
+    "args": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {
+        "host": {
+          "maxLength": 1024,
+          "minLength": 1,
+          "type": "string",
+        },
+      },
+      "required": [
+        "host",
+      ],
+      "type": "object",
+    },
+    "description": "Versioned AGS metadata for one registered host. Does not run repository instructions.",
+    "example": {
+      "host": "verbo",
+    },
+    "id": "ags.inspect",
+    "kind": "read",
+    "syntax": "{host}",
+  },
+  {
+    "approval": "none",
+    "args": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {},
+      "type": "object",
+    },
+    "description": "Well-known folders and registered aliases. Does not list environment variables or secrets.",
+    "example": {},
+    "id": "environment.paths",
+    "kind": "read",
+    "syntax": "{}",
+  },
+  {
+    "approval": "none",
+    "args": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {},
+      "type": "object",
+    },
+    "description": "Operating system name, version, and architecture.",
+    "example": {},
+    "id": "environment.platform",
+    "kind": "read",
+    "syntax": "{}",
+  },
+  {
+    "approval": "required",
+    "args": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {
+        "items": {
+          "items": {
+            "anyOf": [
+              {
+                "additionalProperties": false,
+                "properties": {
+                  "action": {
+                    "const": "files.create",
+                    "type": "string",
+                  },
+                  "content": {
+                    "maxLength": 262144,
+                    "type": "string",
+                  },
+                  "format": {
+                    "enum": [
+                      "text",
+                      "json",
+                      "markdown",
+                    ],
+                    "type": "string",
+                  },
+                  "kind": {
+                    "enum": [
+                      "file",
+                      "directory",
+                    ],
+                    "type": "string",
+                  },
+                  "path": {
+                    "maxLength": 1024,
+                    "minLength": 1,
+                    "type": "string",
+                  },
+                },
+                "required": [
+                  "path",
+                  "kind",
+                  "action",
+                ],
+                "type": "object",
+              },
+              {
+                "additionalProperties": false,
+                "properties": {
+                  "action": {
+                    "enum": [
+                      "files.copy",
+                      "files.move",
+                      "files.rename",
+                    ],
+                    "type": "string",
+                  },
+                  "from": {
+                    "maxLength": 1024,
+                    "minLength": 1,
+                    "type": "string",
+                  },
+                  "to": {
+                    "maxLength": 1024,
+                    "minLength": 1,
+                    "type": "string",
+                  },
+                },
+                "required": [
+                  "from",
+                  "to",
+                  "action",
+                ],
+                "type": "object",
+              },
+              {
+                "additionalProperties": false,
+                "properties": {
+                  "action": {
+                    "const": "files.trash",
+                    "type": "string",
+                  },
+                  "path": {
+                    "maxLength": 1024,
+                    "minLength": 1,
+                    "type": "string",
+                  },
+                },
+                "required": [
+                  "action",
+                  "path",
+                ],
+                "type": "object",
+              },
+            ],
+          },
+          "maxItems": 100,
+          "minItems": 1,
+          "type": "array",
+        },
+      },
+      "required": [
+        "items",
+      ],
+      "type": "object",
+    },
+    "description": "Plan an ordered list of create, copy, move, rename, and trash items. A directory create can satisfy a later move. Any trash, or two or more items, waits for confirmation. Edits are separate one-file plans. Execution stops on the first failure.",
+    "example": {
+      "items": [
+        {
+          "action": "files.create",
+          "kind": "directory",
+          "path": "tmp:/Sorted",
+        },
+        {
+          "action": "files.move",
+          "from": "tmp:/a.md",
+          "to": "tmp:/Sorted/a.md",
+        },
+      ],
+    },
+    "id": "files.batch",
+    "kind": "mutation",
+    "syntax": "{items:[{action:"files.create", path, kind:"file"|"directory", content?, format?:"text"|"json"|"markdown"} | {action:"files.copy"|"files.move"|"files.rename", from, to} | {action:"files.trash", path}]}",
+  },
+  {
+    "approval": "none",
+    "args": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {
+        "left": {
+          "maxLength": 1024,
+          "minLength": 1,
+          "type": "string",
+        },
+        "proposed": {
+          "maxLength": 3500,
+          "type": "string",
+        },
+        "right": {
+          "maxLength": 1024,
+          "minLength": 1,
+          "type": "string",
+        },
+      },
+      "required": [
+        "left",
+      ],
+      "type": "object",
+    },
+    "description": "Capped read-only text diff of two files, or one file against proposed text. Nothing is written.",
+    "example": {
+      "left": "tmp:/a.md",
+      "right": "tmp:/b.md",
+    },
+    "id": "files.compare",
+    "kind": "read",
+    "syntax": "{left, right} or {left, proposed}",
+  },
+  {
+    "approval": "none",
+    "args": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {
+        "from": {
+          "maxLength": 1024,
+          "minLength": 1,
+          "type": "string",
+        },
+        "items": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "from": {
+                "maxLength": 1024,
+                "minLength": 1,
+                "type": "string",
+              },
+              "to": {
+                "maxLength": 1024,
+                "minLength": 1,
+                "type": "string",
+              },
+            },
+            "required": [
+              "from",
+              "to",
+            ],
+            "type": "object",
+          },
+          "maxItems": 100,
+          "minItems": 1,
+          "type": "array",
+        },
+        "resultSet": {
+          "format": "uuid",
+          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+          "type": "string",
+        },
+        "to": {
+          "maxLength": 1024,
+          "minLength": 1,
+          "type": "string",
+        },
+        "toDirectory": {
+          "maxLength": 1024,
+          "minLength": 1,
+          "type": "string",
+        },
+      },
+      "type": "object",
+    },
+    "description": "Copy a file or folder into a writable alias. The source may be read-only. One collision-free copy runs immediately. Multiple copies, or a resultSet, wait for confirmation. No silent overwrite.",
+    "example": {
+      "from": "tmp:/note.md",
+      "to": "tmp:/copy.md",
+    },
+    "id": "files.copy",
+    "kind": "mutation",
+    "syntax": "{from, to} or {items:[{from, to}]} or {resultSet, toDirectory}",
+  },
+  {
+    "approval": "none",
+    "args": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {
+        "content": {
+          "maxLength": 262144,
+          "type": "string",
+        },
+        "format": {
+          "enum": [
+            "text",
+            "json",
+            "markdown",
+          ],
+          "type": "string",
+        },
+        "items": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "content": {
+                "maxLength": 262144,
+                "type": "string",
+              },
+              "format": {
+                "enum": [
+                  "text",
+                  "json",
+                  "markdown",
+                ],
+                "type": "string",
+              },
+              "kind": {
+                "enum": [
+                  "file",
+                  "directory",
+                ],
+                "type": "string",
+              },
+              "path": {
+                "maxLength": 1024,
+                "minLength": 1,
+                "type": "string",
+              },
+            },
+            "required": [
+              "path",
+              "kind",
+            ],
+            "type": "object",
+          },
+          "maxItems": 100,
+          "minItems": 1,
+          "type": "array",
+        },
+        "kind": {
+          "enum": [
+            "file",
+            "directory",
+          ],
+          "type": "string",
+        },
+        "path": {
+          "maxLength": 1024,
+          "minLength": 1,
+          "type": "string",
+        },
+      },
+      "type": "object",
+    },
+    "description": "Create a file or folder. A bare filename is saved in the default folder (.tmp). One collision-free item runs immediately and returns a receipt. Two or more items need confirmation. Existing paths are never overwritten.",
+    "example": {
+      "content": "# Note
+",
+      "kind": "file",
+      "path": "note.md",
+    },
+    "id": "files.create",
+    "kind": "mutation",
+    "syntax": "{path, kind:"file"|"directory", content?, format?:"text"|"json"|"markdown"} or {items:[{path, kind:"file"|"directory", content?, format?}]}",
+  },
+  {
+    "approval": "required",
+    "args": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {
+        "content": {
+          "maxLength": 262144,
+          "type": "string",
+        },
+        "endLine": {
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991,
+          "type": "integer",
+        },
+        "expectedMatches": {
+          "exclusiveMinimum": 0,
+          "maximum": 50,
+          "type": "integer",
+        },
+        "find": {
+          "maxLength": 4000,
+          "minLength": 1,
+          "type": "string",
+        },
+        "format": {
+          "enum": [
+            "text",
+            "json",
+            "markdown",
+          ],
+          "type": "string",
+        },
+        "mode": {
+          "enum": [
+            "full",
+            "replace",
+            "lines",
+          ],
+          "type": "string",
+        },
+        "path": {
+          "maxLength": 1024,
+          "minLength": 1,
+          "type": "string",
+        },
+        "replace": {
+          "maxLength": 262144,
+          "type": "string",
+        },
+        "startLine": {
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991,
+          "type": "integer",
+        },
+      },
+      "required": [
+        "path",
+        "mode",
+      ],
+      "type": "object",
+    },
+    "description": "Edit one existing UTF-8 file. Always previews a diff and waits for confirmation. mode is full, replace (find, replace, expectedMatches), or lines (startLine, endLine, content). JSON files must stay valid JSON.",
+    "example": {
+      "expectedMatches": 1,
+      "find": "draft",
+      "mode": "replace",
+      "path": "tmp:/note.md",
+      "replace": "final",
+    },
+    "id": "files.edit",
+    "kind": "mutation",
+    "syntax": "{path, mode:"full", content, format?:"text"|"json"|"markdown"} or {path, mode:"replace", find, replace, expectedMatches, format?:"text"|"json"|"markdown"} or {path, mode:"lines", content, startLine, endLine, format?:"text"|"json"|"markdown"}",
+  },
+  {
+    "approval": "none",
+    "args": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {
+        "algorithm": {
+          "const": "sha256",
+          "default": "sha256",
+          "type": "string",
+        },
+        "paths": {
+          "items": {
+            "maxLength": 1024,
+            "minLength": 1,
+            "type": "string",
+          },
+          "maxItems": 8,
+          "minItems": 1,
+          "type": "array",
+        },
+      },
+      "required": [
+        "paths",
+        "algorithm",
+      ],
+      "type": "object",
+    },
+    "description": "SHA-256 for explicit files, size capped. Filename similarity is not equality.",
+    "example": {
+      "paths": [
+        "tmp:/notes.md",
+      ],
+    },
+    "id": "files.hash",
+    "kind": "read",
+    "syntax": "{paths:[string], algorithm?:"sha256"}",
+  },
+  {
+    "approval": "none",
+    "args": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {
+        "includePayload": {
+          "default": false,
+          "type": "boolean",
+        },
+        "paths": {
+          "items": {
+            "maxLength": 1024,
+            "minLength": 1,
+            "type": "string",
+          },
+          "maxItems": 4,
+          "minItems": 1,
+          "type": "array",
+        },
+      },
+      "required": [
+        "paths",
+        "includePayload",
+      ],
+      "type": "object",
+    },
+    "description": "Image width, height, and format. Image bytes are included only when the selected model supports vision and the payload fits the result cap.",
+    "example": {
+      "paths": [
+        "tmp:/diagram.png",
+      ],
+    },
+    "id": "files.inspect_image",
+    "kind": "read",
+    "syntax": "{paths:[string], includePayload?=false}",
+  },
+  {
+    "approval": "none",
+    "args": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {
+        "cursor": {
+          "maxLength": 80,
+          "minLength": 16,
+          "type": "string",
+        },
+        "entryType": {
+          "default": "all",
+          "enum": [
+            "all",
+            "files",
+            "directories",
+          ],
+          "type": "string",
+        },
+        "extensions": {
+          "items": {
+            "maxLength": 32,
+            "minLength": 1,
+            "type": "string",
+          },
+          "maxItems": 32,
+          "type": "array",
+        },
+        "glob": {
+          "maxLength": 256,
+          "minLength": 1,
+          "type": "string",
+        },
+        "includeHidden": {
+          "default": false,
+          "type": "boolean",
+        },
+        "maxSize": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer",
+        },
+        "minSize": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer",
+        },
+        "modifiedAfter": {
+          "format": "date-time",
+          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+          "type": "string",
+        },
+        "modifiedBefore": {
+          "format": "date-time",
+          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+          "type": "string",
+        },
+        "name": {
+          "maxLength": 256,
+          "minLength": 1,
+          "type": "string",
+        },
+        "pageSize": {
+          "default": 20,
+          "maximum": 100,
+          "minimum": 1,
+          "type": "integer",
+        },
+        "path": {
+          "maxLength": 1024,
+          "minLength": 1,
+          "type": "string",
+        },
+        "root": {
+          "maxLength": 1024,
+          "minLength": 1,
+          "type": "string",
+        },
+        "sort": {
+          "additionalProperties": false,
+          "properties": {
+            "by": {
+              "default": "name",
+              "enum": [
+                "name",
+                "extension",
+                "type",
+                "size",
+                "modified",
+                "created",
+              ],
+              "type": "string",
+            },
+            "direction": {
+              "default": "asc",
+              "enum": [
+                "asc",
+                "desc",
+              ],
+              "type": "string",
+            },
+          },
+          "required": [
+            "by",
+            "direction",
+          ],
+          "type": "object",
+        },
+      },
+      "required": [
+        "root",
+        "entryType",
+        "pageSize",
+        "includeHidden",
+      ],
+      "type": "object",
+    },
+    "description": "List accessible descendants of one folder, without a subfolder-depth limit. entryType directories counts only folders. Folder size is null. pageSize defaults to 20. Pass cursor for the next page. Relay counts.directories and counts.files from the result, including exactTotal null when the bounded scan is incomplete. Hidden entries, .git, and node_modules are skipped unless includeHidden is set; .git and node_modules are still not entered. When scan.complete is true, scan.omitted still names hidden and skipped-descent entries left out of an exact total.",
+    "example": {
+      "pageSize": 20,
+      "root": "tmp:",
+    },
+    "id": "files.list",
+    "kind": "read",
+    "syntax": "{root, path?, entryType?:"all"|"files"|"directories"="all", name?, glob?, extensions?:[string], minSize?, maxSize?, modifiedAfter?, modifiedBefore?, sort?:{by?:"name"|"extension"|"type"|"size"|"modified"|"created"="name", direction?:"asc"|"desc"="asc"}, pageSize?=20, cursor?, includeHidden?=false}",
+  },
+  {
+    "approval": "none",
+    "args": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {
+        "from": {
+          "maxLength": 1024,
+          "minLength": 1,
+          "type": "string",
+        },
+        "items": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "from": {
+                "maxLength": 1024,
+                "minLength": 1,
+                "type": "string",
+              },
+              "to": {
+                "maxLength": 1024,
+                "minLength": 1,
+                "type": "string",
+              },
+            },
+            "required": [
+              "from",
+              "to",
+            ],
+            "type": "object",
+          },
+          "maxItems": 100,
+          "minItems": 1,
+          "type": "array",
+        },
+        "resultSet": {
+          "format": "uuid",
+          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+          "type": "string",
+        },
+        "to": {
+          "maxLength": 1024,
+          "minLength": 1,
+          "type": "string",
+        },
+        "toDirectory": {
+          "maxLength": 1024,
+          "minLength": 1,
+          "type": "string",
+        },
+      },
+      "type": "object",
+    },
+    "description": "Move a file or folder between writable aliases. One collision-free move runs immediately. Multiple moves, or a resultSet plus toDirectory, wait for confirmation. Cross-volume moves copy, then send the original to the Recycle Bin.",
+    "example": {
+      "from": "tmp:/Inbox/a.md",
+      "to": "tmp:/Sorted/a.md",
+    },
+    "id": "files.move",
+    "kind": "mutation",
+    "syntax": "{from, to} or {items:[{from, to}]} or {resultSet, toDirectory}",
+  },
+  {
+    "approval": "none",
+    "args": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {
+        "cursor": {
+          "maxLength": 80,
+          "minLength": 16,
+          "type": "string",
+        },
+        "pageSize": {
+          "default": 20,
+          "maximum": 100,
+          "minimum": 1,
+          "type": "integer",
+        },
+      },
+      "required": [
+        "cursor",
+        "pageSize",
+      ],
+      "type": "object",
+    },
+    "description": "Continue a saved file list or search. The cursor stays bound to the original query, conversation, and snapshot.",
+    "example": {
+      "cursor": "00000000-0000-4000-8000-000000000000",
+    },
+    "id": "files.next",
+    "kind": "read",
+    "syntax": "{cursor, pageSize?=20}",
+  },
+  {
+    "approval": "none",
+    "args": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {
+        "lineCount": {
+          "default": 80,
+          "maximum": 400,
+          "minimum": 1,
+          "type": "integer",
+        },
+        "mode": {
+          "default": "auto",
+          "enum": [
+            "auto",
+            "text",
+            "json",
+            "pdf",
+          ],
+          "type": "string",
+        },
+        "page": {
+          "default": 1,
+          "maximum": 10000,
+          "minimum": 1,
+          "type": "integer",
+        },
+        "pageCount": {
+          "default": 1,
+          "maximum": 5,
+          "minimum": 1,
+          "type": "integer",
+        },
+        "path": {
+          "maxLength": 1024,
+          "minLength": 1,
+          "type": "string",
+        },
+        "pointer": {
+          "maxLength": 512,
+          "type": "string",
+        },
+        "startLine": {
+          "default": 1,
+          "maximum": 1000000,
+          "minimum": 1,
+          "type": "integer",
+        },
+      },
+      "required": [
+        "path",
+        "mode",
+        "startLine",
+        "lineCount",
+        "page",
+        "pageCount",
+      ],
+      "type": "object",
+    },
+    "description": "Read a bounded line range, JSON pointer, or PDF page range. Binary files and unknown encodings are reported, not guessed.",
+    "example": {
+      "lineCount": 80,
+      "path": "tmp:/notes.md",
+      "startLine": 1,
+    },
+    "id": "files.read",
+    "kind": "read",
+    "syntax": "{path, mode?:"auto"|"text"|"json"|"pdf"="auto", startLine?=1, lineCount?=80, pointer?, page?=1, pageCount?=1}",
+  },
+  {
+    "approval": "none",
+    "args": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {
+        "from": {
+          "maxLength": 1024,
+          "minLength": 1,
+          "type": "string",
+        },
+        "items": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "from": {
+                "maxLength": 1024,
+                "minLength": 1,
+                "type": "string",
+              },
+              "to": {
+                "maxLength": 1024,
+                "minLength": 1,
+                "type": "string",
+              },
+            },
+            "required": [
+              "from",
+              "to",
+            ],
+            "type": "object",
+          },
+          "maxItems": 100,
+          "minItems": 1,
+          "type": "array",
+        },
+        "resultSet": {
+          "format": "uuid",
+          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+          "type": "string",
+        },
+        "to": {
+          "maxLength": 1024,
+          "minLength": 1,
+          "type": "string",
+        },
+        "toDirectory": {
+          "maxLength": 1024,
+          "minLength": 1,
+          "type": "string",
+        },
+      },
+      "type": "object",
+    },
+    "description": "Rename a file or folder inside its current folder. One collision-free rename runs immediately. Several renames wait for confirmation. Changing folders is files.move. Swaps and cycles are rejected.",
+    "example": {
+      "from": "tmp:/draft.md",
+      "to": "tmp:/final.md",
+    },
+    "id": "files.rename",
+    "kind": "mutation",
+    "syntax": "{from, to} or {items:[{from, to}]} or {resultSet, toDirectory}",
+  },
+  {
+    "approval": "none",
+    "args": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {},
+      "type": "object",
+    },
+    "description": "List registered folder aliases and whether each allows read or write. Reads of other existing paths are allowed. Writes stay inside a writable alias. Does not list files inside those folders.",
+    "example": {},
+    "id": "files.scopes",
+    "kind": "read",
+    "syntax": "{}",
+  },
+  {
+    "approval": "none",
+    "args": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {
+        "caseSensitive": {
+          "default": false,
+          "type": "boolean",
+        },
+        "cursor": {
+          "maxLength": 80,
+          "minLength": 16,
+          "type": "string",
+        },
+        "entryType": {
+          "default": "all",
+          "enum": [
+            "all",
+            "files",
+            "directories",
+          ],
+          "type": "string",
+        },
+        "extensions": {
+          "items": {
+            "maxLength": 32,
+            "minLength": 1,
+            "type": "string",
+          },
+          "maxItems": 32,
+          "type": "array",
+        },
+        "glob": {
+          "maxLength": 256,
+          "minLength": 1,
+          "type": "string",
+        },
+        "groupBy": {
+          "default": "file",
+          "enum": [
+            "file",
+            "match",
+          ],
+          "type": "string",
+        },
+        "includeHidden": {
+          "default": false,
+          "type": "boolean",
+        },
+        "maxSize": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer",
+        },
+        "minSize": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer",
+        },
+        "mode": {
+          "enum": [
+            "filename",
+            "content",
+          ],
+          "type": "string",
+        },
+        "modifiedAfter": {
+          "format": "date-time",
+          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+          "type": "string",
+        },
+        "modifiedBefore": {
+          "format": "date-time",
+          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+          "type": "string",
+        },
+        "name": {
+          "maxLength": 256,
+          "minLength": 1,
+          "type": "string",
+        },
+        "pageSize": {
+          "default": 20,
+          "maximum": 100,
+          "minimum": 1,
+          "type": "integer",
+        },
+        "path": {
+          "maxLength": 1024,
+          "minLength": 1,
+          "type": "string",
+        },
+        "query": {
+          "maxLength": 200,
+          "minLength": 1,
+          "type": "string",
+        },
+        "root": {
+          "maxLength": 1024,
+          "minLength": 1,
+          "type": "string",
+        },
+        "snippetChars": {
+          "default": 180,
+          "maximum": 400,
+          "minimum": 40,
+          "type": "integer",
+        },
+        "sort": {
+          "additionalProperties": false,
+          "properties": {
+            "by": {
+              "default": "name",
+              "enum": [
+                "name",
+                "extension",
+                "type",
+                "size",
+                "modified",
+                "created",
+              ],
+              "type": "string",
+            },
+            "direction": {
+              "default": "asc",
+              "enum": [
+                "asc",
+                "desc",
+              ],
+              "type": "string",
+            },
+          },
+          "required": [
+            "by",
+            "direction",
+          ],
+          "type": "object",
+        },
+      },
+      "required": [
+        "root",
+        "entryType",
+        "pageSize",
+        "includeHidden",
+        "mode",
+        "caseSensitive",
+        "groupBy",
+        "snippetChars",
+      ],
+      "type": "object",
+    },
+    "description": "Search accessible descendants of one folder by file name or UTF-8 text, without a subfolder-depth limit. Scans retain entry, time and content limits. mode filename does not read contents. mode content returns one bounded snippet per file unless groupBy is match. Pass the same arguments plus cursor for the next page.",
+    "example": {
+      "extensions": [
+        "md",
+      ],
+      "mode": "filename",
+      "pageSize": 20,
+      "root": "tmp:",
+    },
+    "id": "files.search",
+    "kind": "read",
+    "syntax": "{root, path?, entryType?:"all"|"files"|"directories"="all", name?, glob?, extensions?:[string], minSize?, maxSize?, modifiedAfter?, modifiedBefore?, sort?:{by?:"name"|"extension"|"type"|"size"|"modified"|"created"="name", direction?:"asc"|"desc"="asc"}, pageSize?=20, cursor?, includeHidden?=false, mode:"filename"|"content", query?, caseSensitive?=false, groupBy?:"file"|"match"="file", snippetChars?=180}",
+  },
+  {
+    "approval": "none",
+    "args": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {
+        "paths": {
+          "items": {
+            "maxLength": 1024,
+            "minLength": 1,
+            "type": "string",
+          },
+          "maxItems": 32,
+          "minItems": 1,
+          "type": "array",
+        },
+      },
+      "required": [
+        "paths",
+      ],
+      "type": "object",
+    },
+    "description": "Metadata for explicit files or folders. No file contents. Links are not followed.",
+    "example": {
+      "paths": [
+        "tmp:/notes.md",
+      ],
+    },
+    "id": "files.stat",
+    "kind": "read",
+    "syntax": "{paths:[string]}",
+  },
+  {
+    "approval": "none",
+    "args": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {
+        "entryType": {
+          "default": "all",
+          "enum": [
+            "all",
+            "files",
+            "directories",
+          ],
+          "type": "string",
+        },
+        "includeHidden": {
+          "default": false,
+          "type": "boolean",
+        },
+        "path": {
+          "maxLength": 1024,
+          "minLength": 1,
+          "type": "string",
+        },
+        "root": {
+          "maxLength": 1024,
+          "minLength": 1,
+          "type": "string",
+        },
+      },
+      "required": [
+        "root",
+        "entryType",
+        "includeHidden",
+      ],
+      "type": "object",
+    },
+    "description": "Counts, extensions, and largest or newest files among accessible descendants of one folder, without a subfolder-depth limit. entryType directories or files limits the count. Relay counts.files and counts.directories, and say exactTotal is unknown when it is null. totalBytes is present only when the bounded scan finishes. Folder sizes stay unknown. Disclose scan omissions when a total is exact.",
+    "example": {
+      "root": "tmp:",
+    },
+    "id": "files.summary",
+    "kind": "read",
+    "syntax": "{root, path?, entryType?:"all"|"files"|"directories"="all", includeHidden?=false}",
+  },
+  {
+    "approval": "required",
+    "args": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {
+        "path": {
+          "maxLength": 1024,
+          "minLength": 1,
+          "type": "string",
+        },
+        "paths": {
+          "items": {
+            "maxLength": 1024,
+            "minLength": 1,
+            "type": "string",
+          },
+          "maxItems": 100,
+          "minItems": 1,
+          "type": "array",
+        },
+        "resultSet": {
+          "format": "uuid",
+          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+          "type": "string",
+        },
+      },
+      "type": "object",
+    },
+    "description": "Send files or folders to the Recycle Bin. Always waits for confirmation, including a single file. Failure leaves the item in place. There is no permanent delete.",
+    "example": {
+      "path": "tmp:/old.md",
+    },
+    "id": "files.trash",
+    "kind": "mutation",
+    "syntax": "{path} or {paths:[path]} or {resultSet}",
+  },
+  {
+    "approval": "none",
+    "args": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {
+        "operationId": {
+          "format": "uuid",
+          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+          "type": "string",
+        },
+      },
+      "required": [
+        "operationId",
+      ],
+      "type": "object",
+    },
+    "description": "Best-effort undo of succeeded rename or move items from one finished operation. Trash and edits are not undone. One reversible item runs immediately when the current bytes still match. Several items wait for confirmation.",
+    "example": {
+      "operationId": "00000000-0000-4000-8000-000000000000",
+    },
+    "id": "files.undo",
+    "kind": "mutation",
+    "syntax": "{operationId}",
+  },
+  {
+    "approval": "none",
+    "args": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {
+        "inclusion": {
+          "default": "on_demand",
+          "enum": [
+            "always",
+            "on_demand",
+          ],
+          "type": "string",
+        },
+        "scope": {
+          "default": "global",
+          "enum": [
+            "global",
+            "thread",
+          ],
+          "type": "string",
+        },
+        "text": {
+          "maxLength": 8000,
+          "minLength": 1,
+          "type": "string",
+        },
+        "threadId": {
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string",
+        },
+      },
+      "required": [
+        "text",
+        "scope",
+        "inclusion",
+      ],
+      "type": "object",
+    },
+    "description": "Save a memory. Omitted inclusion is on_demand. Global always-on text shares a 512 estimated-token budget. Exact repeats are rejected. This does not grant a filesystem write.",
+    "example": {
+      "inclusion": "always",
+      "scope": "global",
+      "text": "Prefers short replies",
+    },
+    "id": "memory.add",
+    "kind": "mutation",
+    "syntax": "{text, scope?:"global"|"thread"="global", inclusion?:"always"|"on_demand"="on_demand", threadId?}",
+  },
+  {
+    "approval": "none",
+    "args": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {
+        "ids": {
+          "items": {
+            "maxLength": 128,
+            "minLength": 1,
+            "type": "string",
+          },
+          "maxItems": 8,
+          "minItems": 1,
+          "type": "array",
+        },
+      },
+      "required": [
+        "ids",
+      ],
+      "type": "object",
+    },
+    "description": "Return selected memory records by id.",
+    "example": {
+      "ids": [
+        "memory-id",
+      ],
+    },
+    "id": "memory.get",
+    "kind": "read",
+    "syntax": "{ids:[string]}",
+  },
+  {
+    "approval": "none",
+    "args": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {
+        "inclusion": {
+          "enum": [
+            "always",
+            "on_demand",
+          ],
+          "type": "string",
+        },
+        "limit": {
+          "maximum": 40,
+          "minimum": 1,
+          "type": "integer",
+        },
+        "query": {
+          "maxLength": 200,
+          "minLength": 1,
+          "type": "string",
+        },
+        "scope": {
+          "enum": [
+            "global",
+            "thread",
+          ],
+          "type": "string",
+        },
+        "threadId": {
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string",
+        },
+      },
+      "type": "object",
+    },
+    "description": "List saved memories. Filter by scope, inclusion, threadId, or a short query. On-demand text is not in the prompt until this or memory.get returns it.",
+    "example": {
+      "inclusion": "on_demand",
+      "query": "notes",
+      "scope": "global",
+    },
+    "id": "memory.list",
+    "kind": "read",
+    "syntax": "{scope?:"global"|"thread", inclusion?:"always"|"on_demand", threadId?, query?, limit?}",
+  },
+  {
+    "approval": "none",
+    "args": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string",
+        },
+      },
+      "required": [
+        "id",
+      ],
+      "type": "object",
+    },
+    "description": "Remove one memory by id.",
+    "example": {
+      "id": "memory-id",
+    },
+    "id": "memory.remove",
+    "kind": "mutation",
+    "syntax": "{id}",
+  },
+  {
+    "approval": "none",
+    "args": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string",
+        },
+        "inclusion": {
+          "enum": [
+            "always",
+            "on_demand",
+          ],
+          "type": "string",
+        },
+        "text": {
+          "maxLength": 8000,
+          "minLength": 1,
+          "type": "string",
+        },
+      },
+      "required": [
+        "id",
+      ],
+      "type": "object",
+    },
+    "description": "Change a memory's text or inclusion. Conflicts and the always-on budget are rejected instead of replacing another entry.",
+    "example": {
+      "id": "memory-id",
+      "inclusion": "on_demand",
+    },
+    "id": "memory.update",
+    "kind": "mutation",
+    "syntax": "{id, text} or {id, inclusion:"always"|"on_demand"}",
+  },
+  {
+    "approval": "none",
+    "args": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {
+        "cursor": {
+          "maxLength": 80,
+          "minLength": 16,
+          "type": "string",
+        },
+        "pageSize": {
+          "default": 20,
+          "maximum": 100,
+          "minimum": 1,
+          "type": "integer",
+        },
+        "path": {
+          "maxLength": 1024,
+          "minLength": 1,
+          "type": "string",
+        },
+        "project": {
+          "maxLength": 1024,
+          "minLength": 1,
+          "type": "string",
+        },
+      },
+      "required": [
+        "project",
+        "pageSize",
+      ],
+      "type": "object",
+    },
+    "description": "Bounded directory view of a registered or explicitly selected project.",
+    "example": {
+      "project": "verbo",
+    },
+    "id": "projects.files",
+    "kind": "read",
+    "syntax": "{project, path?, pageSize?=20, cursor?}",
+  },
+  {
+    "approval": "none",
+    "args": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {
+        "project": {
+          "maxLength": 1024,
+          "minLength": 1,
+          "type": "string",
+        },
+      },
+      "required": [
+        "project",
+      ],
+      "type": "object",
+    },
+    "description": "Manifest and repository metadata for one registered or explicitly selected project. Does not dump source.",
+    "example": {
+      "project": "verbo",
+    },
+    "id": "projects.inspect",
+    "kind": "read",
+    "syntax": "{project}",
+  },
+  {
+    "approval": "none",
+    "args": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {},
+      "type": "object",
+    },
+    "description": "Registered project summaries. Registration does not grant write access.",
+    "example": {},
+    "id": "projects.list",
+    "kind": "read",
+    "syntax": "{}",
+  },
+  {
+    "approval": "none",
+    "args": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "maxLength": 80,
+          "minLength": 1,
+          "type": "string",
+        },
+      },
+      "required": [
+        "name",
+      ],
+      "type": "object",
+    },
+    "description": "Find one Windows program by name in uninstall metadata, PATH, and known folders. Does not launch it.",
+    "example": {
+      "name": "notepad",
+    },
+    "id": "software.find",
+    "kind": "read",
+    "syntax": "{name}",
+  },
+  {
+    "approval": "none",
+    "args": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {
+        "cursor": {
+          "maxLength": 120,
+          "minLength": 8,
+          "type": "string",
+        },
+        "pageSize": {
+          "default": 20,
+          "maximum": 20,
+          "minimum": 1,
+          "type": "integer",
+        },
+      },
+      "required": [
+        "pageSize",
+      ],
+      "type": "object",
+    },
+    "description": "Paginated Windows installed-program inventory. Does not launch programs or return uninstall commands.",
+    "example": {},
+    "id": "software.list",
+    "kind": "read",
+    "syntax": "{pageSize?=20, cursor?}",
+  },
+]
+`;
