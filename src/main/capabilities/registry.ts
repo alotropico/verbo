@@ -1,10 +1,21 @@
 import { z } from "zod";
+import type { PreparedEffect } from "./preparation";
+import { CommandFailure } from "./command-failure";
+import type { CommandMetadata } from "../../shared/command-metadata";
+import { randomUUID } from "node:crypto";
+import type { CommandResource } from "../../shared/command-receipts";
+import { collectCommandResources } from "../files/resource-events";
 import {
   actionResultSchema,
   type ActionResult,
   type ActorKind,
 } from "../../shared/action-contract";
 import { ACTION_ALIASES, LOCAL_COMMANDS } from "../../shared/local-commands";
+import {
+  createCommandResolver,
+  type CommandNode,
+  type CommandResolution,
+} from "../../shared/commands";
 import {
   PERMANENT_MODEL_TOOLS,
   type PermanentModelTool,
@@ -24,6 +35,11 @@ export type ActionContext = {
   actor: ActorKind;
   threadId: string;
   turnId?: string;
+  signal?: AbortSignal;
+  /** Trusted backend correlation; never accepted in command arguments. */
+  parentReceiptId?: string;
+  receiptId?: string;
+  onProgress?: (message: string) => void;
 };
 
 export type Capability = {
@@ -35,13 +51,31 @@ export type Capability = {
   syntax?: string;
   example: Record<string, unknown>;
   approval: "none" | "required";
+  aliases?: string[];
+  tags?: string[];
+  parameterHelp?: Record<string, string>;
   execute: (
     args: Record<string, unknown>,
     context: ActionContext,
-  ) => ActionResult;
+  ) => ActionResult | Promise<ActionResult>;
 };
 
 export type CapabilityRegistry = {
+  metadata?: () => CommandMetadata[];
+  /** Backend preparation hooks are not model tools or renderer IPC. */
+  prepareEffect?: (
+    name: string,
+    args: Record<string, unknown>,
+    context: ActionContext,
+  ) => Promise<PreparedEffect>;
+  preparationSignature?: (name: string) => string | undefined;
+  aggregatePrepared?: (
+    name: string,
+    action: string,
+    children: ActionResult[],
+  ) => ActionResult;
+  nodes: () => CommandNode[];
+  resolve: (name: string) => CommandResolution;
   list: (path?: string) => ListResult;
   search: (query: string) => SearchResult;
   describe: (ids: string[]) => DescribeResult;
@@ -49,7 +83,7 @@ export type CapabilityRegistry = {
     name: string,
     args: Record<string, unknown>,
     context: ActionContext,
-  ) => ActionResult;
+  ) => Promise<ActionResult>;
 };
 
 type Child = {
@@ -65,6 +99,7 @@ export type SearchMatch = {
   kind: "read" | "mutation" | "command";
   syntax?: string;
   aliases?: string[];
+  reasons?: string[];
 };
 
 export type SearchResult = {
@@ -136,10 +171,6 @@ const categoryDescriptions: Record<string, string> = {
   projects: "Registered project summaries",
   software: "Installed program lookups",
 };
-
-function categoryOf(id: string): string {
-  return id.slice(0, id.indexOf("."));
-}
 
 function errorResult(
   action: string,
@@ -406,7 +437,19 @@ function fitDescribeDetail(described: DescribeResult): {
   };
 }
 
-export function createRegistry(capabilities: Capability[]): CapabilityRegistry {
+export type RegistryOptions = {
+  nodes?: CommandNode[];
+  finalize?: (input: {
+    result: ActionResult;
+    context: ActionContext;
+    startedAt: number;
+    resources: CommandResource[];
+  }) => ActionResult;
+};
+export function createRegistry(
+  capabilities: Capability[],
+  options: RegistryOptions = {},
+): CapabilityRegistry {
   const byId = new Map<string, Capability>();
   for (const capability of capabilities) {
     if (!capability.id.includes(".")) {
@@ -419,24 +462,31 @@ export function createRegistry(capabilities: Capability[]): CapabilityRegistry {
     }
     byId.set(capability.id, capability);
   }
+  const fallbackNodes = new Map<string, CommandNode>();
+  for (const capability of capabilities) {
+    const segments = capability.id.split(".");
+    for (let depth = 1; depth <= segments.length; depth += 1) {
+      const id = segments.slice(0, depth).join(".");
+      fallbackNodes.set(
+        id,
+        depth === segments.length
+          ? {
+              id,
+              description: capability.description,
+              aliases: capability.aliases ?? [],
+            }
+          : { id, description: categoryDescriptions[id] ?? id, aliases: [] },
+      );
+    }
+  }
+  const nodes = options.nodes ?? [...fallbackNodes.values()];
+  const resolve = createCommandResolver(nodes);
+  const byNode = new Map(nodes.map((node) => [node.id, node]));
 
   function list(path?: string): ListResult {
-    const normalized = path?.trim() ?? "";
-    if (normalized.length === 0) {
-      const categories = [
-        ...new Set([...byId.keys()].map((id) => categoryOf(id))),
-      ].sort();
-      const children = categories.slice(0, LIST_LIMIT).map((id) => ({
-        id,
-        description: categoryDescriptions[id] ?? id,
-        kind: "category" as const,
-      }));
-      return {
-        path: "",
-        children,
-        more: categories.length > LIST_LIMIT,
-      };
-    }
+    const requested = path?.trim() ?? "";
+    const resolved = requested ? resolve(requested) : undefined;
+    const normalized = resolved?.ok ? resolved.id : requested;
     if (byId.has(normalized)) {
       return {
         path: normalized,
@@ -447,10 +497,12 @@ export function createRegistry(capabilities: Capability[]): CapabilityRegistry {
         summary: `${normalized} is an action. Describe it instead of listing it.`,
       };
     }
-    const children = [...byId.values()]
-      .filter((capability) => categoryOf(capability.id) === normalized)
+    const children = nodes
+      .filter(
+        (node) => node.id.split(".").slice(0, -1).join(".") === normalized,
+      )
       .sort((left, right) => left.id.localeCompare(right.id));
-    if (children.length === 0) {
+    if (children.length === 0 && normalized && !byNode.has(normalized)) {
       return {
         path: normalized,
         children: [],
@@ -462,12 +514,15 @@ export function createRegistry(capabilities: Capability[]): CapabilityRegistry {
     }
     return {
       path: normalized,
-      children: children.slice(0, LIST_LIMIT).map((capability) => ({
-        id: capability.id,
-        description: capability.description,
-        kind: capability.kind,
-        syntax: shownSyntax(capability),
-      })),
+      children: children.slice(0, LIST_LIMIT).map((node) => {
+        const capability = byId.get(node.id);
+        return {
+          id: node.id,
+          description: node.description,
+          kind: capability?.kind ?? "category",
+          ...(capability ? { syntax: shownSyntax(capability) } : {}),
+        };
+      }),
       more: children.length > LIST_LIMIT,
     };
   }
@@ -475,10 +530,21 @@ export function createRegistry(capabilities: Capability[]): CapabilityRegistry {
   function describe(ids: string[]): DescribeResult {
     const requested = ids.slice(0, DESCRIBE_LIMIT);
     const entries = requested.map((id) => {
-      const capability = byId.get(id);
-      if (!capability) return { id, code: "unknown" as const };
+      const resolution = resolve(id);
+      const canonical = resolution.ok ? resolution.id : id;
+      const capability = byId.get(canonical);
+      if (!capability) {
+        const node = byNode.get(canonical);
+        return node
+          ? {
+              id: canonical,
+              description: node.description,
+              kind: "category" as const,
+            }
+          : { id, code: "unknown" as const };
+      }
       return {
-        id,
+        id: canonical,
         description: capability.description,
         kind: capability.kind,
         approval: capability.approval,
@@ -490,33 +556,110 @@ export function createRegistry(capabilities: Capability[]): CapabilityRegistry {
     return { entries, truncated: ids.length > DESCRIBE_LIMIT };
   }
 
-  function invoke(
+  async function invoke(
     name: string,
     args: Record<string, unknown>,
     context: ActionContext,
-  ): ActionResult {
-    const capability = byId.get(name);
-    if (!capability) {
-      return errorResult(
-        name,
-        "unknown_action",
-        `No registered action named ${name}.`,
+  ): Promise<ActionResult> {
+    const startedAt = Date.now();
+    context = { ...context, receiptId: randomUUID() };
+    const settle = (
+      result: ActionResult,
+      resources: CommandResource[] = [],
+    ): ActionResult => {
+      const validated = contractResult(result);
+      try {
+        return (
+          options.finalize?.({
+            result: validated,
+            context,
+            startedAt,
+            resources,
+          }) ?? validated
+        );
+      } catch {
+        return {
+          ...validated,
+          status: "error",
+          code: "receipt_failed",
+          summary:
+            "Operation failed: saving the command result failed. Recorded effects must not be replayed.",
+        };
+      }
+    };
+    const resolution = resolve(name);
+    if (!resolution.ok)
+      return settle(
+        errorResult(
+          name,
+          resolution.code,
+          resolution.code === "ambiguous_command"
+            ? `Choose a canonical command: ${resolution.candidates.join(", ")}`
+            : `No registered action named ${name}.`,
+        ),
       );
-    }
-    const parsed = capability.args.safeParse(args);
-    if (!parsed.success) {
-      return errorResult(
-        name,
-        "invalid_args",
-        clip(
-          `${parsed.error.issues.map((issue) => issue.message).join(" ")} Syntax: ${shownSyntax(capability)}`,
-          DETAIL_LIMIT,
+    const capability = byId.get(resolution.id);
+    if (!capability) {
+      return settle(
+        errorResult(
+          name,
+          "unknown_action",
+          `No registered action named ${name}.`,
         ),
       );
     }
-    return contractResult(
-      capability.execute(parsed.data as Record<string, unknown>, context),
-    );
+    name = capability.id;
+    const parsed = capability.args.safeParse(args);
+    if (!parsed.success) {
+      return settle(
+        errorResult(
+          name,
+          "invalid_args",
+          clip(
+            `${parsed.error.issues.map((issue) => issue.message).join(" ")} Syntax: ${shownSyntax(capability)}`,
+            DETAIL_LIMIT,
+          ),
+        ),
+      );
+    }
+    if (context.signal?.aborted) {
+      return settle({
+        action: name,
+        status: "cancelled",
+        summary: "Operation cancelled.",
+      });
+    }
+    try {
+      const recorded = await collectCommandResources(async () => {
+        try {
+          return await capability.execute(
+            parsed.data as Record<string, unknown>,
+            context,
+          );
+        } catch (error) {
+          if (error instanceof CommandFailure)
+            return errorResult(
+              name,
+              error.code,
+              `Operation failed: ${error.message}`.slice(0, 500),
+            );
+          return errorResult(
+            name,
+            "execution_failed",
+            "Operation failed: the registered executor could not complete.",
+          );
+        }
+      });
+      return settle(recorded.result, recorded.resources);
+    } catch {
+      return settle(
+        errorResult(
+          name,
+          "execution_failed",
+          "Operation failed: the registered executor could not complete.",
+        ),
+      );
+    }
   }
 
   function search(query: string): SearchResult {
@@ -532,23 +675,78 @@ export function createRegistry(capabilities: Capability[]): CapabilityRegistry {
       };
     }
     const matches: SearchMatch[] = [];
+    const scores = new Map<string, number>();
     const capabilities = [...byId.values()].sort((left, right) =>
       left.id.localeCompare(right.id),
     );
     for (const capability of capabilities) {
-      const aliases = ACTION_ALIASES.filter(
+      const legacyAliases = ACTION_ALIASES.filter(
         (entry) => entry.actionId === capability.id,
       ).map((entry) => entry.alias);
+      const ancestors = capability.id
+        .split(".")
+        .map((_segment, index, segments) =>
+          byNode.get(segments.slice(0, index + 1).join(".")),
+        )
+        .filter((node): node is CommandNode => Boolean(node));
+      const aliases = [
+        ...legacyAliases,
+        ...ancestors.flatMap((node) => node.aliases),
+      ];
       const syntax = shownSyntax(capability);
-      const haystack = [
-        capability.id,
-        capability.description,
-        syntax,
-        ...aliases,
-      ]
+      const fields = [
+        { reason: "canonical ID", text: capability.id, weight: 90 },
+        { reason: "alias", text: aliases.join("\n"), weight: 75 },
+        {
+          reason: "tags",
+          text: (capability.tags ?? []).join("\n"),
+          weight: 60,
+        },
+        {
+          reason: "parameters",
+          text: Object.values(capability.parameterHelp ?? {}).join("\n"),
+          weight: 50,
+        },
+        { reason: "description", text: capability.description, weight: 30 },
+        { reason: "syntax", text: syntax, weight: 20 },
+      ];
+      const reasons = fields.filter((field) =>
+        field.text.toLowerCase().includes(needle),
+      );
+      const segments = needle.split(".");
+      const aliasPath =
+        segments.length === ancestors.length &&
+        segments.every((segment, index) => {
+          const node = ancestors[index];
+          return [node.id.split(".").at(-1)!, ...node.aliases].some((name) =>
+            name.startsWith(segment),
+          );
+        });
+      const haystack = fields
+        .map((field) => field.text)
         .join("\n")
         .toLowerCase();
-      if (!haystack.includes(needle)) continue;
+      const terms = needle.split(/\s+/).filter(Boolean);
+      if (
+        !reasons.length &&
+        !aliasPath &&
+        !terms.every((term) => haystack.includes(term))
+      )
+        continue;
+      const exactId = capability.id === needle;
+      const exactAlias = aliases.some(
+        (alias) => alias.toLowerCase() === needle,
+      );
+      scores.set(
+        capability.id,
+        exactId
+          ? 100
+          : exactAlias
+            ? 95
+            : aliasPath
+              ? 92
+              : Math.max(10, ...reasons.map((reason) => reason.weight)),
+      );
       const hitAliases = aliases.filter((alias) =>
         alias.toLowerCase().includes(needle),
       );
@@ -557,6 +755,12 @@ export function createRegistry(capabilities: Capability[]): CapabilityRegistry {
         description: capability.description,
         kind: capability.kind,
         syntax,
+        reasons: (aliasPath
+          ? ["alias path"]
+          : reasons.length
+            ? reasons.map((reason) => reason.reason)
+            : ["query terms"]
+        ).slice(0, 3),
         ...(hitAliases.length > 0 ? { aliases: hitAliases } : {}),
       });
     }
@@ -571,9 +775,15 @@ export function createRegistry(capabilities: Capability[]): CapabilityRegistry {
         description: command.blurb,
         kind: "command",
         syntax: command.syntax,
+        reasons: ["local command"],
       });
+      scores.set(`/${command.name}`, command.name === needle ? 100 : 15);
     }
-    matches.sort((left, right) => left.id.localeCompare(right.id));
+    matches.sort(
+      (left, right) =>
+        (scores.get(right.id) ?? 0) - (scores.get(left.id) ?? 0) ||
+        left.id.localeCompare(right.id),
+    );
     return {
       query: needle,
       matches: matches.slice(0, SEARCH_LIMIT),
@@ -581,15 +791,22 @@ export function createRegistry(capabilities: Capability[]): CapabilityRegistry {
     };
   }
 
-  return { list, search, describe, invoke };
+  return {
+    list,
+    search,
+    describe,
+    invoke,
+    resolve,
+    nodes: () => nodes.map((node) => ({ ...node, aliases: [...node.aliases] })),
+  };
 }
 
-export function dispatchModelTool(
+export async function dispatchModelTool(
   registry: CapabilityRegistry,
   name: string,
   rawArgs: unknown,
   context: ActionContext,
-): ActionResult {
+): Promise<ActionResult> {
   if (name === "capabilities.list") {
     const parsed = listArgsSchema.safeParse(rawArgs ?? {});
     if (!parsed.success) {

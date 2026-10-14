@@ -8,7 +8,7 @@ import { holdQueueLease, takeQueueLease } from "@/runtime/queue-lease";
 import { startVoiceCapture, type VoiceCapture } from "@/runtime/voice-capture";
 import { useAui, useAuiState, type ThreadMessage } from "@assistant-ui/react";
 import { Button, Textarea } from "@mantine/core";
-import { ChoiceInput } from "./ChoiceInput";
+import { ChatBlob } from "@/features/chat-blob";
 import {
   revealTextPrefix,
   speechProgress,
@@ -16,17 +16,19 @@ import {
 } from "@shared/speech-reveal";
 import {
   silenceSendDecision,
+  joinSpeech,
   speechChunks,
   voiceStatusLine,
   type VoiceDraftResult,
 } from "@shared/voice-draft";
+import { ProgressiveRecognition } from "@shared/progressive-recognition";
 import { MAX_VOICE_TEXT_CHARS, type VoiceInfo } from "@shared/voice";
 import {
   DEFAULT_VOICE_SETTINGS,
   VOICE_SETTINGS_EVENT,
   type VoiceSettings,
 } from "@shared/voice-settings";
-import { MicIcon, SquareIcon, Volume2Icon, VolumeXIcon } from "lucide-react";
+import { MicIcon, SquareIcon } from "lucide-react";
 import {
   useEffect,
   useLayoutEffect,
@@ -68,11 +70,18 @@ function VoiceSessionProvider({ children }: PropsWithChildren): ReactElement {
   const [error, setError] = useState<string | null>(null);
   const [draftState, setDraftState] = useState({ threadId: "", text: "" });
   const [editing, setEditing] = useState(false);
+  const [recognizing, setRecognizing] = useState(false);
+  const [preview, setPreview] = useState<{
+    threadId: string;
+    id: string;
+    text: string;
+  } | null>(null);
   const [voices, setVoices] = useState<VoiceInfo[]>([]);
   const [voiceId, setVoiceId] = useState<string | null>(null);
   const shownDraft = draftState.threadId === threadId ? draftState.text : "";
   const selectedVoiceId = voiceId ?? voices[0]?.id ?? null;
   const activeRef = useRef(false);
+  const startingRef = useRef(false);
   const captureHandle = useRef<VoiceCapture | null>(null);
   const pausedRef = useRef(false);
   const mutedRef = useRef(false);
@@ -80,28 +89,31 @@ function VoiceSessionProvider({ children }: PropsWithChildren): ReactElement {
   const editingRef = useRef(false);
   const threadRef = useRef(threadId);
   const draftRef = useRef("");
-  const audioQueue = useRef<
-    { audio: Uint8Array; mode: "dictation" | "control" }[]
-  >([]);
+  const recognizer = useRef<ProgressiveRecognition | null>(null);
+  const unfinished = useRef(new Set<string>());
+  const utteranceModes = useRef(new Map<string, "dictation" | "control">());
   const utteranceMode = useRef<"dictation" | "control">("dictation");
   const aheadRef = useRef(false);
+  const considerRef = useRef<() => void>(() => undefined);
   useEffect(() => {
     const sync = (): void => {
       const threadId = threadRef.current;
       if (!threadId) return;
-      void window.verbo.queue.list(threadId).then((snapshot) => {
-        aheadRef.current =
-          snapshot.hold ||
-          Boolean(snapshot.serviceHold) ||
-          snapshot.items.some(
-            (item) => item.status === "queued" || item.status === "editing",
-          );
-      });
+      void window.verbo.queue
+        .list(threadId)
+        .then((snapshot) => {
+          if (threadRef.current !== threadId) return;
+          aheadRef.current =
+            snapshot.hold ||
+            Boolean(snapshot.serviceHold) ||
+            snapshot.items.some((item) => item.id !== snapshot.outgoingId);
+          considerRef.current();
+        })
+        .catch(() => undefined);
     };
     sync();
     return window.verbo.queue.subscribe(sync);
   }, []);
-  const draining = useRef(false);
   const playToken = useRef(0);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const applyRef = useRef<(result: VoiceDraftResult) => Promise<void>>(
@@ -113,7 +125,6 @@ function VoiceSessionProvider({ children }: PropsWithChildren): ReactElement {
   const shownRef = useRef("");
   const captionRef = useRef<SpeechCaption | null>(null);
   const flushRef = useRef<() => Promise<void>>(async () => undefined);
-  const considerRef = useRef<() => void>(() => undefined);
   const sendingRef = useRef(false);
   const listenGen = useRef(0);
   const settingsRef = useRef<VoiceSettings>(DEFAULT_VOICE_SETTINGS);
@@ -168,9 +179,14 @@ function VoiceSessionProvider({ children }: PropsWithChildren): ReactElement {
     }
     if (result.kind === "control" || result.kind === "ignored") return;
     if (result.kind === "composer") {
-      const composer = aui.composer().getState();
-      if (!composer.text.trim()) aui.composer().setText(result.text);
-      setError(result.summary);
+      const id = aui.threadListItem.getState().remoteId;
+      if (id)
+        await applyRef.current(
+          await window.verbo.voice.save({
+            threadId: id,
+            text: joinSpeech(draftRef.current, result.text),
+          }),
+        );
       return;
     }
     if (result.kind === "draft") {
@@ -328,7 +344,15 @@ function VoiceSessionProvider({ children }: PropsWithChildren): ReactElement {
 
   const flushDraft = async (): Promise<void> => {
     const id = aui.threadListItem.getState().remoteId;
-    if (!id || editingRef.current || sendingRef.current) return;
+    if (
+      !id ||
+      editingRef.current ||
+      sendingRef.current ||
+      hearingRef.current ||
+      unfinished.current.size ||
+      recognizer.current?.pending
+    )
+      return;
     if (aui.thread().getState().isRunning) return;
     sendingRef.current = true;
     try {
@@ -357,6 +381,10 @@ function VoiceSessionProvider({ children }: PropsWithChildren): ReactElement {
       modelRunning: aui.thread().getState().isRunning,
       hasDraft: draftRef.current.trim().length > 0,
       silenceSendMs,
+      recognitionPending:
+        unfinished.current.size > 0 || recognizer.current?.pending === true,
+      hearing: hearingRef.current,
+      queueHeld: aheadRef.current,
     });
     if (decision !== "wait") {
       clearEndpoint();
@@ -374,58 +402,24 @@ function VoiceSessionProvider({ children }: PropsWithChildren): ReactElement {
     );
   };
 
-  const drain = async (gen: number): Promise<void> => {
-    if (draining.current || listenGen.current !== gen) return;
-    const next = audioQueue.current.shift();
-    if (!next) {
-      setCapture(activeRef.current ? "listening" : "idle");
-      if (!hearingRef.current) considerRef.current();
-      return;
-    }
-    draining.current = true;
-    setCapture("transcribing");
-    try {
-      const language = settingsRef.current.sttLanguage;
-      const result = await window.verbo.voice.transcribe({
-        audio: next.audio,
-        ...(language === "auto" ? {} : { language }),
-      });
-      if (!result.ok) {
-        if (result.code !== "cancelled") setError(result.detail);
-      } else if (result.text.trim()) {
-        const id = await ensureThread();
-        const committed = await window.verbo.voice.commit({
-          threadId: id,
-          text: result.text.trim(),
-          branchAnchor: anchor(),
-          captureMode: next.mode,
-        });
-        if (committed.ok && committed.kind === "command") {
-          quietAt.current = null;
-          clearEndpoint();
-        }
-        await applyRef.current(committed);
-      }
-    } catch (caught: unknown) {
-      setError(
-        caught instanceof Error
-          ? caught.message
-          : "Transcription failed. Typed chat still works.",
-      );
-    } finally {
-      draining.current = false;
-      void drain(listenGen.current);
-    }
-  };
-
   const stopListening = (): void => {
     listenGen.current += 1;
+    startingRef.current = false;
+    if (recognizer.current?.pending) void window.verbo.voice.cancel();
+    recognizer.current?.stop();
+    recognizer.current = null;
+    unfinished.current.clear();
+    utteranceModes.current.clear();
+    setPreview(null);
+    setRecognizing(false);
+    quietAt.current = null;
+    clearEndpoint();
     hearingRef.current = false;
     activeRef.current = false;
     setActive(false);
     captureHandle.current?.stop();
     captureHandle.current = null;
-    setCapture(draining.current ? "transcribing" : "idle");
+    setCapture("idle");
   };
 
   const stopSession = (): void => {
@@ -434,48 +428,124 @@ function VoiceSessionProvider({ children }: PropsWithChildren): ReactElement {
   };
 
   const toggle = (): void => {
-    if (activeRef.current) {
-      stopListening();
+    if (activeRef.current || startingRef.current) {
+      stopSession();
       return;
     }
-    const gen = listenGen.current;
+    startingRef.current = true;
+    setActive(true);
+    const gen = ++listenGen.current;
     setError(null);
+    recognizer.current = new ProgressiveRecognition({
+      transcribe: (audio) => {
+        const language = settingsRef.current.sttLanguage;
+        return window.verbo.voice.transcribe({
+          audio,
+          ...(language === "auto" ? {} : { language }),
+        });
+      },
+      preview: (id, text) => {
+        if (
+          listenGen.current === gen &&
+          utteranceModes.current.get(id) === "dictation" &&
+          !editingRef.current
+        )
+          setPreview({ threadId: threadRef.current, id, text });
+      },
+      commit: async (utteranceId, text) => {
+        if (listenGen.current !== gen) return;
+        const mode = utteranceModes.current.get(utteranceId) ?? "control";
+        const id = await ensureThread();
+        if (listenGen.current !== gen || threadRef.current !== id) return;
+        const committed = await window.verbo.voice.commit({
+          threadId: id,
+          text,
+          branchAnchor: anchor(),
+          captureMode: mode,
+        });
+        if (listenGen.current !== gen || threadRef.current !== id) return;
+        setPreview((current) => (current?.id === utteranceId ? null : current));
+        utteranceModes.current.delete(utteranceId);
+        // Recognition finishing gets its own visibility interval, independent of the old silence deadline.
+        if (!hearingRef.current) quietAt.current = performance.now();
+        if (committed.ok && committed.kind === "command") {
+          quietAt.current = null;
+          clearEndpoint();
+        }
+        await applyRef.current(committed);
+      },
+      error: (message) => {
+        if (listenGen.current === gen) {
+          setError(message);
+          setPreview(null);
+          quietAt.current = null;
+          clearEndpoint();
+        }
+      },
+      settled: (id) => {
+        if (listenGen.current !== gen) return;
+        unfinished.current.delete(id);
+        setPreview((current) => (current?.id === id ? null : current));
+        utteranceModes.current.delete(id);
+      },
+      pending: (pending) => {
+        if (listenGen.current !== gen) return;
+        const outstanding =
+          pending || unfinished.current.size > 0 || hearingRef.current;
+        setRecognizing(outstanding);
+        setCapture(
+          pending ? "transcribing" : activeRef.current ? "listening" : "idle",
+        );
+        if (!outstanding) considerRef.current();
+      },
+    });
     void startVoiceCapture({
-      paused: () => pausedRef.current,
+      paused: () => pausedRef.current || editingRef.current,
       limits: () => ({
         speechRms: settingsRef.current.speechRms,
         silenceHoldMs: settingsRef.current.silenceHoldMs,
         minSpeechMs: settingsRef.current.minSpeechMs,
         maxSegmentMs: settingsRef.current.maxSegmentMs,
       }),
-      onSpeechStart: () => {
+      onSpeechStart: (id) => {
         if (listenGen.current !== gen) return;
         utteranceMode.current =
           aui.thread().getState().isRunning || aheadRef.current
             ? "control"
             : "dictation";
+        utteranceModes.current.set(id, utteranceMode.current);
+        unfinished.current.add(id);
+        setRecognizing(true);
         hearingRef.current = true;
         quietAt.current = null;
         clearEndpoint();
       },
-      onSpeechEnd: (emitted) => {
+      onSpeechEnd: (emitted, id) => {
         if (listenGen.current !== gen) return;
         hearingRef.current = false;
         quietAt.current = performance.now();
-        if (!emitted) considerRef.current();
+        if (!emitted) {
+          unfinished.current.delete(id);
+          recognizer.current?.discard(id);
+          utteranceModes.current.delete(id);
+          setPreview((current) => (current?.id === id ? null : current));
+          considerRef.current();
+        }
       },
-      onSegmentSkipped: () => {
-        if (listenGen.current !== gen || hearingRef.current) return;
-        considerRef.current();
-      },
-      onSegment: (audio) => {
+      onSegmentSkipped: (id) => {
         if (listenGen.current !== gen) return;
-        audioQueue.current.push({
-          audio,
-          mode: utteranceMode.current,
-        });
-        void drain(gen);
+        unfinished.current.delete(id);
+        recognizer.current?.discard(id);
+        utteranceModes.current.delete(id);
+        setPreview((current) => (current?.id === id ? null : current));
+        if (!hearingRef.current) considerRef.current();
       },
+      onSnapshot: (snapshot) => {
+        if (listenGen.current !== gen) return;
+        if (snapshot.final) unfinished.current.delete(snapshot.id);
+        recognizer.current?.enqueue(snapshot);
+      },
+      onSegment: () => undefined,
     })
       .then((handle) => {
         if (listenGen.current !== gen) {
@@ -483,6 +553,7 @@ function VoiceSessionProvider({ children }: PropsWithChildren): ReactElement {
           return;
         }
         captureHandle.current = handle;
+        startingRef.current = false;
         activeRef.current = true;
         setActive(true);
         setCapture("listening");
@@ -492,6 +563,8 @@ function VoiceSessionProvider({ children }: PropsWithChildren): ReactElement {
         });
       })
       .catch((caught: unknown) => {
+        if (listenGen.current !== gen) return;
+        stopListening();
         setError(
           caught instanceof Error
             ? caught.message
@@ -566,7 +639,7 @@ function VoiceSessionProvider({ children }: PropsWithChildren): ReactElement {
     return () => window.removeEventListener(LOCAL_COMMAND_EVENT, onCommand);
   }, [aui]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     const previous = renderedThread.current;
     renderedThread.current = threadId;
     if (previous === threadId || threadRef.current === threadId) return;
@@ -615,10 +688,15 @@ function VoiceSessionProvider({ children }: PropsWithChildren): ReactElement {
     hasDraft: shownDraft.trim().length > 0,
     modelRunning,
   });
-  const showDraft = shownDraft.length > 0 || editing;
+  const shownPreview =
+    preview && preview.threadId === threadId ? preview.text : "";
+  const transcript = joinSpeech(shownDraft, shownPreview);
+  const showDraft = transcript.length > 0 || editing || recognizing;
   const value: VoiceSessionValue = {
     active,
     draft: shownDraft,
+    transcript,
+    recognizing,
     muted,
     showDraft,
     speaking,
@@ -708,39 +786,46 @@ function VoiceSessionProvider({ children }: PropsWithChildren): ReactElement {
 
 export function VoiceDraftPanel(): ReactElement | null {
   const session = useVoiceSession();
-  if (!session?.visible) return null;
+  const [editing, setEditing] = useState(false);
+  if (!session?.showDraft) return null;
   return (
-    <section className={styles.panel} aria-label="Voice session">
-      <div className={styles.header}>
-        {session.status ? (
-          <p
-            className={styles.status}
-            role="status"
-            data-active={session.active || undefined}
-          >
-            <MicIcon className={styles.statusIcon} aria-hidden="true" />
-            <span>{session.status}</span>
-          </p>
+    <section
+      className={threadStyles.userMessageRoot}
+      aria-label="Pending voice message"
+      data-provisional="true"
+    >
+      <div className={threadStyles.userContentWrapper}>
+        <TextVoiceDraft text={session.transcript || "Recognizing…"} />
+        {editing ? (
+          <Textarea
+            label="Voice draft"
+            description="You can edit the recognized text before sending."
+            autosize
+            minRows={2}
+            value={session.draft}
+            onFocus={() => session.setEditing(true)}
+            onBlur={session.blurDraft}
+            onChange={(event) => session.setDraft(event.currentTarget.value)}
+          />
         ) : null}
-      </div>
-      {session.showDraft ? (
-        <Textarea
-          label="Voice draft"
-          description="You can edit the recognized text before sending."
-          autosize
-          minRows={2}
-          value={session.draft}
-          onFocus={() => session.setEditing(true)}
-          onBlur={session.blurDraft}
-          onChange={(event) => session.setDraft(event.currentTarget.value)}
-        />
-      ) : null}
-      {session.showDraft ? (
         <div className={styles.actions}>
+          <Button
+            type="button"
+            size="compact-xs"
+            variant="subtle"
+            disabled={session.recognizing}
+            onClick={() => {
+              setEditing((value) => !value);
+              session.setEditing(!editing);
+            }}
+          >
+            Edit draft
+          </Button>
           <Button
             type="button"
             size="xs"
             variant="filled"
+            disabled={session.recognizing || !session.draft.trim()}
             onClick={session.sendDraft}
           >
             Send draft
@@ -754,55 +839,32 @@ export function VoiceDraftPanel(): ReactElement | null {
             Discard
           </Button>
         </div>
-      ) : null}
+      </div>
     </section>
   );
 }
 
-export function TtsControls(): ReactElement | null {
+function TextVoiceDraft({ text }: { text: string }): ReactElement {
+  return (
+    <div className={cx(threadStyles.userMessageContent, styles.transcript)}>
+      <span className={styles.pendingLabel}>Voice · pending</span>
+      <div>{text}</div>
+    </div>
+  );
+}
+
+export function VoiceOrb(): ReactElement | null {
   const session = useVoiceSession();
   if (!session?.active) return null;
   return (
-    <section className={styles.tts} aria-label="Speech">
-      <ChoiceInput
-        label="Voice"
-        size="xs"
-        allowDeselect={false}
-        placeholder="First installed voice"
-        nothingFoundMessage="No voice installed"
-        data={session.voices.map((voice) => ({
-          value: voice.id,
-          label: `${voice.id} (${voice.language})`,
-        }))}
-        value={session.voiceId}
-        onChange={(value) => {
-          if (value) session.setVoiceId(value);
-        }}
-      />
-      <Button
-        type="button"
-        size="xs"
-        variant="default"
-        fullWidth
-        aria-pressed={session.muted}
-        leftSection={
-          session.muted ? <VolumeXIcon size={14} /> : <Volume2Icon size={14} />
-        }
-        onClick={session.toggleMuted}
-      >
-        {session.muted ? "Speak replies" : "Mute replies"}
-      </Button>
-      <Button
-        type="button"
-        size="xs"
-        variant="default"
-        fullWidth
-        disabled={!session.speaking}
-        onClick={session.stopSpeech}
-      >
-        Stop playback
-      </Button>
-    </section>
+    <div
+      className={styles.orbDock}
+      data-state={session.speaking ? "playback" : "listening"}
+    >
+      <div className={styles.orb}>
+        <ChatBlob />
+      </div>
+    </div>
   );
 }
 

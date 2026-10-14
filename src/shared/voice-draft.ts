@@ -76,7 +76,7 @@ export function spokenText(text: string): string {
     .replace(/^\s*\d+[.)]\s+/gm, "")
     .replace(/[*_~`#|[\]{}<>]/g, "")
     .replace(/\p{Extended_Pictographic}/gu, "")
-    .replace(/[\u200d\uFE0F]/g, "")
+    .replace(/\u200d|\uFE0F/g, "")
     .replace(/[ \t]{2,}/g, " ")
     .replace(/[ \t]*\n[ \t]*/g, "\n")
     .replace(/\n{2,}/g, "\n")
@@ -123,9 +123,19 @@ export function silenceSendDecision(input: {
   modelRunning: boolean;
   hasDraft: boolean;
   silenceSendMs?: number;
+  recognitionPending?: boolean;
+  hearing?: boolean;
+  queueHeld?: boolean;
 }): "wait" | "hold" | "send" {
   const silenceSendMs = input.silenceSendMs ?? SILENCE_SEND_MS;
-  if (input.quietForMs === null || input.editing || !input.hasDraft)
+  if (
+    input.quietForMs === null ||
+    input.editing ||
+    !input.hasDraft ||
+    input.recognitionPending ||
+    input.hearing ||
+    input.queueHeld
+  )
     return "hold";
   if (input.quietForMs < silenceSendMs) return "wait";
   if (input.modelRunning) return "hold";

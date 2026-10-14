@@ -1,10 +1,11 @@
+import { useSettingsNavigation } from "@/components/settings-navigation-context";
 import { Thread } from "@/components/assistant-ui/elements/thread.aui";
 import { ThreadListSidebar } from "@/components/assistant-ui/elements/threadlist-sidebar.aui";
 import {
   ChatSelectionBar,
   ChatSelectionProvider,
 } from "@/components/ChatSelection";
-import { QueueSidebar } from "@/components/QueueSidebar";
+import { QueueLifecycleProvider } from "@/components/QueueSidebar";
 import { VoiceSessionProvider } from "@/components/VoiceSession";
 import { ServiceControls } from "@/components/ServiceControls";
 import { WindowControls } from "@/components/WindowControls";
@@ -15,6 +16,10 @@ import { ActionIcon, AppShell } from "@mantine/core";
 import { useDisclosure, useMediaQuery } from "@mantine/hooks";
 import { PanelLeftIcon } from "lucide-react";
 import { useEffect, type ReactElement } from "react";
+import { useRef } from "react";
+import { ConfirmationProvider } from "@/components/ConfirmationProvider";
+import { SettingsNavigationProvider } from "@/components/settings-navigation";
+import { SettingsPage } from "@/components/SettingsPanel";
 import styles from "./App.module.css";
 
 function currentThreadTitle(state: AssistantState): string {
@@ -37,6 +42,8 @@ function currentThreadTitle(state: AssistantState): string {
 
 function ShellTitle(): ReactElement {
   const title = useAuiState(currentThreadTitle);
+  const { opened } = useSettingsNavigation();
+  if (opened) return <h1 className={styles.headerTitle}>Settings</h1>;
   if (!title) return <span className={styles.headerSpacer} />;
   return <h1 className={styles.headerTitle}>{title}</h1>;
 }
@@ -48,6 +55,13 @@ function VerboShell(): ReactElement {
   const [mobileOpened, { toggle: toggleMobile }] = useDisclosure(false);
   const [desktopOpened, { toggle: toggleDesktop }] = useDisclosure(true);
   const aui = useAui();
+  const { opened, showChat } = useSettingsNavigation();
+  const selectedChat = useAuiState((state) => state.threads.mainThreadId);
+  const previousChat = useRef(selectedChat);
+  useEffect(() => {
+    if (previousChat.current !== selectedChat) showChat();
+    previousChat.current = selectedChat;
+  }, [selectedChat, showChat]);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent): void => {
@@ -64,11 +78,12 @@ function VerboShell(): ReactElement {
       }
       if (document.querySelector("[role='dialog']")) return;
       event.preventDefault();
+      showChat();
       aui.threads().switchToNewThread();
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [aui, isMobile, toggleMobile, toggleDesktop]);
+  }, [aui, isMobile, toggleMobile, toggleDesktop, showChat]);
 
   const toggleSidebar = isMobile ? toggleMobile : toggleDesktop;
   const showHeaderToggle = isMobile || !desktopOpened;
@@ -104,12 +119,14 @@ function VerboShell(): ReactElement {
             <WindowControls />
           </header>
           <div className={styles.main}>
-            <ChatSelectionBar />
+            {!opened ? <ChatSelectionBar /> : null}
             <VoiceSessionProvider>
-              <div className={styles.threadPane}>
-                <Thread />
-                <QueueSidebar />
-              </div>
+              <QueueLifecycleProvider>
+                <div className={styles.threadPane} hidden={opened}>
+                  <Thread />
+                </div>
+                <SettingsPage />
+              </QueueLifecycleProvider>
             </VoiceSessionProvider>
           </div>
         </AppShell.Main>
@@ -121,7 +138,11 @@ function VerboShell(): ReactElement {
 export default function App(): ReactElement {
   return (
     <VerboRuntimeProvider>
-      <VerboShell />
+      <ConfirmationProvider>
+        <SettingsNavigationProvider>
+          <VerboShell />
+        </SettingsNavigationProvider>
+      </ConfirmationProvider>
     </VerboRuntimeProvider>
   );
 }

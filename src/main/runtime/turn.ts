@@ -23,10 +23,20 @@ import {
   type ContextToolMessage,
 } from "./context-builder";
 import { USER_ABORT_NOTICE } from "../../shared/chat-ipc";
+import {
+  backendNoticeSchema,
+  type BackendNotice,
+} from "../../shared/backend-notice";
 import { CHAT_REQUEST_PRIORITY, type RequestGate } from "./request-gate";
 
 export type TurnStop =
-  "completed" | "paused" | "cancelled" | "limit" | "capacity" | "no_progress";
+  | "completed"
+  | "paused"
+  | "cancelled"
+  | "limit"
+  | "capacity"
+  | "no_progress"
+  | "failed";
 
 export type TurnOutcome = {
   stop: TurnStop;
@@ -39,6 +49,7 @@ export type TurnOutcome = {
 };
 
 export type TurnUpdate =
+  | { type: "notice"; notice: BackendNotice }
   | { type: "trimmed"; removedCount: number }
   | { type: "text"; text: string }
   | {
@@ -129,6 +140,10 @@ export async function runTurn(input: {
     ...(input.memory ? { memory: input.memory } : {}),
   });
   if (!built.ok) {
+    input.onUpdate?.({ type: "notice", notice: backendNoticeSchema.parse({
+      id: `turn:${input.context.turnId ?? input.context.threadId}:capacity`, origin: "backend", severity: "error",
+      code: "turn_capacity", message: built.summary.slice(0, 500),
+    }) });
     const outcome: TurnOutcome = {
       stop: "capacity",
       content: "",
@@ -169,6 +184,22 @@ export async function runTurn(input: {
       summary,
       removedCount: built.removedCount,
     };
+    if (summary)
+      input.onUpdate?.({
+        type: "notice",
+        notice: backendNoticeSchema.parse({
+          id: `turn:${input.context.turnId ?? input.context.threadId}:${stop}`,
+          origin: "backend",
+          severity:
+            stop === "completed"
+              ? "info"
+              : stop === "cancelled" || stop === "paused"
+                ? "warning"
+                : "error",
+          code: `turn_${stop}`,
+          message: summary.slice(0, 500),
+        }),
+      });
     input.onUpdate?.({ type: "stop", stop, content, summary });
     return outcome;
   };
@@ -182,7 +213,9 @@ export async function runTurn(input: {
     try {
       chunks = await input.gate.schedule(CHAT_REQUEST_PRIORITY, () =>
         input.model(messages, {
-          onText: (text) => input.onUpdate?.({ type: "text", text }),
+          // Ollama can announce a tool after content. Publish only after the
+          // completed invocation proves that it contains no tool requests.
+          onText: () => undefined,
           signal: input.signal,
         }),
       );
@@ -196,11 +229,14 @@ export async function runTurn(input: {
       return finish("cancelled", "", USER_ABORT_NOTICE);
     }
     const aggregated = aggregateOllamaToolStream(chunks);
-    if (aggregated.content.trim()) wrote = true;
-    if (aggregated.content) {
-      input.onUpdate?.({ type: "text", text: aggregated.content });
+    if (!aggregated.done || aggregated.malformed > 0) {
+      return finish("failed", "", silentReply(aggregated));
     }
     if (aggregated.toolCalls.length === 0) {
+      if (aggregated.content.trim()) wrote = true;
+      if (aggregated.content) {
+        input.onUpdate?.({ type: "text", text: aggregated.content });
+      }
       return finish(
         "completed",
         aggregated.content,
@@ -213,12 +249,12 @@ export async function runTurn(input: {
     );
     input.onUpdate?.({
       type: "assistant_tools",
-      content: aggregated.content,
+      content: "",
       toolCalls,
     });
     messages.push({
       role: "assistant",
-      content: aggregated.content,
+      content: "",
       toolCalls,
     });
 
@@ -251,17 +287,13 @@ export async function runTurn(input: {
       const call = toolCalls[index];
       if (!call) continue;
       if (toolRequests >= DEFAULT_TURN_LIMITS.maxToolRequests) {
-        return finish(
-          "limit",
-          aggregated.content,
-          "The turn reached the tool request limit.",
-        );
+        return finish("limit", "", "The turn reached the tool request limit.");
       }
       const key = toolKey(call.name, call.arguments);
       if (seen.has(key)) {
         return finish(
           "no_progress",
-          aggregated.content,
+          "",
           "The same tool request was repeated without new work.",
         );
       }
@@ -269,12 +301,28 @@ export async function runTurn(input: {
       toolRequests += 1;
       let result =
         call.name && isRecord(call.arguments)
-          ? dispatchModelTool(
-              registry,
-              call.name,
-              call.arguments,
-              input.context,
-            )
+          ? await dispatchModelTool(registry, call.name, call.arguments, {
+              ...input.context,
+              signal: input.signal,
+              onProgress: (message) =>
+                input.onUpdate?.({
+                  type: "notice",
+                  notice: backendNoticeSchema.parse({
+                    id: `progress:${call.id}`,
+                    origin: "backend",
+                    severity: "info",
+                    code: "command_progress",
+                    message: message.slice(0, 500),
+                    commandId:
+                      typeof call.arguments === "object" &&
+                      call.arguments !== null &&
+                      "name" in call.arguments &&
+                      typeof call.arguments.name === "string"
+                        ? call.arguments.name.slice(0, 128)
+                        : call.name,
+                  }),
+                }),
+            })
           : malformedCall(call.name);
       if (result.status === "requires_confirmation") {
         input.onUpdate?.({
@@ -287,7 +335,7 @@ export async function runTurn(input: {
           results.push(result);
           return finish(
             "paused",
-            aggregated.content,
+            "",
             "A mutation is waiting for confirmation.",
           );
         }
@@ -298,7 +346,7 @@ export async function runTurn(input: {
           if (pushTool(call, closed(call, USER_ABORT_NOTICE))) {
             return finish(
               "capacity",
-              aggregated.content,
+              "",
               "The required instructions, user message, and tool results do not fit the context budget.",
             );
           }
@@ -311,22 +359,18 @@ export async function runTurn(input: {
             ) {
               return finish(
                 "capacity",
-                aggregated.content,
+                "",
                 "The required instructions, user message, and tool results do not fit the context budget.",
               );
             }
           }
-          return finish(
-            "cancelled",
-            aggregated.content,
-            USER_ABORT_NOTICE,
-          );
+          return finish("cancelled", "", USER_ABORT_NOTICE);
         }
       }
       if (pushTool(call, result)) {
         return finish(
           "capacity",
-          aggregated.content,
+          "",
           "The required instructions, user message, and tool results do not fit the context budget.",
         );
       }

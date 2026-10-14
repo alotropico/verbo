@@ -25,7 +25,7 @@ function useSpeechReveal(): SpeechReveal {
     role === "assistant" && session?.active === true && session.muted === false;
   if (!willSpeak) return { mode: "full" };
   if (running) return { mode: "hidden" };
-  if (caption?.messageId === messageId) {
+  if (caption && caption.messageId === messageId) {
     return { mode: "partial", ratio: caption.ratio };
   }
   return { mode: "full" };

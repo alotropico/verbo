@@ -21,6 +21,7 @@
   gap: rem(12px);
   line-height: 1;
   padding-inline: rem(8px);
+  min-height: 1em;
 }
 
 .ok {

@@ -10,6 +10,7 @@ import {
   type MigrationStep,
 } from "./migrate";
 import { loadThreadHistory } from "./history";
+import { readLiveReferences } from "../files/asset-store";
 
 const directories: string[] = [];
 
@@ -25,6 +26,45 @@ function tempDatabase(): { directory: string; file: string } {
 }
 
 describe("migration protection", () => {
+  it("moves existing durable resources into the attachment subsystem without copying uploads", () => {
+    const database = new DatabaseSync(":memory:");
+    try {
+      migrateDatabase(
+        database,
+        VERBO_MIGRATIONS.filter((step) => step.version <= 19),
+      );
+      const resources = [
+        { path: "C:/fixture/file.md", event: "read", available: true, size: 8 },
+      ];
+      database
+        .prepare(
+          "INSERT INTO command_receipts(id,action_id,thread_id,actor,result_json,resources_json,started_at,finished_at) VALUES (?,?,?,?,?,?,?,?)",
+        )
+        .run(
+          "receipt",
+          "files.read",
+          "thread",
+          "ui",
+          "{}",
+          JSON.stringify(resources),
+          1,
+          2,
+        );
+      expect(migrateDatabase(database, VERBO_MIGRATIONS)).toBe(21);
+      expect(readLiveReferences(database, "receipt", "thread")).toEqual(
+        resources,
+      );
+      expect(readLiveReferences(database, "receipt", "another-thread")).toEqual(
+        [],
+      );
+      expect(
+        database.prepare("SELECT COUNT(*) AS count FROM attachments").get()
+          ?.count,
+      ).toBe(0);
+    } finally {
+      database.close();
+    }
+  });
   it("backs up v1, keeps payloads, and records the previous implicit head", () => {
     const { directory, file } = tempDatabase();
     const original = new DatabaseSync(file);
@@ -34,7 +74,7 @@ describe("migration protection", () => {
     const database = new DatabaseSync(file);
     const backup = join(directory, "backup.sqlite");
     const version = migrateDatabase(database, VERBO_MIGRATIONS, () => backup);
-    expect(version).toBe(14);
+    expect(version).toBe(21);
     const stored = readV1Messages(database);
     expect(
       stored.find((message) => message.rowId === "row-notes-user-1b")?.text,
@@ -60,7 +100,7 @@ describe("migration protection", () => {
       migrateDatabase(database, VERBO_MIGRATIONS, () =>
         join(directory, "again.sqlite"),
       ),
-    ).toBe(14);
+    ).toBe(21);
     expect(
       database
         .prepare(

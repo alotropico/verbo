@@ -1,8 +1,15 @@
 import type { ActionResult } from "./action-contract";
 import type { ChatSettings } from "./config";
+import type { BackendNotice } from "./backend-notice";
 
 export type ChatTurnStop =
-  "completed" | "paused" | "cancelled" | "limit" | "capacity" | "no_progress";
+  | "completed"
+  | "paused"
+  | "cancelled"
+  | "limit"
+  | "capacity"
+  | "no_progress"
+  | "failed";
 
 export const USER_ABORT_NOTICE = "You stopped this reply.";
 
@@ -33,6 +40,7 @@ export type ChatToolCall = {
 };
 
 export type ChatEvent =
+  | { type: "backend_notice"; notice: BackendNotice }
   | { type: "delta"; text: string }
   | {
       type: "tools";

@@ -11,6 +11,7 @@ import {
 import { migrateDatabase, VERBO_MIGRATIONS } from "./migrate";
 import { createMemoryStore } from "./memory";
 import { executeLocalCommand } from "../runtime/local-command";
+import { executeMemorySettingsAction } from "../runtime/memory-settings";
 import { modelRoute } from "../../shared/local-commands";
 import { estimateContextMeters } from "../runtime/context-estimate";
 
@@ -42,18 +43,66 @@ const modelContext: ActionContext = {
 };
 
 describe("memory store", () => {
-  it("saves, lists, updates, and removes through the same rules for commands and the model", () => {
+  it("routes Settings mutations through the same validation, actor and durable receipts", async () => {
+    const db = database();
+    try {
+      const saved = await executeMemorySettingsAction(db, "memory.add", {
+        text: "Settings note",
+      });
+      expect(saved.ok).toBe(true);
+      if (!saved.ok || !saved.entry) throw new Error("missing entry");
+      expect(saved.entry.source).toBe("settings");
+      expect(
+        (
+          await executeMemorySettingsAction(db, "memory.add", {
+            text: "Settings note",
+          })
+        ).ok,
+      ).toBe(false);
+      expect(
+        (
+          await executeMemorySettingsAction(db, "memory.update", {
+            id: saved.entry.id,
+            inclusion: "always",
+          })
+        ).ok,
+      ).toBe(true);
+      expect(
+        (
+          await executeMemorySettingsAction(db, "memory.remove", {
+            id: saved.entry.id,
+          })
+        ).ok,
+      ).toBe(true);
+      expect(createMemoryStore(db).get([saved.entry.id])).toEqual([]);
+      expect(
+        db
+          .prepare(
+            "SELECT actor, action_id FROM command_receipts ORDER BY rowid",
+          )
+          .all(),
+      ).toEqual([
+        { actor: "ui", action_id: "memory.add" },
+        { actor: "ui", action_id: "memory.add" },
+        { actor: "ui", action_id: "memory.update" },
+        { actor: "ui", action_id: "memory.remove" },
+      ]);
+    } finally {
+      db.close();
+    }
+  });
+  it("saves, lists, updates, and removes through the same rules for commands and the model", async () => {
     const db = database();
     const store = createMemoryStore(db);
     const registry = registryForDatabase(db);
-    const command = executeLocalCommand({
+    const command = await executeLocalCommand({
       text: "/remember Prefers short replies",
       store,
       registry,
     });
     expect(command.status).toBe("success");
     expect(modelRoute("/remember Prefers short replies")).toBe("local");
-    const again = executeLocalCommand({
+    const again = await executeLocalCommand({
       text: "/remember Prefers   short replies",
       store,
       registry,
@@ -64,7 +113,7 @@ describe("memory store", () => {
     const listed = store.list({ scope: "global", inclusion: "always" });
     expect(listed.entries).toHaveLength(1);
     const id = listed.entries[0]?.id ?? "";
-    const invoked = dispatchModelTool(
+    const invoked = await dispatchModelTool(
       registry,
       "actions.invoke",
       {
@@ -83,7 +132,7 @@ describe("memory store", () => {
     expect(snapshot.onDemandGlobalCount).toBe(1);
     expect(JSON.stringify(snapshot)).not.toContain("teal");
 
-    const fetched = dispatchModelTool(
+    const fetched = await dispatchModelTool(
       registry,
       "actions.invoke",
       {
@@ -97,7 +146,7 @@ describe("memory store", () => {
     expect(fetched.detail).toContain("teal");
     expect(store.recentChanges().length).toBeGreaterThan(0);
 
-    const forgotten = executeLocalCommand({
+    const forgotten = await executeLocalCommand({
       text: `/forget ${id}`,
       store,
       registry,

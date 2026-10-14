@@ -129,16 +129,16 @@ describe("file scopes and path policy", () => {
     expect(resolved.path.display).toBe("docs:/idea.md");
   });
 
-  it("lists a registered folder alias", () => {
+  it("lists a registered folder alias", async () => {
     const root = folder("verbo-notes-list-");
-    const detail = dispatchModelTool(
+    const detail = await dispatchModelTool(
       registryForDatabase(database()),
       "actions.invoke",
       { name: "files.scopes", args: {} },
       { actor: "model", threadId: "thread-1" },
     );
     expect(detail.summary).toContain("No folders");
-    const listed = dispatchModelTool(
+    const listed = await dispatchModelTool(
       registryForDatabase(
         (() => {
           const db = database();

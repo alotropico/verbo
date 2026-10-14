@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import type { DatabaseSync } from "node:sqlite";
 import { displayFinalPath, scopeAliasSchema } from "../../shared/files";
 import type { RegisteredRoot } from "../../shared/projects";
+import { projectPreferencesSchema } from "../../shared/application-registration";
 import { isProtectedLocation } from "../files/path-policy";
 import { describeExistingPath } from "../files/windows-containment";
 
@@ -84,6 +85,27 @@ export function createRootStore(
           "duplicate_alias",
           `That ${noun} alias is already used.`,
         );
+      }
+      if (table === "registered_projects") {
+        const extraAliases = database
+          .prepare("SELECT value_json FROM project_preferences")
+          .all();
+        if (
+          extraAliases.some((row) => {
+            try {
+              const value = projectPreferencesSchema.safeParse(
+                JSON.parse(String(row.value_json)),
+              );
+              return value.success && value.data.aliases.includes(parsed.data);
+            } catch {
+              return false;
+            }
+          })
+        )
+          return failure(
+            "duplicate_alias",
+            "That project alias is already used.",
+          );
       }
       if (current.some((item) => samePath(item.path, path))) {
         return failure(

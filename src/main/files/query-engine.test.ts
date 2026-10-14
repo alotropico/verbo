@@ -62,14 +62,14 @@ function register(root: string): DatabaseSync {
   return db;
 }
 
-function invoke(
+async function invoke(
   db: DatabaseSync,
   name: string,
   args: Record<string, unknown>,
   threadId = "thread-1",
   actor: "model" | "user_command" = "model",
-): ActionResult {
-  return registryForDatabase(db).invoke(name, args, { actor, threadId });
+): Promise<ActionResult> {
+  return await registryForDatabase(db).invoke(name, args, { actor, threadId });
 }
 
 function body(result: ActionResult): {
@@ -93,7 +93,40 @@ function body(result: ActionResult): {
 }
 
 describe("file queries", () => {
-  it("lists one level, keeps folder size unknown, and pages in order", () => {
+  it("finds accessible files beyond the former eight-level cap for list, content search and summary", async () => {
+    const root = folder("verbo-deep-");
+    const components = Array.from({ length: 12 }, (_, index) => `d${index}`);
+    const deep = join(root, ...components);
+    mkdirSync(deep, { recursive: true });
+    writeFileSync(join(deep, "deep.txt"), "deep marker");
+    const expected = `notes:/${components.join("/")}/deep.txt`;
+    const db = register(root);
+    const listed = body(
+      await invoke(db, "files.list", { root: "notes:", pageSize: 100 }),
+    );
+    expect(listed.items.map((item) => item.path)).toContain(expected);
+    expect(listed.scan.complete).toBe(true);
+    const search = body(
+      await invoke(db, "files.search", {
+        root: "notes:",
+        mode: "content",
+        query: "deep marker",
+      }),
+    );
+    expect(search.items.map((item) => item.path)).toEqual([expected]);
+    const summary = JSON.parse(
+      (await invoke(db, "files.summary", { root: "notes:" })).detail!,
+    );
+    expect(summary).toMatchObject({
+      complete: true,
+      files: 1,
+      directories: 12,
+    });
+    expect(
+      (await invoke(db, "files.list", { root: "notes:", depth: 0 })).code,
+    ).toBe("invalid_args");
+  });
+  it("lists all descendants, keeps folder size unknown, and pages in order", async () => {
     const root = folder("verbo-list-");
     mkdirSync(join(root, "sub", "deep"), { recursive: true });
     writeFileSync(join(root, "b.txt"), "b");
@@ -102,9 +135,8 @@ describe("file queries", () => {
     writeFileSync(join(root, "sub", "deep", "bottom.txt"), "c");
     const db = register(root);
 
-    const listed = invoke(db, "files.list", {
+    const listed = await invoke(db, "files.list", {
       root: "notes:",
-      depth: 0,
       pageSize: 2,
       sort: { by: "name", direction: "asc" },
     });
@@ -116,26 +148,39 @@ describe("file queries", () => {
     ]);
     expect(page.items[0]?.size).toBe(2);
     expect(page.page.hasMore).toBe(true);
-    expect(page.page.totalKnown).toBe(3);
+    expect(page.page.totalKnown).toBe(6);
     expect(listed.detail).not.toContain(displayFinalPath(root));
     expect(listed.detail).not.toContain("nested.txt");
 
-    const next = invoke(db, "files.list", {
+    const next = await invoke(db, "files.list", {
       root: "notes:",
-      depth: 0,
       pageSize: 2,
       sort: { by: "name", direction: "asc" },
       cursor: page.page.nextCursor,
     });
     const second = body(next);
-    expect(second.items.map((item) => item.path)).toEqual(["notes:/sub"]);
-    expect(second.items[0]?.size).toBeNull();
-    expect(second.items[0]?.type).toBe("directory");
-    expect(second.page.hasMore).toBe(false);
-    expect(second.page.nextCursor).toBeUndefined();
+    expect(second.items.map((item) => item.path)).toEqual([
+      "notes:/sub",
+      "notes:/sub/deep",
+    ]);
+    expect(second.items[1]?.size).toBeNull();
+    expect(second.items[1]?.type).toBe("directory");
+    expect(second.page.hasMore).toBe(true);
+    const last = body(
+      await invoke(db, "files.next", {
+        cursor: second.page.nextCursor,
+        pageSize: 2,
+      }),
+    );
+    expect(last.items.map((item) => item.path)).toEqual([
+      "notes:/sub/deep/bottom.txt",
+      "notes:/sub/nested.txt",
+    ]);
+    expect(last.page.hasMore).toBe(false);
+    expect(last.page.nextCursor).toBeUndefined();
   });
 
-  it("applies depth, extension, hidden, and skip rules", () => {
+  it("applies extension, hidden, and skip rules throughout descendants", async () => {
     const root = folder("verbo-filter-");
     mkdirSync(join(root, "sub"));
     mkdirSync(join(root, "node_modules", "pkg"), { recursive: true });
@@ -146,20 +191,22 @@ describe("file queries", () => {
     writeFileSync(join(root, "node_modules", "pkg", "leak.txt"), "leak");
     const db = register(root);
 
-    const depth = body(
-      invoke(db, "files.list", { root: "notes:", depth: 1, pageSize: 20 }),
+    const scanned = body(
+      await invoke(db, "files.list", {
+        root: "notes:",
+        pageSize: 20,
+      }),
     );
-    const paths = depth.items.map((item) => item.path);
+    const paths = scanned.items.map((item) => item.path);
     expect(paths).toContain("notes:/sub/inner.md");
     expect(paths).not.toContain("notes:/node_modules/pkg/leak.txt");
-    expect(depth.scan.complete).toBe(true);
-    expect(JSON.stringify(depth)).not.toContain("leak.txt");
-    expect(JSON.stringify(depth)).not.toContain(".secret.md");
+    expect(scanned.scan.complete).toBe(true);
+    expect(JSON.stringify(scanned)).not.toContain("leak.txt");
+    expect(JSON.stringify(scanned)).not.toContain(".secret.md");
 
     const markdown = body(
-      invoke(db, "files.list", {
+      await invoke(db, "files.list", {
         root: "notes:",
-        depth: 1,
         extensions: [".MD"],
         pageSize: 20,
       }),
@@ -170,7 +217,7 @@ describe("file queries", () => {
     ]);
 
     const hidden = body(
-      invoke(db, "files.list", {
+      await invoke(db, "files.list", {
         root: "notes:",
         includeHidden: true,
         pageSize: 20,
@@ -181,7 +228,7 @@ describe("file queries", () => {
     );
   });
 
-  it("tie-breaks equal timestamps by path and rejects a changed page", () => {
+  it("tie-breaks equal timestamps by path and rejects a changed page", async () => {
     const root = folder("verbo-sort-");
     const stamp = new Date("2026-10-10T12:00:00Z");
     writeFileSync(join(root, "b.md"), "b");
@@ -194,10 +241,10 @@ describe("file queries", () => {
       pageSize: 1,
       sort: { by: "modified" as const, direction: "desc" as const },
     };
-    const first = body(invoke(db, "files.list", args));
+    const first = body(await invoke(db, "files.list", args));
     expect(first.items[0]?.path).toBe("notes:/a.md");
     writeFileSync(join(root, "c.md"), "c");
-    const stale = invoke(db, "files.list", {
+    const stale = await invoke(db, "files.list", {
       ...args,
       cursor: first.page.nextCursor,
     });
@@ -205,26 +252,26 @@ describe("file queries", () => {
     expect(stale.code).toBe("stale_cursor");
   });
 
-  it("rejects a cursor from another query or conversation", () => {
+  it("rejects a cursor from another query or conversation", async () => {
     const root = folder("verbo-cursor-");
     writeFileSync(join(root, "a.txt"), "a");
     writeFileSync(join(root, "b.txt"), "b");
     const db = register(root);
     const first = body(
-      invoke(db, "files.list", {
+      await invoke(db, "files.list", {
         root: "notes:",
         extensions: ["txt"],
         pageSize: 1,
       }),
     );
-    const mismatch = invoke(db, "files.list", {
+    const mismatch = await invoke(db, "files.list", {
       root: "notes:",
       extensions: ["md"],
       pageSize: 1,
       cursor: first.page.nextCursor,
     });
     expect(mismatch.code).toBe("query_mismatch");
-    const otherThread = invoke(
+    const otherThread = await invoke(
       db,
       "files.list",
       {
@@ -271,7 +318,7 @@ describe("file queries", () => {
         threadId: "thread-1",
         limits: { maxVisited: 1 },
       },
-      { root: "notes:", depth: 2, pageSize: 20 },
+      { root: "notes:", pageSize: 20 },
     );
     expect(capped.status).toBe("partial");
     expect(capped.code).toBe("limit_reached");
@@ -284,7 +331,7 @@ describe("file queries", () => {
     expect(cappedDetail.counts.files.exactTotal).toBeNull();
   });
 
-  it("searches names and bounded text snippets", () => {
+  it("searches names and bounded text snippets", async () => {
     const root = folder("verbo-search-");
     writeFileSync(join(root, "jaguar.md"), "alpha\nThe jaguar sleeps\nomega\n");
     writeFileSync(join(root, "other.txt"), "zebra");
@@ -292,22 +339,20 @@ describe("file queries", () => {
     const db = register(root);
 
     const named = body(
-      invoke(db, "files.search", {
+      await invoke(db, "files.search", {
         root: "notes:",
         mode: "filename",
         query: "jaguar",
-        depth: 1,
         pageSize: 10,
       }),
     );
     expect(named.items.map((item) => item.path)).toEqual(["notes:/jaguar.md"]);
 
     const content = body(
-      invoke(db, "files.search", {
+      await invoke(db, "files.search", {
         root: "notes:",
         mode: "content",
         query: "jaguar",
-        depth: 1,
         pageSize: 10,
         snippetChars: 40,
       }),
@@ -324,13 +369,12 @@ describe("file queries", () => {
     expect(jaguar?.line).toBe(2);
 
     const matches = body(
-      invoke(db, "files.search", {
+      await invoke(db, "files.search", {
         root: "notes:",
         mode: "content",
         query: "jaguar",
         extensions: ["md"],
         groupBy: "match",
-        depth: 1,
         pageSize: 10,
       }),
     );
@@ -340,7 +384,7 @@ describe("file queries", () => {
     expect(twice.map((item) => item.line)).toEqual([1, 2]);
   });
 
-  it("stats explicit paths, summarizes a finished folder, and blocks escapes", () => {
+  it("stats explicit paths, summarizes a finished folder, and blocks escapes", async () => {
     const root = folder("verbo-stat-");
     const outside = folder("verbo-out-");
     mkdirSync(join(root, "sub"));
@@ -349,7 +393,7 @@ describe("file queries", () => {
     symlinkSync(outside, join(root, "jump"), "junction");
     const db = register(root);
 
-    const stat = invoke(db, "files.stat", {
+    const stat = await invoke(db, "files.stat", {
       paths: ["notes:/note.md", "notes:/missing.md", "notes:/jump"],
     });
     expect(stat.status).toBe("partial");
@@ -370,7 +414,10 @@ describe("file queries", () => {
     ]);
     expect(stat.detail).not.toContain("secret.txt");
     const listed = body(
-      invoke(db, "files.list", { root: "notes:", depth: 2, pageSize: 20 }),
+      await invoke(db, "files.list", {
+        root: "notes:",
+        pageSize: 20,
+      }),
     );
     expect(
       listed.items.find((item) => item.path === "notes:/jump"),
@@ -380,7 +427,7 @@ describe("file queries", () => {
     expect(JSON.stringify(listed)).not.toContain("secret.txt");
 
     const summary = JSON.parse(
-      invoke(db, "files.summary", { root: "notes:", depth: 1 }).detail ?? "{}",
+      (await invoke(db, "files.summary", { root: "notes:" })).detail ?? "{}",
     ) as {
       complete: boolean;
       files: number;
@@ -394,24 +441,27 @@ describe("file queries", () => {
     expect(summary.links).toBe(1);
     expect(summary.totalBytes).toBe(5);
 
-    const escaped = invoke(db, "files.list", {
+    const escaped = await invoke(db, "files.list", {
       root: "notes:",
       path: "jump/secret.txt",
     });
     expect(escaped.status).toBe("error");
-    expect(invoke(db, "files.list", { root: "C:\\Windows" }).code).toBe(
+    expect((await invoke(db, "files.list", { root: "C:\\Windows" })).code).toBe(
       "protected",
     );
   });
 
-  it("lets the model read an existing unscoped folder and asks a command to select it", () => {
+  it("lets the model read an existing unscoped folder and asks a command to select it", async () => {
     const outside = folder("verbo-free-");
     writeFileSync(join(outside, "free.txt"), "x");
     const db = database();
-    const model = invoke(db, "files.list", { root: outside, pageSize: 10 });
+    const model = await invoke(db, "files.list", {
+      root: outside,
+      pageSize: 10,
+    });
     expect(model.status).toBe("success");
     expect(model.detail).toContain("free.txt");
-    const command = invoke(
+    const command = await invoke(
       db,
       "files.list",
       { root: outside, pageSize: 10 },
@@ -421,16 +471,15 @@ describe("file queries", () => {
     expect(command.code).toBe("needs_selection");
   });
 
-  it("counts every direct child directory even when the page is smaller", () => {
+  it("counts every direct child directory even when the page is smaller", async () => {
     const root = folder("verbo-dirs-");
     for (let index = 0; index < 9; index += 1) {
       mkdirSync(join(root, `dir-${index}`));
     }
     writeFileSync(join(root, "note.txt"), "x");
     const db = register(root);
-    const listed = invoke(db, "files.list", {
+    const listed = await invoke(db, "files.list", {
       root: "notes:",
-      depth: 0,
       entryType: "directories",
       pageSize: 2,
     });

@@ -19,7 +19,7 @@ Titles are generated locally from the first user message using the selected Olla
 
 Each turn freezes its instructions, settings, and always-on memory, then keeps about a quarter of the context window free. The latest user message, open tool or approval state, and the newest history come first. Older messages stay in SQLite when they are left out of a request. Meters show a character estimate and the last Ollama prompt count when a turn reported one.
 
-The model can call three tools: `capabilities.list`, `capabilities.describe`, and `actions.invoke`. Those tools discover and run the same registered actions as the commands and settings screens. Tool receipts are stored with the turn.
+The model can call four tools: `capabilities.list`, `capabilities.search`, `capabilities.describe`, and `actions.invoke`. They discover and run the same registered commands as human routes. The backend withholds model text until a tool-free response completes and all commands or approvals settle. Tool receipts are stored with the turn.
 
 ### Conversation history
 
@@ -33,27 +33,27 @@ Create, switch, search by title, rename, archive, and delete conversations from 
 
 Registered folders are the write boundary. Reads go through the same path checks, including Windows junctions and protected locations. Settings → Files can list, search, read, stat, hash, inspect, and compare. The same actions are available to the model and to `/files` and `/action`. A list or summary reports an observed count and an exact total. The exact total is absent when the scan stops early. Hidden names and folders that are not entered, such as `.git` and `node_modules`, stay out of an exact total and are named in the scan.
 
-Attachments are copies kept with the app data. Messages store ids, not the file bytes. Chat images are sent only when the selected model reports vision support, and only up to 1 MB.
+Uploaded attachments are copies kept with the app data. Messages store ids, not the file bytes. Chat images are sent only when the selected model reports vision support, and only up to 1 MB. The same attachment subsystem stores live references to verified command files without copying their contents. Receipts retain complete file sets and child outcomes; the UI initially shows four files, with a disclosure for the rest. Open, Reveal and Copy recheck current access and file availability.
 
 A change is an immutable plan: create, copy, move, rename, edit, or trash. One new regular file, one new empty directory, or one ordinary same-volume copy, move, or rename of a regular file or empty directory can run after preflight. An edit, trash, any batch, a non-empty directory transfer, or a cross-volume transfer waits on the operation card. Approving or denying continues the same turn and writes one receipt. Trash uses the Windows Recycle Bin. A failed trash is left in place. Finished renames and moves can be undone. An interrupted plan is marked for review and is not replayed. Reloading the window does not cancel the turn or run the change again.
 
 ### Queue
 
-One turn runs at a time. Further sends wait in a persistent per-conversation queue. The main process starts the next eligible item when the current turn finishes. The queue sits in a right sidebar: each row shows a two-line preview and its status, and you can edit, remove, or move a waiting item up or down. Save keeps that item's identity and place. A minimized rail shows one marker per item. Narrow windows open the same list as a drawer. A failure pauses the queue until you resume or discard it. Restart keeps unsent drafts and does not replay a mutation. Editing or regenerating a branch pins queued drafts until you rebind them.
+One turn runs at a time. Further sends wait in a persistent per-conversation queue. The main process starts the next eligible item when the current turn finishes. Waiting messages appear as plain single-line rows above the composer, with edit, remove and reorder controls. Save keeps an item's identity and place. A failure pauses the queue until you resume or discard it. Restart keeps unsent drafts and does not replay a mutation. Editing or regenerating a branch pins queued drafts until you rebind them. Completed user messages collapse to three lines and can be expanded with the keyboard or mouse.
 
 ### Voice
 
-The microphone button sits to the right of Send. One click starts listening after the system grants microphone permission. The voice service starts on that first request, or from the header Start control. Typed chat does not start it. A short quiet stretch of about one second sends the accumulated draft when the model is idle. While a reply is running, ordinary speech is ignored. Exact standalone `stop` or `cancel` cancels the active turn. Speech that started while idle and finishes after typing has begun stays in the composer and is not queued. The idle draft is visible: you can edit it, send it, or discard it. Older drafts stay for review. Stopping the microphone keeps unsent text. Switching conversations stops capture and leaves the draft on the conversation that owns it.
+The microphone button sits to the right of Send. One click starts listening after the system grants microphone permission. The voice service starts on that first request, or from the header Start control. Typed chat does not start it. Cumulative audio prefixes produce provisional text in a pending chat bubble; only final recognition commits the draft. A short quiet stretch sends it when recognition has settled, the model is idle and queued work is not ahead. While a reply is running, ordinary speech is ignored. Exact standalone `stop` or `cancel` cancels the active turn. Speech that began while idle and finishes after typing starts stays in the chat draft. The typed composer remains available. You can edit, send or discard the draft. Stopping capture keeps committed unsent text; switching conversations stops capture and retains the owning conversation's draft. A centered orb reflects listening and playback.
 
 Spoken `clear chat` or `empty chat`, alone and while idle, opens a blank conversation and leaves stored chats in the list. Any extra words stay ordinary text.
 
-Completed replies are spoken while the voice session is on. The microphone pauses during playback so the reply is not transcribed again. Mute replies leaves the text in the transcript and skips speech. Speech recognition accepts English and Spanish. A clip detected as another language is decoded again as whichever of those two scored higher.
+Completed replies are spoken while the voice session is on and reply speech is enabled in Settings. The microphone pauses during playback so the reply is not transcribed again. Speech recognition accepts English and Spanish. A clip detected as another language is decoded again as whichever of those two scored higher.
 
 Typed chat keeps working when the voice service or the microphone is unavailable.
 
 ### Actions
 
-Settings → Actions shows the registered catalog and recent history. `/capabilities` lists the same actions. `/action <id> <JSON>` runs one. `/help` lists the local commands. A leading slash is always handled locally, including a malformed command. Approval is the operation card, not a command.
+Settings → Commands shows the registered catalog and recent history. `/capabilities` lists the same actions. `/action <id> <JSON>` runs one. `/help` lists the local commands. A leading slash is always handled locally, including a malformed command. Approval is the operation card, not a command.
 
 | Command | Effect |
 | --- | --- |
@@ -67,6 +67,10 @@ Settings → Actions shows the registered catalog and recent history. `/capabili
 | `/new` | Open a blank conversation. Stored chats stay in the list. |
 
 ### Model settings and status
+
+Settings → Commands contains module aliases and protected descriptor details. Project preferences select a registered default application and ordered favorites. Application registration explicitly trusts an existing Windows executable, with fixed argument templates and working-directory rules. `projects.open` resolves the project and applications before requesting one grouped approval; launch receipts report successful OS spawning, without asserting that a GUI finished loading.
+
+`web.search` uses a lazy, hidden Puppeteer-core worker and the installed Chrome or Edge, trying Google, DuckDuckGo and Bing in the configured order without a key. `web.read` uses bounded HTTP extraction first and can request rendered content. Sources are links rather than file attachments. The worker uses disposable profiles and a DNS-pinned public-network proxy, with private destinations and browser side effects blocked. Live engine coverage remains incomplete: the 2026-10-13 Windows smoke check found Google/DDG blocked and Bing's results unparseable. Offline fallback tests alone do not establish operational search support.
 
 Settings has Model, Memory, Files, Voice, and Actions tabs. Generation and voice preferences wait for Save. Cancelling the dialog leaves completed memory, file, and action changes as they are.
 
@@ -227,6 +231,10 @@ The [chat model adapter](src/renderer/src/runtime/chat-model-adapter.ts) seriali
 The [thread-list adapter](src/renderer/src/runtime/thread-list-adapter.tsx) supplies thread operations, generated titles, and per-thread history adapters. Message payloads are stored as JSON with parent references. The queue and voice draft are separate rows, not a second copy of the transcript.
 
 ### Shared contracts and services
+
+Command definitions compile through `src/main/capabilities/modules.ts` into the existing registry. Each family exports its authoritative module descriptors separately from trusted handler/process bindings. A definition owns its canonical path, aliases, schemas, execution reference, output and attachment policy. Composite steps bind inputs and earlier receipts, run sequentially with shared depth/step/time limits, and use the existing operation service for immutable grouped approval. `browser-runtime/` owns Puppeteer and communicates through serializable DTOs and framed stdio; it imports no Electron, database or model clients. On Windows the browser worker belongs to a kill-on-close job, so worker failure or app exit also stops its Chromium descendants.
+
+To add a command, define its canonical ID, strict argument schema and valid example in its module's command array. Declare aliases, requirements, effect, output, messages and attachment policy there. Bind its fixed handler/process ID in the corresponding backend bindings factory and compose the bindings in `catalog.ts`. Mutation handlers retain native preflight/confirmation, or declare a trusted preparation binding for the existing operation service. Composite children reference registered IDs and typed input/receipt bindings. Add behavior tests and preserve existing discovery contracts; never accept model-selected executables, imports or scripts.
 
 [src/shared](src/shared) contains IPC channel names, action and voice contracts, queue and file schemas, and command parsers. The preload and main process share those contracts.
 

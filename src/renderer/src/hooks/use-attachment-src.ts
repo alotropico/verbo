@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useAuiState } from "@assistant-ui/react";
+import { useAuiState, type AssistantState } from "@assistant-ui/react";
 import { useShallow } from "zustand/react/shallow";
 
 const useFileSrc = (file: File | undefined): string | undefined => {
@@ -32,21 +32,25 @@ const useFileSrc = (file: File | undefined): string | undefined => {
 
 export const useAttachmentSrc = (): string | undefined => {
   const { file, src, attachmentId } = useAuiState(
-    useShallow((s): { file?: File; src?: string; attachmentId?: string } => {
-      if (s.attachment.type !== "image") return {};
-      if (s.attachment.file) return { file: s.attachment.file };
-      const image = s.attachment.content?.filter((c) => c.type === "image")[0]
-        ?.image;
-      if (image) return { src: image };
-      const stored = s.attachment.content?.find(
-        (part) =>
-          part.type === "file" &&
-          part.sourceType === "id" &&
-          part.mimeType.startsWith("image/"),
-      );
-      if (stored?.type === "file") return { attachmentId: stored.data };
-      return {};
-    }),
+    useShallow(
+      (
+        s: AssistantState,
+      ): { file?: File; src?: string; attachmentId?: string } => {
+        if (s.attachment.type !== "image") return {};
+        if (s.attachment.file) return { file: s.attachment.file };
+        const image = s.attachment.content?.filter((c) => c.type === "image")[0]
+          ?.image;
+        if (image) return { src: image };
+        const stored = s.attachment.content?.find(
+          (part) =>
+            part.type === "file" &&
+            part.sourceType === "id" &&
+            part.mimeType.startsWith("image/"),
+        );
+        if (stored?.type === "file") return { attachmentId: stored.data };
+        return {};
+      },
+    ),
   );
   const [preview, setPreview] = useState<string | undefined>(undefined);
 

@@ -114,6 +114,9 @@ type VerboApi = {
     >;
   };
   settings: {
+    patch: (
+      patch: Partial<import("../shared/config").ChatSettings>,
+    ) => Promise<import("../shared/config").ChatSettings>;
     get: () => Promise<SettingsRecovery>;
     set: (settings: ChatSettings) => Promise<ChatSettings>;
   };
@@ -137,6 +140,37 @@ type VerboApi = {
     remove: (id: string) => Promise<MemoryMutation>;
   };
   commands: {
+    saveProjectImport: (
+      input: import("../shared/application-registration").ProjectImportSettings,
+    ) => Promise<import("../shared/application-registration").EntitySaveResult>;
+    entities: () => Promise<
+      import("../shared/application-registration").EntitySettings
+    >;
+    saveApplication: (
+      input: import("../shared/application-registration").ApplicationRegistrationInput,
+    ) => Promise<import("../shared/application-registration").EntitySaveResult>;
+    removeApplication: (
+      id: string,
+    ) => Promise<import("../shared/application-registration").EntitySaveResult>;
+    saveProject: (
+      input: import("../shared/application-registration").ProjectPreferences,
+    ) => Promise<import("../shared/application-registration").EntitySaveResult>;
+    discoverApplications: () => Promise<
+      Array<{ name: string; aliases: string[]; executable: string }>
+    >;
+    saveWeb: (
+      input: import("../shared/web-contracts").WebSettings,
+    ) => Promise<{ ok: true } | { ok: false; summary: string }>;
+    settings: () => Promise<import("../shared/commands").CommandSettings>;
+    save: (
+      input: import("../shared/commands").CommandOverride,
+    ) => Promise<{ ok: true } | { ok: false; summary: string }>;
+    reset: (nodeId: string) => Promise<void>;
+    receipt: (input: {
+      receiptId: string;
+      threadId: string;
+      offset?: number;
+    }) => Promise<import("../shared/command-receipts").CommandReceipt | null>;
     run: (input: {
       text: string;
       threadId?: string;
@@ -146,6 +180,12 @@ type VerboApi = {
     estimate: (input?: { threadId?: string }) => Promise<ContextMeters>;
   };
   files: {
+    update: (
+      input: import("../shared/files").ScopePatch,
+    ) => Promise<
+      | { ok: true; summary: string; scopes: FileScopeRecord[] }
+      | { ok: false; code: string; summary: string }
+    >;
     list: () => Promise<{
       scopes: FileScopeRecord[];
       proposal: FileScopeProposal;
@@ -160,7 +200,13 @@ type VerboApi = {
       intent: FileSurfaceIntent;
     }) => Promise<FileSurfaceResult>;
     pick: () => Promise<
-      | { ok: true; pickId: string; path: string; suggestedAlias: string }
+      | {
+          ok: true;
+          pickId: string;
+          path: string;
+          suggestedAlias: string;
+          kind?: import("../shared/files").FolderKind;
+        }
       | { ok: false; code: string; summary: string }
     >;
     commit: (

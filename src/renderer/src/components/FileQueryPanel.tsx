@@ -6,12 +6,12 @@ import { Button, Group, Stack, Text, TextInput } from "@mantine/core";
 import { useState, type ReactElement } from "react";
 import { FilePageTable } from "./FilePageTable";
 import { SettingsLabel } from "./SettingsLabel";
+import { StatusMessage } from "./StatusMessage";
 import styles from "./FilePageTable.module.css";
 
 export function FileQueryPanel(): ReactElement {
   const threadId = useAuiState((state) => state.threads.mainThreadId);
   const [root, setRoot] = useState("tmp:");
-  const [depth, setDepth] = useState("1");
   const [query, setQuery] = useState("");
   const [path, setPath] = useState("");
   const [otherPath, setOtherPath] = useState("");
@@ -19,12 +19,6 @@ export function FileQueryPanel(): ReactElement {
   const [detail, setDetail] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
-
-  const parsedDepth = (): number | null => {
-    const value = Number(depth);
-    if (!Number.isInteger(value) || value < 0 || value > 8) return null;
-    return value;
-  };
 
   const run = (actionId: FileUiAction, args: Record<string, unknown>): void => {
     if (!isPersistedThreadId(threadId)) {
@@ -58,14 +52,9 @@ export function FileQueryPanel(): ReactElement {
   };
 
   const listOrSearch = (mode: "list" | "filename" | "content"): void => {
-    const depthValue = parsedDepth();
-    if (depthValue === null) {
-      setError("Depth is a whole number from 0 to 8.");
-      return;
-    }
     const folder = root.trim();
     if (mode === "list") {
-      run("files.list", { root: folder, depth: depthValue });
+      run("files.list", { root: folder });
       return;
     }
     const text = query.trim();
@@ -75,7 +64,6 @@ export function FileQueryPanel(): ReactElement {
     }
     run("files.search", {
       root: folder,
-      depth: depthValue,
       mode,
       query: text,
     });
@@ -106,16 +94,6 @@ export function FileQueryPanel(): ReactElement {
         }
         value={root}
         onChange={(event) => setRoot(event.currentTarget.value)}
-      />
-      <TextInput
-        label={
-          <SettingsLabel
-            label="Subfolder depth"
-            tip="0 checks this folder only. Use up to 8 to include subfolders."
-          />
-        }
-        value={depth}
-        onChange={(event) => setDepth(event.currentTarget.value)}
       />
       <TextInput
         label={
@@ -161,12 +139,7 @@ export function FileQueryPanel(): ReactElement {
           variant="default"
           loading={busy}
           onClick={() => {
-            const depthValue = parsedDepth();
-            if (depthValue === null) {
-              setError("Depth is a whole number from 0 to 8.");
-              return;
-            }
-            run("files.summary", { root: root.trim(), depth: depthValue });
+            run("files.summary", { root: root.trim() });
           }}
         >
           Summary
@@ -255,9 +228,9 @@ export function FileQueryPanel(): ReactElement {
         </Button>
       </Group>
       {error ? (
-        <Text className={styles.error} size="sm">
+        <StatusMessage display="plain" size="xs" tone="error">
           {error}
-        </Text>
+        </StatusMessage>
       ) : null}
       {detail ? <pre className={styles.detail}>{detail}</pre> : null}
       {page && isPersistedThreadId(threadId) ? (

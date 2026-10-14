@@ -15,7 +15,15 @@ function abortError(): Error {
 export function ollamaChatBody(
   messages: readonly OllamaWireMessage[],
   settings: ChatSettings,
-) {
+): {
+  model: string;
+  messages: readonly OllamaWireMessage[];
+  tools: typeof PERMANENT_OLLAMA_TOOLS;
+  stream: true;
+  think: boolean;
+  keep_alive: string;
+  options: { temperature: number; num_ctx: number };
+} {
   return {
     model: settings.model,
     messages,

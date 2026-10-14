@@ -38,6 +38,20 @@ function fixtureRead(): Capability {
 }
 
 describe("capability registry", () => {
+  it("ranks exact IDs and aliases above description matches without changing execution resolution", () => {
+    const registry = createProductionRegistry();
+    expect(registry.search("files.read").matches[0].id).toBe("files.read");
+    expect(registry.search("fs.cat").matches[0]).toMatchObject({
+      id: "files.read",
+      reasons: ["alias path"],
+    });
+    expect(
+      registry
+        .search("read text")
+        .matches.some((match) => match.id === "files.read"),
+    ).toBe(true);
+    expect(registry.resolve("read text").ok).toBe(false);
+  });
   it("lists production categories, platform, and memory actions", () => {
     const registry = createProductionRegistry();
     expect(registry.list().children.map((child) => child.id)).toEqual([
@@ -47,6 +61,7 @@ describe("capability registry", () => {
       "memory",
       "projects",
       "software",
+      "web",
     ]);
     expect(registry.list("environment").children).toEqual([
       {
@@ -73,7 +88,7 @@ describe("capability registry", () => {
     expect(JSON.stringify(registry.list())).not.toContain("files.fixture");
   });
 
-  it("keeps fixture actions off the production catalog", () => {
+  it("keeps fixture actions off the production catalog", async () => {
     const production = createProductionRegistry();
     const withFixture = createRegistry([platformCapability(), fixtureRead()]);
     expect(production.list("files").children.map((child) => child.id)).toEqual([
@@ -98,11 +113,12 @@ describe("capability registry", () => {
     ]);
     expect(withFixture.list("files").children[0]?.id).toBe("files.fixture");
     expect(
-      withFixture.invoke("files.fixture", { path: "a" }, context).summary,
+      (await withFixture.invoke("files.fixture", { path: "a" }, context))
+        .summary,
     ).toBe("fixture");
   });
 
-  it("describes a contract without the executor and rejects unknown tools", () => {
+  it("describes a contract without the executor and rejects unknown tools", async () => {
     const registry = createProductionRegistry();
     const described = registry.describe([
       "environment.platform",
@@ -115,7 +131,12 @@ describe("capability registry", () => {
       code: "unknown",
     });
     expect(JSON.stringify(described)).not.toContain("execute");
-    const unknown = dispatchModelTool(registry, "files.fixture", {}, context);
+    const unknown = await dispatchModelTool(
+      registry,
+      "files.fixture",
+      {},
+      context,
+    );
     expect(unknown.code).toBe("unknown_tool");
     expect(MODEL_TOOL_NAMES).toEqual([
       "capabilities.list",
@@ -125,9 +146,9 @@ describe("capability registry", () => {
     ]);
   });
 
-  it("invokes platform facts and rejects bad or unknown actions", () => {
+  it("invokes platform facts and rejects bad or unknown actions", async () => {
     const registry = createProductionRegistry();
-    const listed = dispatchModelTool(
+    const listed = await dispatchModelTool(
       registry,
       "capabilities.list",
       { path: "environment" },
@@ -135,7 +156,7 @@ describe("capability registry", () => {
     );
     expect(listed.status).toBe("success");
     expect(listed.detail).toContain("environment.platform");
-    const invoked = dispatchModelTool(
+    const invoked = await dispatchModelTool(
       registry,
       "actions.invoke",
       { name: "environment.platform", args: {} },
@@ -150,26 +171,30 @@ describe("capability registry", () => {
     expect(facts.platform).toBe(process.platform);
     expect(Object.keys(facts).sort()).toEqual(["arch", "platform", "release"]);
     expect(
-      dispatchModelTool(
-        registry,
-        "actions.invoke",
-        { name: "environment.platform", args: { approved: true } },
-        context,
+      (
+        await dispatchModelTool(
+          registry,
+          "actions.invoke",
+          { name: "environment.platform", args: { approved: true } },
+          context,
+        )
       ).code,
     ).toBe("invalid_args");
     expect(
-      dispatchModelTool(
-        registry,
-        "actions.invoke",
-        { name: "files.fixture", args: {} },
-        context,
+      (
+        await dispatchModelTool(
+          registry,
+          "actions.invoke",
+          { name: "files.fixture", args: {} },
+          context,
+        )
       ).code,
     ).toBe("unknown_action");
   });
 
-  it("lists the files category inside the detail contract", () => {
+  it("lists the files category inside the detail contract", async () => {
     const registry = createProductionRegistry();
-    const listed = dispatchModelTool(
+    const listed = await dispatchModelTool(
       registry,
       "capabilities.list",
       { path: "files" },
@@ -199,7 +224,7 @@ describe("capability registry", () => {
     ).toContain('mode:"full"');
     const ids = registry.list("files").children.map((child) => child.id);
     for (let index = 0; index < ids.length; index += 8) {
-      const described = dispatchModelTool(
+      const described = await dispatchModelTool(
         registry,
         "capabilities.describe",
         { ids: ids.slice(index, index + 8) },
@@ -217,7 +242,7 @@ describe("capability registry", () => {
         expect(entry.syntax?.length ?? 0).toBeGreaterThan(0);
       }
     }
-    const one = dispatchModelTool(
+    const one = await dispatchModelTool(
       registry,
       "capabilities.describe",
       { ids: ["files.create"] },
@@ -234,7 +259,7 @@ describe("capability registry", () => {
         },
       ],
     });
-    const missed = dispatchModelTool(
+    const missed = await dispatchModelTool(
       registry,
       "actions.invoke",
       { name: "files.create", args: { path: "test.txt", kind: "text" } },
@@ -244,9 +269,9 @@ describe("capability registry", () => {
     expect(missed.summary).toContain('kind:"file"|"directory"');
   });
 
-  it("searches every command and alias in one call", () => {
+  it("searches every command and alias in one call", async () => {
     const registry = createProductionRegistry();
-    const moved = dispatchModelTool(
+    const moved = await dispatchModelTool(
       registry,
       "capabilities.search",
       { query: "move" },
@@ -257,7 +282,7 @@ describe("capability registry", () => {
       matches: Array<{ id: string }>;
     };
     expect(moveBody.matches.map((match) => match.id)).toContain("files.move");
-    const grep = dispatchModelTool(
+    const grep = await dispatchModelTool(
       registry,
       "capabilities.search",
       { query: "grep" },
@@ -270,15 +295,18 @@ describe("capability registry", () => {
       grepBody.matches.find((match) => match.id === "files.search")?.aliases,
     ).toContain("/files grep");
     expect(
-      dispatchModelTool(
-        registry,
-        "capabilities.search",
-        { query: "zzzzqq" },
-        context,
+      (
+        await dispatchModelTool(
+          registry,
+          "capabilities.search",
+          { query: "zzzzqq" },
+          context,
+        )
       ).summary,
     ).toBe("No commands match zzzzqq.");
     expect(
-      dispatchModelTool(registry, "capabilities.search", {}, context).code,
+      (await dispatchModelTool(registry, "capabilities.search", {}, context))
+        .code,
     ).toBe("invalid_args");
     const unused = (): never => {
       throw new Error("unused");
@@ -295,22 +323,26 @@ describe("capability registry", () => {
       recentChanges: unused,
     };
     expect(
-      executeLocalCommand({
-        text: "/search remember",
-        store,
-        registry,
-      }).summary,
+      (
+        await executeLocalCommand({
+          text: "/search remember",
+          store,
+          registry,
+        })
+      ).summary,
     ).toContain("memory.add");
   });
 
-  it("rejects a model payload that claims approval", () => {
+  it("rejects a model payload that claims approval", async () => {
     const registry = createProductionRegistry();
     expect(
-      dispatchModelTool(
-        registry,
-        "actions.invoke",
-        { name: "environment.platform", args: {}, approved: true },
-        context,
+      (
+        await dispatchModelTool(
+          registry,
+          "actions.invoke",
+          { name: "environment.platform", args: {}, approved: true },
+          context,
+        )
       ).code,
     ).toBe("invalid_args");
   });

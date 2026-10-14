@@ -7,7 +7,6 @@ import { persistedThreadIdSchema } from "./thread-identity";
  * envelope returns fewer rows and the cursor continues at the last row sent.
  */
 export const FILE_QUERY_LIMITS = {
-  maxDepth: 8,
   maxPageSize: 100,
   defaultPageSize: 20,
   maxVisited: 4000,
@@ -55,7 +54,6 @@ const sortSchema = z
 const queryFields = {
   root: z.string().trim().min(1).max(1024),
   path: z.string().trim().min(1).max(1024).optional(),
-  depth: z.number().int().min(0).max(FILE_QUERY_LIMITS.maxDepth).default(0),
   entryType: z.enum(["all", "files", "directories"]).default("all"),
   name: z.string().trim().min(1).max(256).optional(),
   glob: z.string().trim().min(1).max(256).optional(),
@@ -103,7 +101,6 @@ export const filesSummaryArgsSchema = z
   .object({
     root: z.string().trim().min(1).max(1024),
     path: z.string().trim().min(1).max(1024).optional(),
-    depth: z.number().int().min(0).max(FILE_QUERY_LIMITS.maxDepth).default(1),
     entryType: z.enum(["all", "files", "directories"]).default("all"),
     includeHidden: z.boolean().default(false),
   })

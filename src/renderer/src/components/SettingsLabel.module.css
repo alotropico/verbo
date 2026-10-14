@@ -6,6 +6,7 @@
 }
 
 .tip {
+  position: relative;
   color: var(--muted-foreground);
   cursor: default;
   display: inline-flex;

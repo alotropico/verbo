@@ -15,10 +15,6 @@
   padding: var(--mantine-spacing-md);
 }
 
-.error {
-  color: var(--destructive);
-}
-
 .list {
   display: flex;
   flex-direction: column;

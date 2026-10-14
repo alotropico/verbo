@@ -85,8 +85,14 @@ describe("voice drafts", () => {
         branchAnchor: null,
         captureMode: "dictation",
       }),
-    ).toMatchObject({ ok: true, kind: "composer", text: "started earlier" });
-    expect(service.read("thread-a")).toMatchObject({ draft: { text: "" } });
+    ).toMatchObject({
+      ok: true,
+      kind: "draft",
+      draft: { text: "started earlier" },
+    });
+    expect(service.read("thread-a")).toMatchObject({
+      draft: { text: "started earlier" },
+    });
   });
 
   it("does not queue ordinary speech while a turn or earlier item is ahead", () => {

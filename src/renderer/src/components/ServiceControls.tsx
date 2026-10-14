@@ -1,6 +1,8 @@
-import { Button, Group, Popover, Text } from "@mantine/core";
+import { Button, Popover, Text } from "@mantine/core";
 import { ChoiceInput } from "./ChoiceInput";
 import { useEffect, useState, type ReactElement } from "react";
+import { useConfirmation } from "./confirmation-context";
+import { StatusMessage } from "./StatusMessage";
 import styles from "./ServiceControls.module.css";
 
 type ServiceView = {
@@ -26,7 +28,8 @@ export function ServiceControls(): ReactElement {
   const [services, setServices] = useState<Snapshot | null>(null);
   const [models, setModels] = useState<string[]>([]);
   const [model, setModel] = useState("");
-  const [confirm, setConfirm] = useState<null | "ollama" | "voice">(null);
+  const confirm = useConfirmation();
+  const [error, setError] = useState("");
   const [open, setOpen] = useState<null | "ollama" | "voice">(null);
   const [pending, setPending] = useState<null | "ollama" | "voice">(null);
 
@@ -56,36 +59,47 @@ export function ServiceControls(): ReactElement {
 
   const run = (
     name: "ollama" | "voice",
-    action: () => Promise<{ ok: false; summary: string } | { ok: true } | ServiceView>,
+    action: () => Promise<
+      { ok: false; summary: string } | { ok: true } | ServiceView
+    >,
   ): void => {
     setOpen(null);
-    setConfirm(null);
+    setError("");
     setPending(name);
     void action()
       .then(async (result) => {
         setServices(await window.verbo.services.snapshot());
-        if ("ok" in result && !result.ok) window.alert(result.summary);
+        if ("ok" in result && !result.ok) throw new Error(result.summary);
       })
+      .catch((cause: unknown) =>
+        setError(
+          cause instanceof Error
+            ? cause.message
+            : "Could not change the service.",
+        ),
+      )
       .finally(() => {
         setPending((current) => (current === name ? null : current));
       });
   };
 
   const dot = (name: "ollama" | "voice", state: ServiceView["state"]): string =>
-    [
-      styles.dot,
-      dotClass(state),
-      pending === name ? styles.pending : "",
-    ]
+    [styles.dot, dotClass(state), pending === name ? styles.pending : ""]
       .filter(Boolean)
       .join(" ");
 
   return (
     <div className={styles.group}>
+      {error ? (
+        <StatusMessage tone="error" display="plain" size="xs">
+          {error}
+        </StatusMessage>
+      ) : null}
       <Popover
         opened={open === "ollama"}
         onChange={(next) => {
-          if (!next) setOpen((current) => (current === "ollama" ? null : current));
+          if (!next)
+            setOpen((current) => (current === "ollama" ? null : current));
         }}
         position="bottom-end"
         width={280}
@@ -123,53 +137,41 @@ export function ServiceControls(): ReactElement {
               onChange={(value) => {
                 if (!value) return;
                 setModel(value);
-                void window.verbo.settings.get().then((current) =>
-                  window.verbo.settings.set({
-                    ...current.settings,
-                    model: value,
-                  }),
-                );
+                void window.verbo.settings
+                  .patch({ model: value })
+                  .then((saved) =>
+                    window.dispatchEvent(
+                      new CustomEvent("verbo:settings-changed", {
+                        detail: saved,
+                      }),
+                    ),
+                  )
+                  .catch(() => setError("Could not save the model."));
               }}
             />
             {ollama?.state === "ready" ? (
-              confirm === "ollama" ? (
-                <>
-                  <Text size="xs">
-                    Stop Ollama
-                    {ollama.reused
-                      ? "? It may be serving other programs."
-                      : "? The current reply will stop."}
-                  </Text>
-                  <Group gap="xs">
-                    <Button
-                      type="button"
-                      size="xs"
-                      onClick={() =>
-                        run("ollama", () => window.verbo.services.stop("ollama"))
-                      }
-                    >
-                      Stop Ollama
-                    </Button>
-                    <Button
-                      type="button"
-                      size="xs"
-                      variant="default"
-                      onClick={() => setConfirm(null)}
-                    >
-                      Keep running
-                    </Button>
-                  </Group>
-                </>
-              ) : (
-                <Button
-                  type="button"
-                  size="xs"
-                  variant="default"
-                  onClick={() => setConfirm("ollama")}
-                >
-                  Stop
-                </Button>
-              )
+              <Button
+                size="xs"
+                variant="default"
+                onClick={() => {
+                  setOpen(null);
+                  void confirm({
+                    title: "Stop Ollama?",
+                    message: ollama.reused
+                      ? "This service may be serving other programs. Stop it?"
+                      : "The current reply will stop.",
+                    confirmLabel: "Stop Ollama",
+                    onConfirm: async () => {
+                      const result = await window.verbo.services.stop("ollama");
+                      if ("ok" in result && !result.ok)
+                        throw new Error(result.summary);
+                      setServices(await window.verbo.services.snapshot());
+                    },
+                  });
+                }}
+              >
+                Stop
+              </Button>
             ) : (
               <Button
                 type="button"
@@ -187,7 +189,8 @@ export function ServiceControls(): ReactElement {
       <Popover
         opened={open === "voice"}
         onChange={(next) => {
-          if (!next) setOpen((current) => (current === "voice" ? null : current));
+          if (!next)
+            setOpen((current) => (current === "voice" ? null : current));
         }}
         position="bottom-end"
         width={280}
@@ -224,42 +227,28 @@ export function ServiceControls(): ReactElement {
               Service status is separate from the microphone session.
             </Text>
             {voice?.state === "ready" ? (
-              confirm === "voice" ? (
-                <>
-                  <Text size="xs">
-                    Stop the voice service
-                    {voice.reused ? "? It may serve other clients." : "?"}
-                  </Text>
-                  <Group gap="xs">
-                    <Button
-                      type="button"
-                      size="xs"
-                      onClick={() =>
-                        run("voice", () => window.verbo.services.stop("voice"))
-                      }
-                    >
-                      Stop voice
-                    </Button>
-                    <Button
-                      type="button"
-                      size="xs"
-                      variant="default"
-                      onClick={() => setConfirm(null)}
-                    >
-                      Keep running
-                    </Button>
-                  </Group>
-                </>
-              ) : (
-                <Button
-                  type="button"
-                  size="xs"
-                  variant="default"
-                  onClick={() => setConfirm("voice")}
-                >
-                  Stop
-                </Button>
-              )
+              <Button
+                size="xs"
+                variant="default"
+                onClick={() => {
+                  setOpen(null);
+                  void confirm({
+                    title: "Stop voice?",
+                    message: voice.reused
+                      ? "This service may be serving other programs. Stop it?"
+                      : "The current voice session will stop.",
+                    confirmLabel: "Stop voice",
+                    onConfirm: async () => {
+                      const result = await window.verbo.services.stop("voice");
+                      if ("ok" in result && !result.ok)
+                        throw new Error(result.summary);
+                      setServices(await window.verbo.services.snapshot());
+                    },
+                  });
+                }}
+              >
+                Stop
+              </Button>
             ) : (
               <Button
                 type="button"

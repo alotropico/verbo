@@ -85,18 +85,8 @@ export function createVoiceDraftService(
       if (parseVoiceCommand(input.text).handled && !busy) {
         return { ok: true, kind: "command", name: "new" };
       }
-      if (busy) {
-        if (input.captureMode === "dictation") {
-          return {
-            ok: true,
-            kind: "composer",
-            text: input.text,
-            summary:
-              "That utterance started while Verbo was free. It is in the composer and was not sent.",
-          };
-        }
+      if (busy && input.captureMode !== "dictation")
         return { ok: true, kind: "ignored" };
-      }
       const joined = joinSpeech(drafts.read(input.threadId), input.text);
       if (joined.length > MAX_VOICE_DRAFT_CHARS) {
         return { ok: false, summary: fullDraft };

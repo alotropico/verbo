@@ -5,6 +5,8 @@ import { createContext, useContext } from "react";
 export type VoiceSessionValue = {
   active: boolean;
   draft: string;
+  transcript: string;
+  recognizing: boolean;
   muted: boolean;
   showDraft: boolean;
   speaking: boolean;

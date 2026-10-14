@@ -1,20 +1,27 @@
 import { createMemoryStore, type MemoryStore } from "../db/memory";
 import { createScopeStore, type ScopeStore } from "../db/scopes";
 import type { DatabaseSync } from "node:sqlite";
-import { agsCapabilities } from "./ags";
-import { environmentCapabilities } from "./environment";
-import { fileMutationCapabilities } from "./file-mutations";
-import { filesCapabilities } from "./files";
-import { memoryCapabilities } from "./memory";
-import { projectCapabilities } from "./projects";
-import { softwareCapabilities } from "./software";
-import { createRegistry, type CapabilityRegistry } from "./registry";
+import { agsBindings, agsModule } from "./ags";
+import { environmentBindings, environmentModule } from "./environment";
+import { fileMutationBindings } from "./file-mutations";
+import { fileQueryBindings, filesModule } from "./files";
+import { memoryBindings, memoryModule } from "./memory";
+import { projectBindings, projectsModule } from "./projects";
+import { softwareBindings, softwareModule } from "./software";
+import type { CapabilityRegistry } from "./registry";
+import { createModuleRegistry } from "./modules";
+import { persistCommandReceipt } from "../db/command-receipts";
+import { effectiveCommandNodes } from "../db/command-overrides";
+import { webModule, webBindings } from "./web";
+import { createPreparationOwner } from "./preparation";
+import { projectOpeningBindings } from "./project-opening";
 
 /** Production catalog. Tests add fixture actions on their own registry. */
 export function createProductionRegistry(
   resolveStore?: () => MemoryStore,
   resolveScopes?: () => ScopeStore,
   resolveDatabase?: () => DatabaseSync,
+  defaultsOnly = false,
 ): CapabilityRegistry {
   let store: MemoryStore | undefined;
   const resolve =
@@ -22,46 +29,92 @@ export function createProductionRegistry(
     (() => {
       throw new Error("Memory store is not configured.");
     });
-  return createRegistry([
-    ...environmentCapabilities(resolveScopes, resolveDatabase),
-    ...memoryCapabilities(() => {
+  const scopes = (): ScopeStore => {
+    if (!resolveScopes) throw new Error("File scopes are not configured.");
+    return resolveScopes();
+  };
+  const database = (): DatabaseSync => {
+    if (!resolveDatabase) throw new Error("File database is not configured.");
+    return resolveDatabase();
+  };
+  const ags = agsBindings(resolveDatabase, resolveScopes);
+  const handlers = {
+    ...environmentBindings(resolveScopes, resolveDatabase),
+    ...memoryBindings(() => {
       store ??= resolve();
       return store;
     }),
-    ...filesCapabilities(
-      () => {
-        if (!resolveScopes) throw new Error("File scopes are not configured.");
-        return resolveScopes();
-      },
-      () => {
-        if (!resolveDatabase)
-          throw new Error("File database is not configured.");
-        return resolveDatabase();
-      },
-    ),
-    ...fileMutationCapabilities(
-      () => {
-        if (!resolveScopes) throw new Error("File scopes are not configured.");
-        return resolveScopes();
-      },
-      () => {
-        if (!resolveDatabase)
-          throw new Error("File database is not configured.");
-        return resolveDatabase();
-      },
-    ),
-    ...projectCapabilities(resolveScopes, resolveDatabase),
-    ...softwareCapabilities(),
-    ...agsCapabilities(resolveDatabase, resolveScopes),
-  ]);
+    ...fileQueryBindings(scopes, database),
+    ...fileMutationBindings(scopes, database),
+    ...projectBindings(resolveScopes, resolveDatabase),
+    ...softwareBindings(),
+    ...ags.handlers,
+  };
+  const opening = projectOpeningBindings(
+    resolveDatabase ??
+      (() => {
+        throw new Error("Application database is not configured.");
+      }),
+  );
+  // A database is resolved lazily for discovery-only consumers.
+  const preparation = {
+    submit: (
+      ...args: Parameters<ReturnType<typeof createPreparationOwner>["submit"]>
+    ) => {
+      if (!resolveDatabase)
+        throw new Error("Application database is not configured.");
+      return createPreparationOwner(resolveDatabase()).submit(...args);
+    },
+    consume: (
+      ...args: Parameters<ReturnType<typeof createPreparationOwner>["consume"]>
+    ) => {
+      if (!resolveDatabase)
+        throw new Error("Application database is not configured.");
+      return createPreparationOwner(resolveDatabase()).consume(...args);
+    },
+  };
+  return createModuleRegistry(
+    [
+      environmentModule,
+      memoryModule,
+      filesModule,
+      projectsModule,
+      softwareModule,
+      agsModule,
+      webModule,
+    ],
+    {
+      handlers: Object.assign(
+        {},
+        handlers,
+        webBindings(resolveDatabase),
+        opening.handlers,
+      ),
+      processes: { ...opening.processes, ...ags.processes },
+      preparers: opening.preparers,
+      aggregators: opening.aggregators,
+    },
+    resolveDatabase
+      ? {
+          finalize: (input) => persistCommandReceipt(resolveDatabase(), input),
+          configureNodes: (nodes) =>
+            defaultsOnly
+              ? nodes
+              : effectiveCommandNodes(resolveDatabase(), nodes),
+          preparation,
+        }
+      : { preparation },
+  );
 }
 
 export function registryForDatabase(
   database: DatabaseSync,
+  defaultsOnly = false,
 ): CapabilityRegistry {
   return createProductionRegistry(
     () => createMemoryStore(database),
     () => createScopeStore(database),
     () => database,
+    defaultsOnly,
   );
 }

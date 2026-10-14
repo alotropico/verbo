@@ -41,6 +41,15 @@ export const actionResultSchema = z
     preview: z.array(z.string().max(500)).max(20).optional(),
     totalItems: z.number().int().nonnegative().optional(),
     detailsAvailable: z.boolean().optional(),
+    receiptId: z.string().min(1).max(128).optional(),
+    resourceCount: z.number().int().nonnegative().optional(),
+    data: z
+      .json()
+      .refine(
+        (value) => JSON.stringify(value).length <= 16000,
+        "Command data exceeds its bound.",
+      )
+      .optional(),
   })
   .strict();
 

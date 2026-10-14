@@ -21,10 +21,16 @@ import { TEXT_EXTENSIONS } from "../../shared/file-query";
 import { FILE_READER_LIMITS } from "../../shared/file-readers";
 import { readImageMeta } from "./image-meta";
 import { extractPdfText } from "./pdf-text";
+import {
+  commandResourceSchema,
+  type CommandResource,
+} from "../../shared/command-receipts";
 
 const TEXT = new Set<string>(TEXT_EXTENSIONS);
 
 export type AssetStore = {
+  /** Live command references are metadata, separate from copied upload bytes. */
+  liveReferences(threadId: string, receiptId: string): CommandResource[];
   put(input: {
     threadId: string;
     name: string;
@@ -53,6 +59,44 @@ type AttachmentRow = {
 
 function digest(bytes: Buffer): string {
   return createHash("sha256").update(bytes).digest("hex");
+}
+
+/** Owned by the attachment subsystem; no copied bytes or upload quota consumption. */
+export function saveLiveReferences(
+  database: DatabaseSync,
+  receiptId: string,
+  threadId: string,
+  resources: readonly CommandResource[],
+): void {
+  const validated = resources.map((resource) =>
+    commandResourceSchema.parse(resource),
+  );
+  database
+    .prepare(
+      "DELETE FROM attachment_live_references WHERE receipt_id = ? AND thread_id = ?",
+    )
+    .run(receiptId, threadId);
+  const insert = database.prepare(
+    "INSERT INTO attachment_live_references(receipt_id, thread_id, ordinal, resource_json) VALUES (?, ?, ?, ?)",
+  );
+  validated.forEach((resource, ordinal) =>
+    insert.run(receiptId, threadId, ordinal, JSON.stringify(resource)),
+  );
+}
+
+export function readLiveReferences(
+  database: DatabaseSync,
+  receiptId: string,
+  threadId: string,
+): CommandResource[] {
+  return database
+    .prepare(
+      "SELECT resource_json FROM attachment_live_references WHERE receipt_id = ? AND thread_id = ? ORDER BY ordinal",
+    )
+    .all(receiptId, threadId)
+    .map((row) =>
+      commandResourceSchema.parse(JSON.parse(String(row.resource_json))),
+    );
 }
 
 function intact(stored: AttachmentRow, bytes: Buffer): boolean {
@@ -168,6 +212,8 @@ export function createAssetStore(
   }
 
   return {
+    liveReferences: (threadId, receiptId) =>
+      readLiveReferences(database, receiptId, threadId),
     put(input) {
       if (input.bytes.length === 0) {
         return { ok: false, code: "empty", summary: "That file is empty." };

@@ -1,4 +1,4 @@
-import { Button, Group, Modal, Text } from "@mantine/core";
+import { Button, Group, Text } from "@mantine/core";
 import { useAui, useAuiState } from "@assistant-ui/react";
 import { Trash2Icon } from "lucide-react";
 import {
@@ -20,6 +20,7 @@ import {
   useChatSelection,
   type ChatSelectionValue,
 } from "./chat-selection-context";
+import { useConfirmation } from "./confirmation-context";
 import styles from "./ChatSelection.module.css";
 
 function isTypingTarget(target: EventTarget | null): boolean {
@@ -133,58 +134,9 @@ function canDeleteStatus(status: string | undefined): boolean {
 export function ChatSelectionBar(): ReactElement | null {
   const aui = useAui();
   const { cancel, extraIds } = useChatSelection();
-  const [confirmOpen, setConfirmOpen] = useState(false);
-  const [pendingCount, setPendingCount] = useState(0);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState("");
-
-  if (extraIds.length === 0 && !confirmOpen) return null;
-
-  const count = extraIds.length > 0 ? extraIds.length + 1 : pendingCount;
-
-  const closeConfirm = (): void => {
-    if (busy) return;
-    setConfirmOpen(false);
-    setError("");
-  };
-
-  const removeSelected = (): void => {
-    const snapshot = aui.threads.getState();
-    const wanted = new Set([snapshot.mainThreadId, ...extraIds]);
-    const ids = snapshot.threadItems
-      .filter((item) => wanted.has(item.id) && canDeleteStatus(item.status))
-      .map((item) => item.id);
-    const ordered = [
-      ...ids.filter((id) => id !== snapshot.mainThreadId),
-      ...ids.filter((id) => id === snapshot.mainThreadId),
-    ];
-    if (ordered.length === 0) {
-      setError("Those chats are not saved yet.");
-      return;
-    }
-
-    setBusy(true);
-    setError("");
-    void (async () => {
-      try {
-        for (const id of ordered) {
-          const current = aui.threads.getState();
-          const item = current.threadItems.find((thread) => thread.id === id);
-          if (!canDeleteStatus(item?.status)) continue;
-          await aui.threads.item({ id }).delete();
-        }
-        setConfirmOpen(false);
-        cancel();
-      } catch (cause) {
-        setError(
-          cause instanceof Error ? cause.message : "Could not delete chats.",
-        );
-      } finally {
-        setBusy(false);
-      }
-    })();
-  };
-
+  const confirm = useConfirmation();
+  if (extraIds.length === 0) return null;
+  const count = extraIds.length + 1;
   return (
     <Group
       className={styles.bar}
@@ -197,60 +149,49 @@ export function ChatSelectionBar(): ReactElement | null {
       </Text>
       <Group gap="xs">
         <Button
-          type="button"
           color="red"
           variant="light"
           size="sm"
-          leftSection={<Trash2Icon size={14} aria-hidden="true" />}
+          leftSection={<Trash2Icon size={14} aria-hidden />}
           onClick={() => {
-            setError("");
-            setPendingCount(extraIds.length + 1);
-            setConfirmOpen(true);
+            const snapshot = aui.threads.getState();
+            const wanted = new Set([snapshot.mainThreadId, ...extraIds]);
+            const ids = snapshot.threadItems
+              .filter(
+                (item) => wanted.has(item.id) && canDeleteStatus(item.status),
+              )
+              .map((item) => item.id);
+            const ordered = [
+              ...ids.filter((id) => id !== snapshot.mainThreadId),
+              ...ids.filter((id) => id === snapshot.mainThreadId),
+            ];
+            void confirm({
+              title: "Delete " + count + " chats?",
+              message:
+                "This permanently deletes the selected chats and cannot be undone.",
+              confirmLabel: "Delete chats",
+              destructive: true,
+              onConfirm: async () => {
+                if (!ordered.length)
+                  throw new Error("Those chats are not saved yet.");
+                for (const id of ordered) {
+                  const item = aui.threads
+                    .getState()
+                    .threadItems.find((thread) => thread.id === id);
+                  if (canDeleteStatus(item?.status))
+                    await aui.threads.item({ id }).delete();
+                }
+                cancel();
+              },
+            });
           }}
         >
           Delete selected
         </Button>
-        <Button type="button" variant="subtle" size="sm" onClick={cancel}>
+        <Button variant="subtle" size="sm" onClick={cancel}>
           Cancel
         </Button>
       </Group>
-      <Modal
-        opened={confirmOpen}
-        onClose={closeConfirm}
-        title={`Delete ${count} chats?`}
-        centered
-        closeOnClickOutside={!busy}
-        closeOnEscape={!busy}
-      >
-        <Text size="sm" c="dimmed">
-          This permanently deletes the selected chats and cannot be undone.
-        </Text>
-        {error ? (
-          <Text className={styles.error} size="sm">
-            {error}
-          </Text>
-        ) : null}
-        <Group justify="flex-end" mt="md">
-          <Button
-            type="button"
-            variant="default"
-            size="sm"
-            disabled={busy}
-            onClick={closeConfirm}
-          >
-            Cancel
-          </Button>
-          <Button
-            type="button"
-            color="red"
-            size="sm"
-            loading={busy}
-            onClick={removeSelected}
-          >
-            Delete chats
-          </Button>
-        </Group>
-      </Modal>
     </Group>
   );
 }

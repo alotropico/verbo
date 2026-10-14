@@ -1,4 +1,4 @@
-import { lstatSync, readdirSync, readFileSync } from "node:fs";
+import { lstatSync, readdirSync, readFileSync, type Dirent } from "node:fs";
 import { win32 } from "node:path";
 import type { DatabaseSync } from "node:sqlite";
 import type { ActionResult, ActorKind } from "../../shared/action-contract";
@@ -25,6 +25,7 @@ import {
 import type { ScopeStore } from "../db/scopes";
 import { resolveFileReference } from "./path-policy";
 import { windowsFileFlags } from "./windows-containment";
+import { recordFileResource } from "./resource-events";
 
 const SKIP_DESCENT = new Set([".git", "node_modules", "__pycache__", ".cache"]);
 const HIDDEN_NAMES = new Set(["desktop.ini", "thumbs.db", "$recycle.bin"]);
@@ -130,7 +131,6 @@ function fingerprint(
     action,
     root: displayFinalPath(absolute).toLowerCase(),
     path: args.path ?? "",
-    depth: args.depth,
     entryType: args.entryType,
     name: args.name ?? "",
     glob: args.glob ?? "",
@@ -277,6 +277,7 @@ function readText(
 ): string | null {
   if (size > maxBytes) return null;
   const buffer = readFileSync(absolute);
+  recordFileResource(absolute);
   if (buffer.includes(0)) return null;
   try {
     return new TextDecoder("utf-8", { fatal: true }).decode(buffer);
@@ -342,7 +343,6 @@ function matchesMetadata(item: StoredItem, filter: MetadataFilter): boolean {
 function scanTree(input: {
   absolute: string;
   display: string;
-  depth: number;
   includeHidden: boolean;
   filter: MetadataFilter;
   content?: {
@@ -409,18 +409,22 @@ function scanTree(input: {
     }
   };
 
-  const visit = (
+  type DirectoryFrame = {
+    directory: string;
+    display: string;
+    listing: Dirent[];
+    index: number;
+  };
+  const openDirectory = (
     directory: string,
     display: string,
-    depthLeft: number,
-  ): void => {
-    if (!complete) return;
-    let listing;
+  ): DirectoryFrame | null => {
+    let listing: Dirent[];
     try {
       const flags = windowsFileFlags(directory);
-      if (flags?.reparse) return;
+      if (flags?.reparse) return null;
       const stats = lstatSync(directory);
-      if (stats.isSymbolicLink()) return;
+      if (stats.isSymbolicLink()) return null;
       dirs.push({
         absolutePath: displayFinalPath(directory),
         modifiedAt: Math.trunc(stats.mtimeMs),
@@ -428,66 +432,75 @@ function scanTree(input: {
       listing = readdirSync(directory, { withFileTypes: true });
     } catch {
       warn(warnings, "Skipped a folder that could not be opened.");
-      return;
+      return null;
     }
     listing.sort((left, right) =>
       left.name.localeCompare(right.name, undefined, { sensitivity: "accent" }),
     );
-    for (const entry of listing) {
-      if (
-        examined >= input.limits.maxVisited ||
-        Date.now() - started >= input.limits.maxTimeMs
-      ) {
-        complete = false;
-        return;
-      }
-      if (!entry.name || entry.name === "." || entry.name === "..") continue;
-      examined += 1;
-      const absolute = displayFinalPath(win32.join(directory, entry.name));
-      if (!input.includeHidden && hiddenEntry(entry.name, absolute)) {
-        omitted.hidden += 1;
-        continue;
-      }
-      if (SKIP_DESCENT.has(entry.name.toLowerCase())) {
-        omitted.skippedDescent += 1;
-        continue;
-      }
-      let stats;
-      try {
-        stats = lstatSync(absolute);
-      } catch {
-        warn(warnings, "Skipped an entry that could not be opened.");
-        continue;
-      }
-      const flags = windowsFileFlags(absolute);
-      const link = entry.isSymbolicLink() || Boolean(flags?.reparse);
-      const directoryEntry = stats.isDirectory() && !link;
-      const kind: StoredItem["kind"] = link
-        ? "link"
-        : directoryEntry
-          ? "directory"
-          : "file";
-      pushItem({
-        displayPath: childDisplay(display, entry.name),
-        absolutePath: absolute,
-        kind,
-        extension: kind === "file" ? extensionOf(entry.name) : "",
-        size: kind === "file" ? stats.size : null,
-        modifiedAt: Math.trunc(stats.mtimeMs),
-        createdAt: Math.trunc(stats.birthtimeMs),
-        readOnly: Boolean(flags?.readOnly),
-        link,
-        snippet: null,
-        lineNumber: null,
-        matchCount: null,
-      });
-      if (directoryEntry && depthLeft > 0) {
-        visit(absolute, childDisplay(display, entry.name), depthLeft - 1);
-      }
-    }
+    return { directory, display, listing, index: 0 };
   };
-
-  visit(input.absolute, input.display, input.depth);
+  const initial = openDirectory(input.absolute, input.display);
+  const directories = initial ? [initial] : [];
+  while (directories.length) {
+    const frame = directories[directories.length - 1];
+    const entry = frame.listing[frame.index++];
+    if (!entry) {
+      directories.pop();
+      continue;
+    }
+    const { directory, display } = frame;
+    if (
+      examined >= input.limits.maxVisited ||
+      Date.now() - started >= input.limits.maxTimeMs
+    ) {
+      complete = false;
+      break;
+    }
+    if (!entry.name || entry.name === "." || entry.name === "..") continue;
+    examined += 1;
+    const absolute = displayFinalPath(win32.join(directory, entry.name));
+    if (!input.includeHidden && hiddenEntry(entry.name, absolute)) {
+      omitted.hidden += 1;
+      continue;
+    }
+    if (SKIP_DESCENT.has(entry.name.toLowerCase())) {
+      omitted.skippedDescent += 1;
+      continue;
+    }
+    let stats;
+    try {
+      stats = lstatSync(absolute);
+    } catch {
+      warn(warnings, "Skipped an entry that could not be opened.");
+      continue;
+    }
+    const flags = windowsFileFlags(absolute);
+    const link = entry.isSymbolicLink() || Boolean(flags?.reparse);
+    const directoryEntry = stats.isDirectory() && !link;
+    const kind: StoredItem["kind"] = link
+      ? "link"
+      : directoryEntry
+        ? "directory"
+        : "file";
+    pushItem({
+      displayPath: childDisplay(display, entry.name),
+      absolutePath: absolute,
+      kind,
+      extension: kind === "file" ? extensionOf(entry.name) : "",
+      size: kind === "file" ? stats.size : null,
+      modifiedAt: Math.trunc(stats.mtimeMs),
+      createdAt: Math.trunc(stats.birthtimeMs),
+      readOnly: Boolean(flags?.readOnly),
+      link,
+      snippet: null,
+      lineNumber: null,
+      matchCount: null,
+    });
+    if (directoryEntry) {
+      const next = openDirectory(absolute, childDisplay(display, entry.name));
+      if (next) directories.push(next);
+    }
+  }
   return { items, dirs, examined, complete, warnings, omitted };
 }
 
@@ -822,7 +835,6 @@ function runQuery(
   const scanned = scanTree({
     absolute: root.absolute,
     display: root.display,
-    depth: args.depth,
     includeHidden: args.includeHidden,
     filter,
     ...(search?.mode === "content" && search.query
@@ -1011,7 +1023,6 @@ export function summarizeFiles(
   const scanned = scanTree({
     absolute: root.absolute,
     display: root.display,
-    depth: parsed.data.depth,
     includeHidden: parsed.data.includeHidden,
     filter: {
       entryType: parsed.data.entryType,

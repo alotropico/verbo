@@ -59,13 +59,13 @@ function register(root: string): DatabaseSync {
   return db;
 }
 
-function invoke(
+async function invoke(
   db: DatabaseSync,
   name: string,
   args: Record<string, unknown>,
   actor: "model" | "user_command" = "model",
-): ActionResult {
-  return registryForDatabase(db).invoke(name, args, {
+): Promise<ActionResult> {
+  return await registryForDatabase(db).invoke(name, args, {
     actor,
     threadId: "thread-1",
   });
@@ -97,7 +97,7 @@ function flatePdf(text: string): Buffer {
 }
 
 describe("file readers", () => {
-  it("reads text ranges, JSON pointers, and rejects binaries and escapes", () => {
+  it("reads text ranges, JSON pointers, and rejects binaries and escapes", async () => {
     const root = folder("verbo-reader-");
     writeFileSync(join(root, "note.md"), "alpha\nbeta\ngamma\n");
     writeFileSync(
@@ -107,7 +107,7 @@ describe("file readers", () => {
     writeFileSync(join(root, "blob.bin"), Buffer.from([0, 1, 2, 3]));
     const db = register(root);
 
-    const lines = invoke(db, "files.read", {
+    const lines = await invoke(db, "files.read", {
       path: "notes:/note.md",
       startLine: 2,
       lineCount: 1,
@@ -120,43 +120,47 @@ describe("file readers", () => {
       3,
     );
 
-    const pointed = invoke(db, "files.read", {
+    const pointed = await invoke(db, "files.read", {
       path: "notes:/data.json",
       pointer: "/a/b/1",
     });
     expect(detail<{ text: string }>(pointed).text).toBe("2");
     expect(
-      invoke(db, "files.read", {
-        path: "notes:/data.json",
-        pointer: "/missing",
-      }).code,
+      (
+        await invoke(db, "files.read", {
+          path: "notes:/data.json",
+          pointer: "/missing",
+        })
+      ).code,
     ).toBe("pointer_missing");
-    expect(invoke(db, "files.read", { path: "notes:/blob.bin" }).status).toBe(
-      "not_supported",
-    );
-    expect(invoke(db, "files.read", { path: "notes:/../secret.md" }).code).toBe(
-      "invalid_reference",
-    );
     expect(
-      invoke(db, "files.read", { path: "C:\\Windows\\System32\\hosts" }).code,
+      (await invoke(db, "files.read", { path: "notes:/blob.bin" })).status,
+    ).toBe("not_supported");
+    expect(
+      (await invoke(db, "files.read", { path: "notes:/../secret.md" })).code,
+    ).toBe("invalid_reference");
+    expect(
+      (await invoke(db, "files.read", { path: "C:\\Windows\\System32\\hosts" }))
+        .code,
     ).toBe("protected");
   });
 
-  it("lets the model read an explicit outside file and keeps commands on a selection", () => {
+  it("lets the model read an explicit outside file and keeps commands on a selection", async () => {
     const root = folder("verbo-scope-");
     const outside = folder("verbo-outside-");
     writeFileSync(join(outside, "secret.txt"), "outside");
     const db = register(root);
     const path = join(outside, "secret.txt");
-    expect(invoke(db, "files.read", { path, lineCount: 5 }).status).toBe(
-      "success",
-    );
     expect(
-      invoke(db, "files.read", { path, lineCount: 5 }, "user_command").code,
+      (await invoke(db, "files.read", { path, lineCount: 5 })).status,
+    ).toBe("success");
+    expect(
+      (await invoke(db, "files.read", { path, lineCount: 5 }, "user_command"))
+        .code,
     ).toBe("needs_selection");
   });
 
-  it("extracts PDF text, reports image-only pages, and hashes explicit files", () => {
+  it("extracts PDF text, reports image-only pages, and hashes explicit files", async () => {
     const root = folder("verbo-pdf-");
     writeFileSync(join(root, "plain.pdf"), literalPdf("Hello PDF"));
     writeFileSync(join(root, "flate.pdf"), flatePdf("Hello Flate"));
@@ -175,19 +179,21 @@ describe("file readers", () => {
       pageCount: 1,
     });
     expect(plain.ok && plain.pages[0]?.text).toBe("Hello PDF");
-    const flate = invoke(db, "files.read", { path: "notes:/flate.pdf" });
+    const flate = await invoke(db, "files.read", { path: "notes:/flate.pdf" });
     expect(flate.status).toBe("success");
     expect(JSON.stringify(detail(flate))).toContain("Hello Flate");
-    const image = invoke(db, "files.read", { path: "notes:/image.pdf" });
+    const image = await invoke(db, "files.read", { path: "notes:/image.pdf" });
     expect(image.code).toBe("image_only");
 
-    const hashed = invoke(db, "files.hash", { paths: ["notes:/same.txt"] });
+    const hashed = await invoke(db, "files.hash", {
+      paths: ["notes:/same.txt"],
+    });
     expect(
       detail<{ items: Array<{ sha256: string }> }>(hashed).items[0]?.sha256,
     ).toBe(createHash("sha256").update("hello\n").digest("hex"));
   });
 
-  it("diffs text, caps image payloads without vision, and continues a page from a cursor", () => {
+  it("diffs text, caps image payloads without vision, and continues a page from a cursor", async () => {
     const root = folder("verbo-diff-");
     writeFileSync(join(root, "a.md"), "one\ntwo\n");
     writeFileSync(join(root, "b.md"), "one\nthree\n");
@@ -200,20 +206,22 @@ describe("file readers", () => {
     expect(readImageMeta(png)).toEqual({ format: "png", width: 1, height: 1 });
     const db = register(root);
 
-    const compared = invoke(db, "files.compare", {
+    const compared = await invoke(db, "files.compare", {
       left: "notes:/a.md",
       right: "notes:/b.md",
     });
     expect(compared.detail).toContain("-two");
     expect(compared.detail).toContain("+three");
     expect(
-      invoke(db, "files.compare", {
-        left: "notes:/a.md",
-        proposed: "one\ntwo\n",
-      }).summary,
+      (
+        await invoke(db, "files.compare", {
+          left: "notes:/a.md",
+          proposed: "one\ntwo\n",
+        })
+      ).summary,
     ).toBe("Those texts match.");
 
-    const metadata = invoke(db, "files.inspect_image", {
+    const metadata = await invoke(db, "files.inspect_image", {
       paths: ["notes:/dot.png"],
       includePayload: true,
     });
@@ -235,16 +243,15 @@ describe("file readers", () => {
       opened.list("files").children.some((child) => child.id === "files.read"),
     ).toBe(true);
 
-    const listed = invoke(db, "files.list", {
+    const listed = await invoke(db, "files.list", {
       root: "notes:",
-      depth: 0,
       entryType: "files",
       pageSize: 1,
       sort: { by: "name", direction: "asc" },
     });
     const cursor =
       detail<{ page: { nextCursor?: string } }>(listed).page.nextCursor ?? "";
-    const next = invoke(db, "files.next", { cursor });
+    const next = await invoke(db, "files.next", { cursor });
     expect(next.status).toBe("success");
     expect(
       detail<{ items: Array<{ path: string }> }>(next).items[0]?.path,
@@ -252,7 +259,7 @@ describe("file readers", () => {
       detail<{ items: Array<{ path: string }> }>(listed).items[0]?.path,
     );
 
-    const command = executeLocalCommand({
+    const command = await executeLocalCommand({
       text: "/files read notes:/a.md --lines 1:1",
       threadId: "thread-1",
       store: createMemoryStore(db),
@@ -261,26 +268,29 @@ describe("file readers", () => {
     expect(command.status).toBe("success");
     expect(command.summary).toContain("one");
     expect(
-      executeLocalCommand({
-        text: '/action files.hash {"paths":["notes:/a.md"],"approved":true}',
-        threadId: "thread-1",
-        store: createMemoryStore(db),
-        registry: opened,
-      }).status,
+      (
+        await executeLocalCommand({
+          text: '/action files.hash {"paths":["notes:/a.md"],"approved":true}',
+          threadId: "thread-1",
+          store: createMemoryStore(db),
+          registry: opened,
+        })
+      ).status,
     ).toBe("error");
   });
 
-  it("does not follow a junction", () => {
+  it("does not follow a junction", async () => {
     const root = folder("verbo-link-");
     const outside = folder("verbo-link-out-");
     writeFileSync(join(outside, "secret.txt"), "nope");
     symlinkSync(outside, join(root, "jump"), "junction");
     const db = register(root);
-    expect(invoke(db, "files.read", { path: "notes:/jump" }).code).toBe(
+    expect((await invoke(db, "files.read", { path: "notes:/jump" })).code).toBe(
       "outside",
     );
     expect(
-      invoke(db, "files.read", { path: "notes:/jump/secret.txt" }).detail ?? "",
+      (await invoke(db, "files.read", { path: "notes:/jump/secret.txt" }))
+        .detail ?? "",
     ).not.toContain("nope");
   });
 });

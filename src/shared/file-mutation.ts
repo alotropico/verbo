@@ -206,12 +206,20 @@ const batchTrashSchema = z
     path: fileRef,
   })
   .strict();
+const batchEditSchema = filesEditArgsSchema.safeExtend({
+  action: z.literal("files.edit"),
+});
 
 export const filesBatchArgsSchema = z
   .object({
     items: z
       .array(
-        z.union([batchCreateSchema, batchTransferSchema, batchTrashSchema]),
+        z.union([
+          batchCreateSchema,
+          batchEditSchema,
+          batchTransferSchema,
+          batchTrashSchema,
+        ]),
       )
       .min(1)
       .max(FILE_MUTATION_LIMITS.maxItems),

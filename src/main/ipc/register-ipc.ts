@@ -8,6 +8,15 @@ import {
   type IpcMainInvokeEvent,
 } from "electron";
 import { registerWindowIpc } from "./window-ipc";
+import { commandReceiptRequestSchema } from "../../shared/command-receipts";
+import { readCommandReceipt } from "../db/command-receipts";
+import { readWebSettings, saveWebSettings } from "../db/web-settings";
+import { commandPathSchema } from "../../shared/commands";
+import { z } from "zod";
+import {
+  resetCommandOverrides,
+  saveCommandOverride,
+} from "../db/command-overrides";
 import {
   IPC_CHANNELS,
   messageAppendSchema,
@@ -67,6 +76,13 @@ import { registryForDatabase } from "../capabilities/catalog";
 import { clearAgsCheck, saveAgsCheck } from "../db/ags-check";
 import { recordActionAudit } from "../db/action-audit";
 import { createRootStore } from "../db/registered-roots";
+import {
+  readEntitySettings,
+  removeApplicationRegistration,
+  saveApplicationRegistration,
+  saveProjectPreferences,
+} from "../db/application-registration";
+import { discoverApplications } from "../software/application-discovery";
 import { createScopeStore, type ScopeAddition } from "../db/scopes";
 import { getDatabase } from "../db/database";
 import { createMemoryStore } from "../db/memory";
@@ -78,10 +94,18 @@ import { performFileSurface } from "../files/file-surface";
 import { operationSession } from "../files/mutation-ports";
 import { decideOperation, reviewOperation } from "../files/mutation-plan";
 import { aliasFromFolderName, isProtectedLocation } from "../files/path-policy";
+import {
+  analyzeFolder,
+  importFolderProjects,
+  applyImportedProjectPreferences,
+  updateFolderSettings,
+} from "../files/folder-import";
+import { saveProjectImportSettings } from "../db/project-import-settings";
 import { consumePick, rememberPick } from "../files/picked-folders";
 import { describeExistingPath } from "../files/windows-containment";
 import { estimateContextMeters } from "../runtime/context-estimate";
 import { executeLocalCommand } from "../runtime/local-command";
+import { executeMemorySettingsAction } from "../runtime/memory-settings";
 import { readPromptEval } from "../runtime/prompt-eval";
 import { registerAssistantStreamIpc } from "./chat-stream";
 import { registerAttachmentIpc } from "./attachment-ipc";
@@ -206,6 +230,13 @@ export function registerIpc(mainWindow: BrowserWindow): void {
     assertTrustedWindow(event, mainWindow);
     return saveSettings(chatSettingsSchema.parse(settings));
   });
+  ipcMain.handle(IPC_CHANNELS.settingsPatch, (event, input: unknown) => {
+    assertTrustedWindow(event, mainWindow);
+    const patch = chatSettingsSchema.partial().strict().parse(input);
+    return saveSettings(
+      chatSettingsSchema.parse({ ...loadSettings(), ...patch }),
+    );
+  });
 
   ipcMain.handle(IPC_CHANNELS.memoryList, (event, payload: unknown) => {
     assertTrustedWindow(event, mainWindow);
@@ -221,36 +252,19 @@ export function registerIpc(mainWindow: BrowserWindow): void {
   ipcMain.handle(IPC_CHANNELS.memoryAdd, (event, payload: unknown) => {
     assertTrustedWindow(event, mainWindow);
     const data = memoryAddArgsSchema.parse(payload);
-    const store = createMemoryStore(getDatabase());
-    const result = store.add({
-      text: data.text,
-      scope: data.scope,
-      inclusion: data.inclusion,
-      ...(data.threadId ? { threadId: data.threadId } : {}),
-      actor: "ui",
-    });
-    return { ...result, usage: store.usage() };
+    return executeMemorySettingsAction(getDatabase(), "memory.add", data);
   });
 
   ipcMain.handle(IPC_CHANNELS.memoryUpdate, (event, payload: unknown) => {
     assertTrustedWindow(event, mainWindow);
     const data = memoryUpdateArgsSchema.parse(payload);
-    const store = createMemoryStore(getDatabase());
-    const result = store.update({
-      id: data.id,
-      ...(data.text !== undefined ? { text: data.text } : {}),
-      ...(data.inclusion !== undefined ? { inclusion: data.inclusion } : {}),
-      actor: "ui",
-    });
-    return { ...result, usage: store.usage() };
+    return executeMemorySettingsAction(getDatabase(), "memory.update", data);
   });
 
   ipcMain.handle(IPC_CHANNELS.memoryRemove, (event, payload: unknown) => {
     assertTrustedWindow(event, mainWindow);
     const data = memoryRemoveArgsSchema.parse(payload);
-    const store = createMemoryStore(getDatabase());
-    const result = store.remove(data.id, "ui");
-    return { ...result, usage: store.usage() };
+    return executeMemorySettingsAction(getDatabase(), "memory.remove", data);
   });
 
   ipcMain.handle(IPC_CHANNELS.commandsRun, (event, payload: unknown) => {
@@ -264,6 +278,84 @@ export function registerIpc(mainWindow: BrowserWindow): void {
       store: createMemoryStore(database),
       registry: registryForDatabase(database),
     });
+  });
+
+  ipcMain.handle(IPC_CHANNELS.commandsReceipt, (event, payload: unknown) => {
+    assertTrustedWindow(event, mainWindow);
+    const data = commandReceiptRequestSchema.parse(payload);
+    return readCommandReceipt(
+      getDatabase(),
+      data.receiptId,
+      data.threadId,
+      data.offset,
+    );
+  });
+  ipcMain.handle(IPC_CHANNELS.commandsSettings, (event) => {
+    assertTrustedWindow(event, mainWindow);
+    const database = getDatabase();
+    const registry = registryForDatabase(database);
+    return {
+      web: readWebSettings(database),
+      metadata: registry.metadata?.() ?? [],
+      nodes: registry.nodes(),
+      defaults: registryForDatabase(database, true).nodes(),
+      entries: registry
+        .nodes()
+        .flatMap((node) => registry.describe([node.id]).entries),
+    };
+  });
+  ipcMain.handle(IPC_CHANNELS.entitiesSettings, (event) => {
+    assertTrustedWindow(event, mainWindow);
+    return readEntitySettings(getDatabase());
+  });
+  ipcMain.handle(IPC_CHANNELS.applicationsSave, (event, payload: unknown) => {
+    assertTrustedWindow(event, mainWindow);
+    return saveApplicationRegistration(getDatabase(), payload);
+  });
+  ipcMain.handle(
+    IPC_CHANNELS.projectsPreferencesSave,
+    (event, payload: unknown) => {
+      assertTrustedWindow(event, mainWindow);
+      return saveProjectPreferences(getDatabase(), payload);
+    },
+  );
+  ipcMain.handle(IPC_CHANNELS.applicationsRemove, (event, payload: unknown) => {
+    assertTrustedWindow(event, mainWindow);
+    const data = registeredRootRemoveSchema.parse(payload);
+    return removeApplicationRegistration(getDatabase(), data.id);
+  });
+  ipcMain.handle(IPC_CHANNELS.applicationsDiscover, (event) => {
+    assertTrustedWindow(event, mainWindow);
+    return discoverApplications();
+  });
+  ipcMain.handle(IPC_CHANNELS.projectImportSave, (event, payload: unknown) => {
+    assertTrustedWindow(event, mainWindow);
+    return saveProjectImportSettings(getDatabase(), payload);
+  });
+  ipcMain.handle(IPC_CHANNELS.commandsSave, (event, payload: unknown) => {
+    assertTrustedWindow(event, mainWindow);
+    const database = getDatabase();
+    return saveCommandOverride(
+      database,
+      registryForDatabase(database, true).nodes(),
+      payload,
+    );
+  });
+  ipcMain.handle(IPC_CHANNELS.commandsReset, (event, payload: unknown) => {
+    assertTrustedWindow(event, mainWindow);
+    const data = z
+      .object({ nodeId: commandPathSchema })
+      .strict()
+      .parse(payload);
+    resetCommandOverrides(getDatabase(), data.nodeId);
+    if (data.nodeId === "web")
+      getDatabase()
+        .prepare("DELETE FROM command_module_settings WHERE module_id = 'web'")
+        .run();
+  });
+  ipcMain.handle(IPC_CHANNELS.commandsWebSave, (event, payload: unknown) => {
+    assertTrustedWindow(event, mainWindow);
+    return saveWebSettings(getDatabase(), payload);
   });
 
   ipcMain.handle(IPC_CHANNELS.contextEstimate, (event, payload: unknown) => {
@@ -352,6 +444,7 @@ export function registerIpc(mainWindow: BrowserWindow): void {
       pickId: rememberPick(path),
       path,
       suggestedAlias: aliasFromFolderName(path),
+      kind: analyzeFolder(path).kind,
     };
   });
 
@@ -359,6 +452,9 @@ export function registerIpc(mainWindow: BrowserWindow): void {
     assertTrustedWindow(event, mainWindow);
     const data = scopeCommitSchema.parse(payload);
     const store = createScopeStore(getDatabase());
+    const previous = new Map(
+      store.list().map((scope) => [scope.id, scope.kind ?? "none"]),
+    );
     const additions: ScopeAddition[] = [];
     for (const pick of data.picks) {
       const path = consumePick(pick.pickId);
@@ -375,6 +471,7 @@ export function registerIpc(mainWindow: BrowserWindow): void {
         read: pick.read,
         write: pick.write,
         defaultSave: pick.defaultSave,
+        kind: pick.kind ?? analyzeFolder(path).kind,
       });
     }
     const removed = new Set(data.removeIds);
@@ -402,11 +499,29 @@ export function registerIpc(mainWindow: BrowserWindow): void {
         defaultSave: true,
       });
     }
-    return store.apply({
+    const result = store.apply({
       removeIds: data.removeIds,
       updates: data.updates,
       additions,
     });
+    if (!result.ok) return result;
+    let imported = 0;
+    const warnings: string[] = [];
+    for (const scope of result.scopes) {
+      if (scope.kind !== "projects" || previous.get(scope.id) === "projects")
+        continue;
+      const discovery = importFolderProjects(getDatabase(), scope.path);
+      imported += discovery.imported;
+      warnings.push(...discovery.warnings);
+    }
+    return {
+      ...result,
+      summary: `${result.summary}${imported ? ` Imported ${imported} projects.` : ""}${warnings.length ? ` ${[...new Set(warnings)].join(" ")}` : ""}`,
+    };
+  });
+  ipcMain.handle(IPC_CHANNELS.filesUpdate, (event, payload: unknown) => {
+    assertTrustedWindow(event, mainWindow);
+    return updateFolderSettings(getDatabase(), payload);
   });
 
   ipcMain.handle(IPC_CHANNELS.operationsReview, (event, payload: unknown) => {
@@ -444,7 +559,7 @@ export function registerIpc(mainWindow: BrowserWindow): void {
           summary: "That operation is no longer waiting.",
         };
       }
-      const decision = decideOperation({
+      const decision = await decideOperation({
         database,
         scopes,
         operationId: data.operationId,
@@ -480,6 +595,7 @@ export function registerIpc(mainWindow: BrowserWindow): void {
       "project",
     ).add(data.alias, path);
     if (saved.ok) {
+      applyImportedProjectPreferences(database, saved.root.id);
       recordActionAudit(database, {
         actor: "ui",
         actionId: "projects.register",

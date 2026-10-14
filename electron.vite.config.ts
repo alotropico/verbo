@@ -3,7 +3,19 @@ import { defineConfig } from "electron-vite";
 import react from "@vitejs/plugin-react";
 
 export default defineConfig({
-  main: {},
+  main: {
+    build: {
+      rollupOptions: {
+        input: {
+          index: resolve("src/main/index.ts"),
+          "browser-runtime": resolve("browser-runtime/src/main.ts"),
+          "application-discovery-worker": resolve(
+            "src/main/software/application-discovery-worker.ts",
+          ),
+        },
+      },
+    },
+  },
   preload: {
     build: {
       // Sandboxed preload cannot require node_modules; bundle dependencies.

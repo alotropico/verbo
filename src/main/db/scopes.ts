@@ -9,6 +9,7 @@ import {
   type FileGrantRecord,
   type FileScopeProposal,
   type FileScopeRecord,
+  type FolderKind,
 } from "../../shared/files";
 import {
   DEFAULT_SCOPE_ALIAS,
@@ -27,6 +28,7 @@ type ScopeRow = {
   is_default: number;
   created_at: number;
   updated_at: number;
+  folder_kind: FolderKind;
 };
 
 type GrantRow = {
@@ -44,6 +46,7 @@ export type ScopeAddition = {
   read: boolean;
   write: boolean;
   defaultSave: boolean;
+  kind?: FolderKind;
 };
 
 export type ScopeUpdate = {
@@ -52,6 +55,7 @@ export type ScopeUpdate = {
   read: boolean;
   write: boolean;
   defaultSave: boolean;
+  kind?: FolderKind;
 };
 
 export type ScopeFailure = {
@@ -100,6 +104,7 @@ function mapScope(row: ScopeRow): FileScopeRecord {
     read: row.can_read === 1,
     write: row.can_write === 1,
     defaultSave: row.is_default === 1,
+    kind: row.folder_kind ?? "none",
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -138,7 +143,7 @@ export function createScopeStore(
   function list(): FileScopeRecord[] {
     const rows = database
       .prepare(
-        `SELECT id, alias, extra_aliases, canonical_path, can_read, can_write, is_default, created_at, updated_at
+        `SELECT id, alias, extra_aliases, canonical_path, can_read, can_write, is_default, created_at, updated_at, folder_kind
          FROM file_scopes
          ORDER BY alias`,
       )
@@ -261,6 +266,7 @@ export function createScopeStore(
           read: access.read,
           write: access.write,
           defaultSave: update.defaultSave,
+          kind: update.kind ?? scope.kind ?? "none",
         });
       }
       const additions: Array<ScopeAddition & { path: string }> = [];
@@ -277,6 +283,7 @@ export function createScopeStore(
           read: access.read,
           write: access.write,
           defaultSave: addition.defaultSave,
+          kind: addition.kind ?? "none",
         });
       }
       const aliases = [
@@ -311,7 +318,7 @@ export function createScopeStore(
         for (const id of removed) remove.run(id);
         const update = database.prepare(
           `UPDATE file_scopes
-           SET alias = ?, extra_aliases = ?, can_read = ?, can_write = ?, is_default = ?, updated_at = ?
+           SET alias = ?, extra_aliases = ?, can_read = ?, can_write = ?, is_default = ?, updated_at = ?, folder_kind = ?
            WHERE id = ?`,
         );
         for (const scope of next) {
@@ -324,13 +331,14 @@ export function createScopeStore(
             scope.write ? 1 : 0,
             scope.defaultSave ? 1 : 0,
             stamp,
+            scope.kind ?? "none",
             scope.id,
           );
         }
         const insert = database.prepare(
           `INSERT INTO file_scopes (
-             id, alias, extra_aliases, canonical_path, can_read, can_write, is_default, created_at, updated_at
-           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+             id, alias, extra_aliases, canonical_path, can_read, can_write, is_default, created_at, updated_at, folder_kind
+           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         );
         for (const addition of additions) {
           const names = splitScopeAliases(addition.alias);
@@ -344,6 +352,7 @@ export function createScopeStore(
             addition.defaultSave ? 1 : 0,
             stamp,
             stamp,
+            addition.kind ?? "none",
           );
         }
         if (removed.size > 0 || updates.size > 0 || additions.length > 0)

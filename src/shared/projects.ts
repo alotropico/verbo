@@ -33,7 +33,6 @@ export const projectsFilesArgsSchema = z
   .object({
     project: z.string().trim().min(1).max(1024),
     path: z.string().trim().min(1).max(1024).optional(),
-    depth: z.number().int().min(0).max(8).default(0),
     pageSize: z.number().int().min(1).max(100).default(20),
     cursor: z.string().trim().min(16).max(80).optional(),
   })

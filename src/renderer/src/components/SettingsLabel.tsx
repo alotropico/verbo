@@ -17,19 +17,31 @@ export function SettingsLabel({
   return (
     <span className={cx(styles.label, className)}>
       {label}
-      <Tooltip label={tip} multiline w={240}>
-        <span
-          className={styles.tip}
-          tabIndex={0}
-          onPointerDown={(event) => {
-            event.preventDefault();
-            event.stopPropagation();
-          }}
+      {tip.trim() ? (
+        <Tooltip
+          label={tip}
+          multiline
+          w={240}
+          events={{ hover: true, focus: true, touch: false }}
         >
-          <InfoIcon aria-hidden size={14} />
-          <span className={a11y.srOnly}>{tip}</span>
-        </span>
-      </Tooltip>
+          <span
+            className={styles.tip}
+            tabIndex={0}
+            aria-label={`Help for ${label}`}
+            onPointerDown={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+            }}
+            onClick={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+            }}
+          >
+            <InfoIcon aria-hidden size={14} />
+            <span className={a11y.srOnly}>{tip}</span>
+          </span>
+        </Tooltip>
+      ) : null}
     </span>
   );
 }

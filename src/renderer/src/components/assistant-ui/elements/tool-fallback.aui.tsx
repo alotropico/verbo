@@ -31,6 +31,7 @@ import {
   type ToolCallMessagePartStatus,
   type ToolCallMessagePartComponent,
 } from "@assistant-ui/react";
+import { StatusMessage } from "@/components/StatusMessage";
 import { cx } from "@/lib/cx";
 import styles from "./tool-fallback.aui.module.css";
 import {
@@ -337,12 +338,13 @@ function ToolFallbackError({
       className={cx("aui-tool-fallback-error", className)}
       {...props}
     >
-      <p className={cx("aui-tool-fallback-error-header", styles.errorHeader)}>
-        {headerText}
-      </p>
-      <p className={cx("aui-tool-fallback-error-reason", styles.errorReason)}>
-        {errorText}
-      </p>
+      <StatusMessage
+        display="plain"
+        size="sm"
+        tone={isCancelled ? "warning" : "error"}
+      >
+        {headerText} {errorText}
+      </StatusMessage>
     </div>
   );
 }
@@ -991,12 +993,9 @@ function ToolFallbackApprovalImpl({
   ) : null;
 
   const errorText = error ? (
-    <p
-      role="alert"
-      className={cx("aui-tool-fallback-approval-error", styles.approvalError)}
-    >
+    <StatusMessage display="plain" size="xs" tone="error">
       {error}
-    </p>
+    </StatusMessage>
   ) : null;
 
   const answerField = acceptsText ? (

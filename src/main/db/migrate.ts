@@ -1,4 +1,5 @@
 import { DatabaseSync } from "node:sqlite";
+import { agsExecutableIdentity } from "../ags/executable";
 
 export type MigrationStep = {
   version: number;
@@ -361,6 +362,99 @@ export const VERBO_MIGRATIONS: readonly MigrationStep[] = [
   { version: 12, up: (database) => database.exec(VERSION_12) },
   { version: 13, up: (database) => database.exec(VERSION_13) },
   { version: 14, up: (database) => database.exec(VERSION_14) },
+  {
+    version: 15,
+    up: (database) =>
+      database.exec(`
+    CREATE TABLE command_overrides (
+      node_id TEXT PRIMARY KEY, version INTEGER NOT NULL, value_json TEXT NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
+    CREATE TABLE command_receipts (
+      id TEXT PRIMARY KEY, action_id TEXT NOT NULL, thread_id TEXT NOT NULL,
+      turn_id TEXT, actor TEXT NOT NULL, result_json TEXT NOT NULL,
+      children_json TEXT NOT NULL DEFAULT '[]', resources_json TEXT NOT NULL DEFAULT '[]',
+      started_at INTEGER NOT NULL, finished_at INTEGER NOT NULL
+    );
+    CREATE INDEX command_receipts_thread ON command_receipts(thread_id, finished_at);
+  `),
+  },
+  {
+    version: 16,
+    up: (database) =>
+      database.exec(`CREATE TABLE command_module_settings (
+      module_id TEXT PRIMARY KEY, version INTEGER NOT NULL, value_json TEXT NOT NULL, updated_at INTEGER NOT NULL
+    );`),
+  },
+  {
+    version: 17,
+    up: (database) =>
+      database.exec(`ALTER TABLE command_receipts ADD COLUMN parent_receipt_id TEXT;
+      CREATE INDEX command_receipts_parent ON command_receipts(parent_receipt_id);`),
+  },
+  {
+    version: 18,
+    up: (database) =>
+      database.exec(`CREATE TABLE registered_applications (
+      id TEXT PRIMARY KEY, value_json TEXT NOT NULL, executable_identity TEXT NOT NULL, updated_at INTEGER NOT NULL
+    );
+    CREATE TABLE project_preferences (
+      project_id TEXT PRIMARY KEY REFERENCES registered_projects(id) ON DELETE CASCADE, value_json TEXT NOT NULL
+    );`),
+  },
+  {
+    version: 19,
+    up: (database) => {
+      database.exec(
+        "ALTER TABLE ags_check_command ADD COLUMN executable_identity TEXT",
+      );
+      for (const row of database
+        .prepare("SELECT id, executable_path FROM ags_check_command")
+        .all()) {
+        try {
+          database
+            .prepare(
+              "UPDATE ags_check_command SET executable_identity=? WHERE id=?",
+            )
+            .run(
+              agsExecutableIdentity(String(row.executable_path)),
+              Number(row.id),
+            );
+        } catch {
+          /* Retain unavailable legacy paths for correction in Settings. */
+        }
+      }
+    },
+  },
+  {
+    version: 20,
+    up: (database) =>
+      database.exec(`
+      CREATE TABLE attachment_live_references (
+        receipt_id TEXT NOT NULL REFERENCES command_receipts(id) ON DELETE CASCADE,
+        thread_id TEXT NOT NULL,
+        ordinal INTEGER NOT NULL,
+        resource_json TEXT NOT NULL,
+        PRIMARY KEY(receipt_id, ordinal)
+      );
+      CREATE INDEX attachment_live_thread ON attachment_live_references(thread_id, receipt_id);
+      INSERT INTO attachment_live_references(receipt_id, thread_id, ordinal, resource_json)
+      SELECT receipt.id, receipt.thread_id, CAST(item.key AS INTEGER), item.value
+      FROM command_receipts AS receipt, json_each(receipt.resources_json) AS item;
+      ALTER TABLE command_receipts DROP COLUMN resources_json;
+    `),
+  },
+  {
+    version: 21,
+    up: (database) =>
+      database.exec(`
+      ALTER TABLE file_scopes ADD COLUMN folder_kind TEXT NOT NULL DEFAULT 'none'
+        CHECK(folder_kind IN ('none','projects','obsidian'));
+      CREATE TABLE project_import_settings (
+        id INTEGER PRIMARY KEY CHECK(id=1), value_json TEXT NOT NULL
+      );
+    `),
+  },
 ];
 
 export function backupDatabase(

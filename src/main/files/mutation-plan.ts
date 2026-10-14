@@ -35,8 +35,14 @@ import {
   type StoredOperationItem,
 } from "../db/operations";
 import { createQuerySnapshotStore } from "../db/query-snapshots";
+import { persistCommandReceipt } from "../db/command-receipts";
 import type { ScopeStore } from "../db/scopes";
 import { mutationPorts, operationSession } from "./mutation-ports";
+import {
+  dispatchPreparedFileChild,
+  consumePreparedFileChild,
+} from "./prepared-file-child";
+import { recordFileResource } from "./resource-events";
 import {
   isProtectedLocation,
   parseFileReference,
@@ -97,6 +103,7 @@ type SubmitBase = {
   actor: ActorKind;
   threadId: string;
   turnId?: string;
+  signal?: AbortSignal;
 };
 
 export type MutationSubmit = SubmitBase &
@@ -776,6 +783,14 @@ function normalize(
         }
         if (item.action === "files.trash")
           return { kind: "trash" as const, from: item.path };
+        if (item.action === "files.edit") {
+          const { action, path, ...edit } = item;
+          return {
+            kind: action.slice("files.".length) as "edit",
+            from: path,
+            ...edit,
+          };
+        }
         const kind = item.action.slice("files.".length) as
           "copy" | "move" | "rename";
         return { kind, from: item.from, to: item.to };
@@ -876,17 +891,23 @@ function undoItems(
     };
   }
   const items: RawItem[] = [];
+  const restored = new Map<string, Fingerprint>();
   for (const item of reversible) {
     if (!item.sourcePath || !item.destinationPath || !item.afterJson) continue;
     const after = JSON.parse(item.afterJson) as Fingerprint;
-    if (!sameState(item.destinationPath, after) || existsSync(item.sourcePath))
-      continue;
+    const virtual = restored.get(comparable(item.destinationPath));
+    const matches = virtual
+      ? JSON.stringify(virtual) === JSON.stringify(after)
+      : sameState(item.destinationPath, after);
+    if (!matches || existsSync(item.sourcePath)) continue;
     const kind =
       comparable(win32.dirname(item.sourcePath)) ===
       comparable(win32.dirname(item.destinationPath))
         ? "rename"
         : "move";
     items.push({ kind, from: item.destinationPath, to: item.sourcePath });
+    restored.delete(comparable(item.destinationPath));
+    restored.set(comparable(item.sourcePath), after);
   }
   if (items.length === 0) {
     return {
@@ -943,7 +964,7 @@ function preflight(
         actor: input.actor,
         scopes,
         grants,
-        allowMissing: false,
+        allowMissing: true,
       });
       if (!source.ok) return source;
       resolved.push({ raw: item, source: source.path });
@@ -955,7 +976,7 @@ function preflight(
       actor: input.actor,
       scopes,
       grants,
-      allowMissing: false,
+      allowMissing: true,
     });
     if (!source.ok) return source;
     const destination = locate({
@@ -979,14 +1000,24 @@ function preflight(
   const destinations = new Set<string>();
   const consumed = new Set<string>();
   const createdDirectories: string[] = [];
-  const sources = resolved.map((item) =>
-    item.source ? comparable(item.source.absolute) : "",
-  );
+  const produced = new Map<
+    string,
+    { index: number; state: Fingerprint; bytes?: Buffer; descendants: number }
+  >();
 
   for (const [index, item] of resolved.entries()) {
     const source = item.source;
     const destination = item.destination;
-    if (source && consumed.has(comparable(source.absolute))) {
+    const dependency = source
+      ? produced.get(comparable(source.absolute))
+      : undefined;
+    if (source && !source.exists && !dependency)
+      return {
+        ok: false,
+        code: "missing",
+        summary: "That source does not exist and no earlier step produces it.",
+      };
+    if (source && consumed.has(comparable(source.absolute)) && !dependency) {
       return {
         ok: false,
         code: "dependency",
@@ -1020,10 +1051,15 @@ function preflight(
           summary: "That move would put a folder inside itself.",
         };
       }
-      const swap = sources.findIndex((candidate, candidateIndex) => {
-        return candidateIndex !== index && candidate === to;
-      });
-      if (swap >= 0) {
+      if (
+        consumed.has(to) ||
+        resolved.some(
+          (other, otherIndex) =>
+            otherIndex !== index &&
+            other.source?.exists &&
+            comparable(other.source.absolute) === to,
+        )
+      ) {
         return {
           ok: false,
           code: "swap",
@@ -1088,14 +1124,63 @@ function preflight(
         risks.push(`${source.display} contains ${tree.count} descendants.`);
       }
     }
-    const planned = materialize(item.raw, source, destination, risks);
+    const planned = materialize(
+      item.raw,
+      source,
+      destination,
+      risks,
+      dependency,
+    );
     if (!planned.ok) return planned;
+    if (dependency && source) {
+      planned.item.expected.dependency = dependency.index;
+      planned.item.expected.initialSource = capture(source.absolute);
+      planned.item.before = emptyState();
+    }
     items.push(planned.item);
     if (source && item.raw.kind !== "copy" && item.raw.kind !== "edit") {
       consumed.add(comparable(source.absolute));
+      produced.delete(comparable(source.absolute));
     }
     if (item.raw.kind === "create_directory" && destination) {
       createdDirectories.push(comparable(destination.absolute));
+    }
+    const output = item.raw.kind === "edit" ? source : destination;
+    if (output) {
+      let bytes: Buffer | undefined;
+      const isText =
+        item.raw.kind === "edit" || item.raw.kind === "create_file";
+      if (isText)
+        bytes = Buffer.from(
+          `${planned.item.expected.bom ? "\ufeff" : ""}${planned.item.content ?? ""}`,
+          "utf8",
+        );
+      else if (dependency) bytes = dependency.bytes;
+      else if (
+        source &&
+        !source.directory &&
+        (planned.item.before.size ?? Infinity) <=
+          FILE_MUTATION_LIMITS.maxContentChars
+      )
+        bytes = readFileSync(source.absolute);
+      produced.set(comparable(output.absolute), {
+        index,
+        bytes,
+        descendants: planned.item.descendants,
+        state: {
+          ...(dependency?.state ?? planned.item.before),
+          exists: true,
+          directory:
+            item.raw.kind === "create_directory" ||
+            (dependency?.state.directory ?? source?.directory ?? false),
+          ...(bytes
+            ? {
+                size: bytes.length,
+                sha256: createHash("sha256").update(bytes).digest("hex"),
+              }
+            : {}),
+        },
+      });
     }
     noteRisk(risks, planned.item);
   }
@@ -1112,6 +1197,7 @@ function materialize(
   source: Located | undefined,
   destination: Located | undefined,
   risks: string[],
+  dependency?: { state: Fingerprint; bytes?: Buffer; descendants: number },
 ): { ok: true; item: Planned } | StepFailure {
   if (raw.kind === "create_directory" && destination) {
     if (destination.exists) {
@@ -1166,14 +1252,17 @@ function materialize(
     };
   }
   if (raw.kind === "edit" && source) {
-    if (!source.exists || source.directory) {
+    if (
+      (!source.exists && !dependency) ||
+      (dependency?.state.directory ?? source.directory)
+    ) {
       return {
         ok: false,
         code: "invalid_args",
         summary: "Only an existing file can be edited.",
       };
     }
-    const before = capture(source.absolute);
+    const before = dependency?.state ?? capture(source.absolute);
     if (
       before.size !== null &&
       before.size > FILE_MUTATION_LIMITS.maxContentChars
@@ -1184,7 +1273,9 @@ function materialize(
         summary: "That file is too large to edit.",
       };
     }
-    const decoded = decodeText(readFileSync(source.absolute));
+    const decoded = decodeText(
+      dependency?.bytes ?? readFileSync(source.absolute),
+    );
     if (!decoded) {
       return {
         ok: false,
@@ -1223,7 +1314,7 @@ function materialize(
     source &&
     destination
   ) {
-    const before = capture(source.absolute);
+    const before = dependency?.state ?? capture(source.absolute);
     if (
       before.size !== null &&
       !before.directory &&
@@ -1235,9 +1326,11 @@ function materialize(
         summary: "That file is too large to transfer.",
       };
     }
-    const tree = before.directory
-      ? inspectTree(source.absolute)
-      : { ok: true as const, count: 0 };
+    const tree = dependency
+      ? { ok: true as const, count: dependency.descendants }
+      : before.directory
+        ? inspectTree(source.absolute)
+        : { ok: true as const, count: 0 };
     if (!tree.ok) return tree;
     return {
       ok: true,
@@ -1247,10 +1340,12 @@ function materialize(
     };
   }
   if (raw.kind === "trash" && source) {
-    const before = capture(source.absolute);
-    const tree = before.directory
-      ? inspectTree(source.absolute)
-      : { ok: true as const, count: 0 };
+    const before = dependency?.state ?? capture(source.absolute);
+    const tree = dependency
+      ? { ok: true as const, count: dependency.descendants }
+      : before.directory
+        ? inspectTree(source.absolute)
+        : { ok: true as const, count: 0 };
     if (!tree.ok) return tree;
     return {
       ok: true,
@@ -1478,8 +1573,10 @@ function writeAtomic(destination: string, data: Buffer): void {
 
 function applyItem(
   item: StoredOperationItem,
+  dependencyState?: Fingerprint,
 ): { ok: true; after: Fingerprint } | StepFailure {
-  const before = JSON.parse(item.beforeJson) as Fingerprint;
+  const before =
+    dependencyState ?? (JSON.parse(item.beforeJson) as Fingerprint);
   const source = item.sourcePath;
   const destination = item.destinationPath;
   if (source && !sameState(source, before)) {
@@ -1635,10 +1732,11 @@ function applyItem(
   return { ok: true, after };
 }
 
-function executeStored(
+async function executeStored(
   database: DatabaseSync,
   operationId: string,
-): ActionResult {
+  scopes: ScopeStore,
+): Promise<ActionResult> {
   const store = createOperationStore(database);
   const initial = store.get(operationId);
   if (!initial)
@@ -1646,7 +1744,14 @@ function executeStored(
   const ports = mutationPorts();
   let sideEffect = false;
   const loaded = store.items(operationId);
+  // Load the same production dispatcher after module initialization; native
+  // planning remains private and every prepared child crosses its public schema.
+  const { registryForDatabase } = await import("../capabilities/catalog");
+  const registry = registryForDatabase(database);
+  let executionFailure: StepFailure | undefined;
   for (const item of loaded) {
+    // Let cancellation and scope-change IPC run between native effects.
+    await new Promise<void>((resolve) => setImmediate(resolve));
     if (store.cancelRequested(operationId)) {
       store.markRemaining(operationId, item.index);
       break;
@@ -1657,7 +1762,185 @@ function executeStored(
       break;
     }
     store.markItem(item.id, { status: "uncertain" });
-    const applied = applyItem(item);
+    const expected = JSON.parse(item.expectedJson) as { dependency?: number };
+    const predecessor =
+      expected.dependency === undefined
+        ? undefined
+        : store.items(operationId)[expected.dependency];
+    const dependencyInvalid =
+      expected.dependency !== undefined &&
+      (!predecessor ||
+        predecessor.index >= item.index ||
+        predecessor.status !== "succeeded" ||
+        !predecessor.afterJson ||
+        comparable(
+          predecessor.kind === "edit"
+            ? (predecessor.sourcePath ?? "")
+            : (predecessor.destinationPath ?? ""),
+        ) !== comparable(item.sourcePath ?? ""));
+    const dependencyState = predecessor?.afterJson
+      ? (JSON.parse(predecessor.afterJson) as Fingerprint)
+      : undefined;
+    const currentScope = scopes.generation() === initial.scopeGeneration;
+    const paths = [
+      ...(item.sourcePath
+        ? [
+            {
+              reference: item.sourcePath,
+              purpose:
+                item.kind === "copy" ? ("read" as const) : ("write" as const),
+              allowMissing: false,
+            },
+          ]
+        : []),
+      ...(item.destinationPath
+        ? [
+            {
+              reference: item.destinationPath,
+              purpose: "write" as const,
+              allowMissing: true,
+            },
+          ]
+        : []),
+    ];
+    const unsafe = paths
+      .map((path) =>
+        locate({
+          ...path,
+          actor: initial.actor,
+          scopes: scopes.list(),
+          grants: scopes.activeGrants(),
+        }),
+      )
+      .find((path) => !path.ok);
+    const guarded = !currentScope
+      ? {
+          ok: false as const,
+          code: "stale_scope",
+          summary: "The folders changed. Remaining steps stopped.",
+        }
+      : unsafe && !unsafe.ok
+        ? unsafe
+        : dependencyInvalid
+          ? {
+              ok: false as const,
+              code: "dependency",
+              summary: "The required earlier result is unavailable.",
+            }
+          : undefined;
+    const outcome: { value?: ReturnType<typeof applyItem> } = {
+      value: guarded,
+    };
+    if (!guarded) {
+      const action =
+        item.kind === "create_file" || item.kind === "create_directory"
+          ? "files.create"
+          : `files.${item.kind}`;
+      const args =
+        item.kind === "create_file" || item.kind === "create_directory"
+          ? {
+              path: item.destinationPath!,
+              kind: item.kind === "create_file" ? "file" : "directory",
+              ...(item.kind === "create_file"
+                ? { content: item.content ?? "" }
+                : {}),
+              ...(item.format ? { format: item.format } : {}),
+            }
+          : item.kind === "edit"
+            ? {
+                path: item.sourcePath!,
+                mode: "full",
+                content: item.content ?? "",
+                ...(item.format ? { format: item.format } : {}),
+              }
+            : item.kind === "trash"
+              ? { path: item.sourcePath! }
+              : { from: item.sourcePath!, to: item.destinationPath! };
+      const childContext = {
+        actor: initial.actor,
+        threadId: initial.threadId,
+        ...(initial.turnId ? { turnId: initial.turnId } : {}),
+        parentReceiptId: operationId,
+      };
+      const child = await dispatchPreparedFileChild(
+        {
+          database,
+          ...childContext,
+          action: action as MutationSubmit["action"],
+          args,
+          execute: () => {
+            const current = store.get(operationId);
+            const applied: ReturnType<typeof applyItem> =
+              current?.status !== "executing" ||
+              current.sessionId !== operationSession() ||
+              store.cancelRequested(operationId)
+                ? {
+                    ok: false,
+                    code: "cancelled",
+                    summary: "The prepared operation is no longer executing.",
+                  }
+                : scopes.generation() !== initial.scopeGeneration
+                  ? {
+                      ok: false,
+                      code: "stale_scope",
+                      summary: "The folders changed. Remaining steps stopped.",
+                    }
+                  : applyItem(item, dependencyState);
+            outcome.value = applied;
+            if (applied.ok) {
+              if (item.kind === "copy" && item.sourcePath)
+                recordFileResource(item.sourcePath, "read");
+              if (item.kind === "trash" && item.sourcePath)
+                recordFileResource(item.sourcePath, "remove");
+              else {
+                const path =
+                  item.kind === "edit" ? item.sourcePath : item.destinationPath;
+                if (path)
+                  recordFileResource(
+                    path,
+                    item.kind === "move" || item.kind === "rename"
+                      ? "move"
+                      : "write",
+                    item.sourcePath ?? undefined,
+                  );
+              }
+            }
+            return {
+              action,
+              status: applied.ok ? "success" : "error",
+              summary: applied.ok ? exampleOf(item) : applied.summary,
+              ...(!applied.ok ? { code: applied.code } : {}),
+              totalItems: 1,
+              data: { parentOperationId: operationId, itemIndex: item.index },
+            };
+          },
+        },
+        () => registry.invoke(action, args, childContext),
+      );
+      if (!outcome.value)
+        outcome.value = {
+          ok: false,
+          code: child.code ?? "child_failed",
+          summary: child.summary,
+        };
+      else if (outcome.value.ok && child.status !== "success") {
+        store.markItem(item.id, {
+          status: "succeeded",
+          afterJson: JSON.stringify(outcome.value.after),
+          errorCode: null,
+          errorSummary: null,
+        });
+        executionFailure = {
+          ok: false,
+          code: child.code ?? "child_failed",
+          summary: child.summary,
+        };
+        store.markRemaining(operationId, item.index + 1);
+        break;
+      }
+    }
+    const applied = outcome.value;
+    if (!applied) throw new Error("Missing prepared child result.");
     if (!applied.ok) {
       if (applied.code === "trash_failed") sideEffect = true;
       store.markItem(item.id, {
@@ -1684,9 +1967,9 @@ function executeStored(
   const cancelled = store.cancelRequested(operationId);
   const status = cancelled
     ? "cancelled"
-    : failed > 0 && (succeeded > 0 || sideEffect)
+    : (failed > 0 || executionFailure) && (succeeded > 0 || sideEffect)
       ? "partial"
-      : failed > 0
+      : failed > 0 || executionFailure
         ? "failed"
         : succeeded === items.length
           ? "succeeded"
@@ -1695,7 +1978,9 @@ function executeStored(
   const summary = cancelled
     ? `Cancelled: ${succeeded} succeeded, ${failed} failed, ${notAttempted} not attempted.`
     : status === "partial"
-      ? `Partial: ${succeeded} succeeded, ${failed} failed, ${notAttempted} not attempted.`
+      ? `Partial: ${succeeded} succeeded, ${failed} failed, ${notAttempted} not attempted. ${executionFailure?.summary ?? failedItem?.errorSummary ?? ""}`
+          .trim()
+          .slice(0, 4000)
       : status === "failed"
         ? (failedItem?.errorSummary ?? "The file change failed.")
         : initial.summary.replace(" needs confirmation.", ".");
@@ -1704,7 +1989,7 @@ function executeStored(
       ? undefined
       : cancelled
         ? "cancelled"
-        : (failedItem?.errorCode ?? status);
+        : (executionFailure?.code ?? failedItem?.errorCode ?? status);
   store.finish(operationId, status, code ?? null, summary, ports.now());
   const plan = store.get(operationId);
   return publish(
@@ -1746,7 +2031,11 @@ function audit(
   return result;
 }
 
-export function submitFileMutation(input: MutationSubmit): ActionResult {
+export async function submitFileMutation(
+  input: MutationSubmit,
+): Promise<ActionResult> {
+  const prepared = consumePreparedFileChild(input);
+  if (prepared) return prepared;
   const now = mutationPorts().now();
   const operations = createOperationStore(input.database);
   operations.purge(now);
@@ -1835,12 +2124,21 @@ export function submitFileMutation(input: MutationSubmit): ActionResult {
       failure(input.action, "replayed", "That plan is no longer waiting."),
     );
   }
-  return audit(
-    input.database,
-    input,
-    requestSummary(input.action, plannedItems.items),
-    executeStored(input.database, plan.id),
-  );
+  const cancel = (): void => {
+    operations.requestCancel(plan.id);
+  };
+  input.signal?.addEventListener("abort", cancel, { once: true });
+  if (input.signal?.aborted) cancel();
+  try {
+    return audit(
+      input.database,
+      input,
+      requestSummary(input.action, plannedItems.items),
+      await executeStored(input.database, plan.id, input.scopes),
+    );
+  } finally {
+    input.signal?.removeEventListener("abort", cancel);
+  }
 }
 
 function guardPlan(input: {
@@ -1950,14 +2248,14 @@ export function abandonPendingPlan(
   store.markRemaining(plan.id, 0);
 }
 
-export function decideOperation(input: {
+async function decideNativeOperation(input: {
   database: DatabaseSync;
   scopes: ScopeStore;
   operationId: string;
   threadId: string;
   sessionId: string;
   decision: "approve" | "deny";
-}): ActionResult {
+}): Promise<ActionResult> {
   const guarded = guardPlan(input);
   if (!guarded.ok) return failure("files.batch", guarded.code, guarded.summary);
   const plan = guarded.plan;
@@ -2051,7 +2349,14 @@ export function decideOperation(input: {
     );
   }
   for (const item of items) {
-    const before = JSON.parse(item.beforeJson) as Fingerprint;
+    const expected = JSON.parse(item.expectedJson) as {
+      dependency?: number;
+      initialSource?: Fingerprint;
+    };
+    const before =
+      expected.dependency !== undefined
+        ? (expected.initialSource ?? emptyState())
+        : (JSON.parse(item.beforeJson) as Fingerprint);
     const target = item.sourcePath ?? item.destinationPath;
     if (!target || !sameState(target, before)) {
       store.finish(
@@ -2096,7 +2401,7 @@ export function decideOperation(input: {
       "That plan is no longer waiting.",
     );
   }
-  const executed = executeStored(input.database, plan.id);
+  const executed = await executeStored(input.database, plan.id, input.scopes);
   store.audit({
     actor: "ui",
     actionId: plan.actionId,
@@ -2109,6 +2414,55 @@ export function decideOperation(input: {
     now,
   });
   return executed;
+}
+
+export async function decideOperation(
+  input: Parameters<typeof decideNativeOperation>[0],
+): Promise<ActionResult> {
+  const store = createOperationStore(input.database);
+  const plan = store.get(input.operationId);
+  const generic =
+    plan && store.items(plan.id).some((item) => item.kind === "command");
+  const result = generic
+    ? await (async (): Promise<ActionResult> => {
+        const { registryForDatabase } = await import("../capabilities/catalog");
+        const { decidePreparedOperation } =
+          await import("../capabilities/preparation");
+        return decidePreparedOperation({
+          ...input,
+          registry: registryForDatabase(input.database),
+        });
+      })()
+    : await decideNativeOperation(input);
+  if (
+    !plan ||
+    result.code === "replayed" ||
+    result.code === "wrong_thread" ||
+    result.code === "wrong_session"
+  )
+    return result;
+  const current = store.get(plan.id);
+  if (!result.operationId && current?.status === "pending") return result;
+  try {
+    return persistCommandReceipt(input.database, {
+      result: { ...result, operationId: plan.id },
+      context: {
+        actor: plan.actor,
+        threadId: plan.threadId,
+        ...(plan.turnId ? { turnId: plan.turnId } : {}),
+      },
+      startedAt: plan.decidedAt ?? plan.createdAt,
+      resources: [],
+    });
+  } catch {
+    return {
+      ...result,
+      status: "error",
+      code: "receipt_failed",
+      summary:
+        "Saving the operation receipt failed. Recorded effects must not be replayed.",
+    };
+  }
 }
 
 export function cancelOperation(input: {
@@ -2193,7 +2547,7 @@ export function reconcileOperations(database: DatabaseSync): number {
       id,
       "needs_review",
       "needs_review",
-      "An interrupted file operation needs review and will not be replayed.",
+      "An interrupted operation needs review and will not be replayed.",
       mutationPorts().now(),
     );
   }

@@ -5,6 +5,54 @@
   justify-content: flex-end;
 }
 
+.orbDock {
+  align-items: center;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  position: relative;
+}
+
+.orb {
+  transition:
+    filter 200ms ease,
+    transform 200ms ease;
+}
+
+.orbDock[data-state="listening"] .orb {
+  filter: drop-shadow(0 0 rem(8px) var(--primary));
+  transform: scale(1.06);
+}
+
+.orbDock[data-state="playback"] .orb {
+  animation: voicePulse 1.4s ease-in-out infinite alternate;
+}
+
+.transcript {
+  white-space: pre-wrap;
+}
+
+.pendingLabel {
+  color: var(--muted-foreground);
+  display: block;
+  font-size: var(--mantine-font-size-xs);
+  margin-block-end: rem(4px);
+}
+
+@keyframes voicePulse {
+  to {
+    filter: drop-shadow(0 0 rem(8px) var(--primary));
+    transform: scale(1.08);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .orbDock[data-state] .orb {
+    animation: none;
+    transition: none;
+  }
+}
+
 .header {
   align-items: center;
   display: flex;

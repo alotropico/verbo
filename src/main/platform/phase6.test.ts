@@ -11,10 +11,15 @@ import { DatabaseSync } from "node:sqlite";
 import { afterEach, describe, expect, it } from "vitest";
 import { AGS_CHECK_ARGS } from "../../shared/ags";
 import { safeProgramToken } from "../../shared/software";
-import { agsCapabilities } from "../capabilities/ags";
+import { agsBindings, agsModule } from "../capabilities/ags";
 import { registryForDatabase } from "../capabilities/catalog";
-import { createRegistry, type ActionContext } from "../capabilities/registry";
-import { softwareCapabilities } from "../capabilities/software";
+import type { ActionContext } from "../capabilities/registry";
+import { createModuleRegistry } from "../capabilities/modules";
+import {
+  softwareBindings,
+  softwareModule,
+  softwareCommands,
+} from "../capabilities/software";
 import { saveAgsCheck } from "../db/ags-check";
 import { migrateDatabase, VERBO_MIGRATIONS } from "../db/migrate";
 import { createRootStore } from "../db/registered-roots";
@@ -59,7 +64,7 @@ function folder(name: string): string {
 }
 
 describe("phase 6 environment, projects, software, and AGS", () => {
-  it("lists well-known folders and aliases without environment secrets", () => {
+  it("lists well-known folders and aliases without environment secrets", async () => {
     process.env.VERBO_PHASE6_SENTINEL = "super-secret-value";
     const db = database();
     const root = folder("verbo-alias-");
@@ -77,7 +82,7 @@ describe("phase 6 environment, projects, software, and AGS", () => {
       ],
     });
     createRootStore(db, "registered_projects", "project").add("demo", root);
-    const listed = registryForDatabase(db).invoke(
+    const listed = await registryForDatabase(db).invoke(
       "environment.paths",
       {},
       context,
@@ -96,7 +101,7 @@ describe("phase 6 environment, projects, software, and AGS", () => {
     });
   });
 
-  it("keeps project registration from granting writes or reading an unregistered tree", () => {
+  it("keeps project registration from granting writes or reading an unregistered tree", async () => {
     const db = database();
     const root = folder("verbo-project-");
     const outside = folder("verbo-outside-");
@@ -121,7 +126,7 @@ describe("phase 6 environment, projects, software, and AGS", () => {
       "[user]\n\temail = hidden-secret@example.com\n",
     );
 
-    const denied = registryForDatabase(db).invoke(
+    const denied = await registryForDatabase(db).invoke(
       "projects.inspect",
       { project: root },
       context,
@@ -140,7 +145,7 @@ describe("phase 6 environment, projects, software, and AGS", () => {
       .get() as { count: number };
     expect(scopes.count).toBe(0);
 
-    const inspected = registryForDatabase(db).invoke(
+    const inspected = await registryForDatabase(db).invoke(
       "projects.inspect",
       { project: "demo" },
       context,
@@ -154,9 +159,9 @@ describe("phase 6 environment, projects, software, and AGS", () => {
     expect(inspected.detail).not.toContain("SECRETLINE");
     expect(inspected.detail).not.toContain("hidden-secret");
 
-    const files = registryForDatabase(db).invoke(
+    const files = await registryForDatabase(db).invoke(
       "projects.files",
-      { project: "demo", depth: 1 },
+      { project: "demo" },
       { ...context, actor: "user_command" },
     );
     expect(files.status).toBe("success");
@@ -164,7 +169,7 @@ describe("phase 6 environment, projects, software, and AGS", () => {
     expect(files.detail).not.toContain("secret-outside.txt");
   });
 
-  it("rejects shell-shaped program names and pages a factual inventory", () => {
+  it("rejects shell-shaped program names and pages a factual inventory", async () => {
     expect(safeProgramToken("calc & whoami")).toBeNull();
     expect(safeProgramToken("..\\cmd")).toBeNull();
     const programs = [
@@ -190,8 +195,11 @@ describe("phase 6 environment, projects, software, and AGS", () => {
         return [];
       },
     };
-    const registry = createRegistry(softwareCapabilities(source));
-    const injected = registry.invoke(
+    const registry = createModuleRegistry(
+      [{ ...softwareModule, commands: softwareCommands }],
+      { handlers: softwareBindings(source), processes: {}, aggregators: {} },
+    );
+    const injected = await registry.invoke(
       "software.find",
       { name: "calc & whoami" },
       context,
@@ -199,15 +207,23 @@ describe("phase 6 environment, projects, software, and AGS", () => {
     expect(injected.code).toBe("invalid_args");
     expect(locateCalls).toBe(0);
 
-    const found = registry.invoke("software.find", { name: "beta" }, context);
+    const found = await registry.invoke(
+      "software.find",
+      { name: "beta" },
+      context,
+    );
     expect(found.status).toBe("success");
     expect(found.detail).toContain("Beta");
     expect(found.detail).not.toContain("UninstallString");
 
-    const first = registry.invoke("software.list", { pageSize: 1 }, context);
+    const first = await registry.invoke(
+      "software.list",
+      { pageSize: 1 },
+      context,
+    );
     expect(first.detail).toContain("Alpha");
     const cursor = JSON.parse(first.detail ?? "{}").nextCursor as string;
-    const second = registry.invoke(
+    const second = await registry.invoke(
       "software.list",
       { pageSize: 1, cursor },
       context,
@@ -220,7 +236,7 @@ describe("phase 6 environment, projects, software, and AGS", () => {
       location: "",
     });
     clearSoftwareCache();
-    const stale = registry.invoke(
+    const stale = await registry.invoke(
       "software.list",
       { pageSize: 1, cursor },
       context,
@@ -240,22 +256,27 @@ describe("phase 6 environment, projects, software, and AGS", () => {
     });
     expect(seen).toEqual([join(temp, "notepad.exe")]);
 
-    const linux = createRegistry(
-      softwareCapabilities({
-        platform: "linux",
-        installed: () => ({ programs: [], complete: true }),
-        locate: () => [],
-      }),
+    const linux = createModuleRegistry(
+      [{ ...softwareModule, commands: softwareCommands }],
+      {
+        handlers: softwareBindings({
+          platform: "linux",
+          installed: () => ({ programs: [], complete: true }),
+          locate: () => [],
+        }),
+        processes: {},
+        aggregators: {},
+      },
     );
-    expect(linux.invoke("software.list", {}, context).status).toBe(
+    expect((await linux.invoke("software.list", {}, context)).status).toBe(
       "not_supported",
     );
-    expect(linux.invoke("software.find", { name: "vim" }, context).status).toBe(
-      "not_supported",
-    );
+    expect(
+      (await linux.invoke("software.find", { name: "vim" }, context)).status,
+    ).toBe("not_supported");
   });
 
-  it("runs only the fixed ags check command on a registered host", () => {
+  it("runs only the fixed ags check command on a registered host", async () => {
     const db = database();
     const root = folder("verbo-ags-");
     mkdirSync(join(root, ".agents"), { recursive: true });
@@ -263,12 +284,12 @@ describe("phase 6 environment, projects, software, and AGS", () => {
       join(root, ".agents", "ags.yaml"),
       "format: 2\nhost: fixture\nagsVersion: 9.9.9\ncommand: calc.exe\n",
     );
-    const executable = join(folder("verbo-ags-bin-"), "ags.exe");
-    writeFileSync(executable, "");
+    const executable = join(folder("verbo-ags-bin-"), "ags.cmd");
+    writeFileSync(executable, "@echo off\r\n");
     createRootStore(db, "ags_hosts", "AGS host").add("fixture", root);
     const calls: Array<{ args: readonly string[]; executable: string }> = [];
-    const registry = createRegistry(
-      agsCapabilities(
+    const registry = createModuleRegistry([agsModule], {
+      ...agsBindings(
         () => db,
         () => createScopeStore(db),
         (input) => {
@@ -276,8 +297,9 @@ describe("phase 6 environment, projects, software, and AGS", () => {
           return { code: 0, stdout: "checked", stderr: "", timedOut: false };
         },
       ),
-    );
-    const extra = registry.invoke(
+      aggregators: {},
+    });
+    const extra = await registry.invoke(
       "ags.check",
       { host: "fixture", command: "calc.exe", args: ["rm"] },
       context,
@@ -285,7 +307,7 @@ describe("phase 6 environment, projects, software, and AGS", () => {
     expect(extra.code).toBe("invalid_args");
     expect(calls).toEqual([]);
 
-    const unconfigured = registry.invoke(
+    const unconfigured = await registry.invoke(
       "ags.check",
       { host: "fixture" },
       context,
@@ -293,7 +315,7 @@ describe("phase 6 environment, projects, software, and AGS", () => {
     expect(unconfigured.status).toBe("not_supported");
     expect(calls).toEqual([]);
 
-    const inspected = registry.invoke(
+    const inspected = await registry.invoke(
       "ags.inspect",
       { host: "fixture" },
       context,
@@ -303,13 +325,25 @@ describe("phase 6 environment, projects, software, and AGS", () => {
 
     const saved = saveAgsCheck(db, executable);
     expect(saved.ok).toBe(true);
-    const checked = registry.invoke("ags.check", { host: "fixture" }, context);
+    const checked = await registry.invoke(
+      "ags.check",
+      { host: "fixture" },
+      context,
+    );
     expect(checked.status).toBe("success");
     expect(calls).toEqual([{ args: [...AGS_CHECK_ARGS], executable }]);
     expect(checked.detail).not.toContain(executable);
     expect(checked.detail).toContain("checked");
+    writeFileSync(executable, "@echo changed\r\n");
+    const changed = await registry.invoke(
+      "ags.check",
+      { host: "fixture" },
+      context,
+    );
+    expect(changed.code).toBe("executable_changed");
+    expect(calls).toHaveLength(1);
 
-    const guessed = registry.invoke(
+    const guessed = await registry.invoke(
       "ags.inspect",
       { host: folder("verbo-not-a-host-") },
       context,

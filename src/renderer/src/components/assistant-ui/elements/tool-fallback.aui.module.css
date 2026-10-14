@@ -213,19 +213,6 @@
   margin-top: rem(4px);
 }
 
-.errorHeader {
-  font-weight: 600;
-  color: var(--destructive);
-  margin: 0;
-}
-
-.errorReason {
-  color: var(--destructive);
-  margin: var(--mantine-spacing-xs) 0;
-  overflow-wrap: break-word;
-  white-space: pre-line;
-}
-
 .approvalReceipt {
   display: flex;
   flex-direction: column;
@@ -363,12 +350,6 @@
   padding-inline: rem(6px);
   padding-block: rem(2px);
   font-size: rem(12px);
-}
-
-.approvalError {
-  font-size: rem(12px);
-  color: var(--destructive);
-  white-space: pre-line;
 }
 
 .pressable:active {

@@ -1,6 +1,7 @@
 import { readFilePage, type FilePageView } from "@shared/file-page";
 import { Button, Table, Text } from "@mantine/core";
 import { useState, type ReactElement } from "react";
+import { StatusMessage } from "./StatusMessage";
 import styles from "./FilePageTable.module.css";
 
 function sizeLabel(size: number | null): string {
@@ -53,9 +54,9 @@ export function FilePageTable({
         </Table>
       </div>
       {error ? (
-        <Text className={styles.error} size="sm">
+        <StatusMessage display="plain" size="xs" tone="error">
           {error}
-        </Text>
+        </StatusMessage>
       ) : null}
       {page.nextCursor && threadId && onPage ? (
         <Button

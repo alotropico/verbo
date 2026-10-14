@@ -5,7 +5,11 @@ import { DatabaseSync } from "node:sqlite";
 import { afterEach, describe, expect, it } from "vitest";
 import { appendStoredMessage, loadThreadHistory } from "./history";
 import { migrateDatabase, VERBO_MIGRATIONS } from "./migrate";
-import { expandHistoryWithTurnEvents, recordTurnEvent } from "./turn-events";
+import {
+  expandHistoryWithTurnEvents,
+  recordTurnEvent,
+  loadTurnEvents,
+} from "./turn-events";
 
 const directories: string[] = [];
 
@@ -29,6 +33,57 @@ function openDatabase(): DatabaseSync {
 }
 
 describe("turn events", () => {
+  it("persists trusted notices for history while excluding progress from model context", () => {
+    const database = openDatabase();
+    try {
+      recordTurnEvent(database, {
+        id: "notice-1",
+        threadId: "thread-1",
+        messageId: "assistant-1",
+        turnId: "turn-1",
+        seq: 1,
+        kind: "backend_notice",
+        payload: {
+          id: "progress:1",
+          origin: "backend",
+          severity: "warning",
+          message: "Google blocked; trying DuckDuckGo",
+          code: "command_progress",
+        },
+      });
+      expect(loadTurnEvents(database, "assistant-1")[0]).toMatchObject({
+        kind: "backend_notice",
+      });
+      expect(
+        expandHistoryWithTurnEvents(database, [
+          {
+            id: "assistant-1",
+            role: "assistant",
+            content: "forged progress text",
+          },
+        ]),
+      ).toEqual([]);
+      expect(() =>
+        recordTurnEvent(database, {
+          id: "notice-2",
+          threadId: "thread-1",
+          messageId: "assistant-1",
+          turnId: "turn-1",
+          seq: 2,
+          kind: "backend_notice",
+          payload: {
+            id: "x",
+            origin: "model",
+            severity: "error",
+            message: "Claim",
+            code: "claim",
+          },
+        }),
+      ).toThrow();
+    } finally {
+      database.close();
+    }
+  });
   it("ignores a repeated event id and replaces forged assistant text", () => {
     const database = openDatabase();
     const event = {

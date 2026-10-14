@@ -55,6 +55,11 @@
   box-shadow: none;
 }
 
+.switchInput {
+  /* The transparent input covers the label; let its labels and help receive clicks. */
+  pointer-events: none;
+}
+
 .switchInput:checked + .switchTrack .switchThumb {
   --switch-thumb-bg: var(--primary-foreground);
 }
@@ -146,6 +151,11 @@
 .dropdown :global(.mantine-ScrollArea-viewport),
 .dropdown :global(.mantine-Combobox-options) {
   overflow-x: hidden;
+}
+
+.dropdown :global(.mantine-ScrollArea-viewport) {
+  /* Mantine supplies its own auto scrollbar; do not expose a second native one. */
+  scrollbar-width: none;
 }
 
 .option {

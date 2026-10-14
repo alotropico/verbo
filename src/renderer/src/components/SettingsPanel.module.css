@@ -1,10 +1,19 @@
-.dialog {
+.workspace {
   display: flex;
   flex-direction: column;
-  height: min(rem(650px), calc(100dvh - rem(32px)));
-  max-width: min(rem(900px), calc(100vw - rem(32px)));
-  overflow: clip;
-  width: min(rem(900px), calc(100vw - rem(32px)));
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  padding: var(--mantine-spacing-lg);
+  width: 100%;
+}
+
+.workspace[hidden] {
+  display: none;
+}
+.workspaceHeader {
+  flex-shrink: 0;
+  margin-bottom: var(--mantine-spacing-lg);
 }
 
 .header {
@@ -45,11 +54,8 @@
   min-height: 0;
 }
 
-.notice {
-  color: var(--destructive);
-}
-
 .panel {
+  position: relative;
   flex: 1;
   margin-inline: auto;
   min-height: 0;
@@ -57,6 +63,19 @@
   overflow-y: auto;
   padding: var(--mantine-spacing-lg) var(--mantine-spacing-xs);
   width: 100%;
+}
+
+.commandsPanel {
+  display: flex;
+  overflow: hidden;
+}
+
+.commandsPanel[data-hidden] {
+  display: none;
+}
+
+.formFields {
+  align-items: center;
 }
 
 .tab {

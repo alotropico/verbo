@@ -1,12 +1,14 @@
-import { execFileSync } from "node:child_process";
+import { runBoundedProcess } from "../capabilities/process";
 import { AGS_CHECK_ARGS } from "../../shared/ags";
 import { agsArtifactsSince, type AgsArtifact } from "./metadata";
+import { agsProcessInvocation } from "./executable";
 
 export type AgsCommandResult = {
   code: number;
   stdout: string;
   stderr: string;
   timedOut: boolean;
+  cancelled?: boolean;
 };
 
 export type AgsCommandRunner = (input: {
@@ -14,61 +16,50 @@ export type AgsCommandRunner = (input: {
   args: readonly string[];
   cwd: string;
   timeoutMs: number;
-}) => AgsCommandResult;
+  signal?: AbortSignal;
+}) => AgsCommandResult | Promise<AgsCommandResult>;
 
 const TIMEOUT_MS = 20_000;
 const OUTPUT_CAP = 1500;
 
-export function execFileAgs(input: {
+export async function execFileAgs(input: {
   executable: string;
   args: readonly string[];
   cwd: string;
   timeoutMs: number;
-}): AgsCommandResult {
-  try {
-    const stdout = execFileSync(input.executable, [...input.args], {
-      cwd: input.cwd,
-      timeout: input.timeoutMs,
-      maxBuffer: 64 * 1024,
-      windowsHide: true,
-      shell: false,
-      encoding: "utf8",
-    });
-    return { code: 0, stdout, stderr: "", timedOut: false };
-  } catch (caught) {
-    const error = caught as {
-      status?: number;
-      stdout?: string | Buffer;
-      stderr?: string | Buffer;
-      killed?: boolean;
-      signal?: string;
-    };
-    return {
-      code: typeof error.status === "number" ? error.status : 1,
-      stdout: String(error.stdout ?? ""),
-      stderr: String(error.stderr ?? ""),
-      timedOut: Boolean(error.killed || error.signal),
-    };
-  }
+  signal?: AbortSignal;
+}): Promise<AgsCommandResult> {
+  if (
+    input.args.length !== AGS_CHECK_ARGS.length ||
+    input.args.some((arg, index) => arg !== AGS_CHECK_ARGS[index])
+  )
+    throw new Error("The AGS adapter accepts only its fixed check command.");
+  const result = await runBoundedProcess({
+    ...input,
+    ...agsProcessInvocation(input.executable),
+  });
+  return { ...result, code: result.code ?? 1 };
 }
 
-export function runAgsCheck(input: {
+export async function runAgsCheck(input: {
   executable: string;
   cwd: string;
   runner?: AgsCommandRunner;
   now?: number;
-}): {
+  signal?: AbortSignal;
+}): Promise<{
   args: readonly string[];
   result: AgsCommandResult;
   artifacts: AgsArtifact[];
-} {
+}> {
   const started = input.now ?? Date.now();
   const runner = input.runner ?? execFileAgs;
-  const result = runner({
+  const result = await runner({
     executable: input.executable,
     args: AGS_CHECK_ARGS,
     cwd: input.cwd,
     timeoutMs: TIMEOUT_MS,
+    ...(input.signal ? { signal: input.signal } : {}),
   });
   return {
     args: AGS_CHECK_ARGS,

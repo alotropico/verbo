@@ -49,10 +49,6 @@
   min-width: min(100%, rem(160px));
 }
 
-.error {
-  color: var(--destructive);
-}
-
 .list {
   display: flex;
   flex-direction: column;

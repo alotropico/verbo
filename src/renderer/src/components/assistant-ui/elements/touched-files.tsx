@@ -1,131 +1,257 @@
-import { useEffect, useRef, useState, type ReactElement } from "react";
-import { Menu, UnstyledButton } from "@mantine/core";
+import { useEffect, useState, type ReactElement } from "react";
+import { ActionIcon, Button, Group, Text } from "@mantine/core";
 import { useAuiState } from "@assistant-ui/react";
-import { CopyIcon, FileIcon, FolderOpenIcon } from "lucide-react";
-import type { FileSurfaceIntent } from "@shared/file-surface";
 import {
-  touchedFilesFromItems,
+  ChevronRightIcon,
+  CopyIcon,
+  FileIcon,
+  FolderOpenIcon,
+} from "lucide-react";
+import type { FileSurfaceIntent } from "@shared/file-surface";
+import type { CommandReceipt, CommandResource } from "@shared/command-receipts";
+import {
+  commandReceiptIdsFromParts,
+  touchedFileName,
   touchedFilesFromParts,
-  type TouchedFile,
+  touchedFilesFromItems,
 } from "@shared/touched-files";
+import { StatusMessage, type StatusFeedback } from "@/components/StatusMessage";
+import {
+  CollapsibleRoot,
+  CollapsibleTrigger,
+  CollapsibleContent,
+} from "./collapsible-root";
 import styles from "./touched-files.module.css";
 
-function revealLabel(): string {
-  const platform = navigator.platform;
-  if (/mac/i.test(platform)) return "Show in Finder";
-  if (/win/i.test(platform)) return "Show in Explorer";
-  return "Show in folder";
-}
-
-function mergeFiles(
-  inline: readonly TouchedFile[],
-  reviewed: readonly TouchedFile[] | null,
-): TouchedFile[] {
-  if (!reviewed) return [...inline];
-  const seen = new Set(inline.map((file) => file.path));
-  return [...inline, ...reviewed.filter((file) => !seen.has(file.path))];
-}
-
-function TouchedFileChip({
-  file,
+function ResourceRow({
+  resource,
   onIntent,
 }: {
-  file: TouchedFile;
+  resource: CommandResource;
   onIntent: (intent: FileSurfaceIntent, path: string) => void;
 }): ReactElement {
+  const name = touchedFileName(resource.path);
   return (
-    <Menu>
-      <Menu.ContextMenu>
-        <UnstyledButton
-          className={styles.chip}
-          title={file.path}
-          aria-label={`Open ${file.name}`}
-          onClick={() => onIntent("open", file.path)}
+    <CollapsibleRoot className={styles.resource}>
+      <Group gap="xs" wrap="nowrap">
+        <CollapsibleTrigger
+          className={styles.trigger}
+          aria-label={`Details for ${name}`}
         >
-          <FileIcon className={styles.icon} size={14} aria-hidden />
-          <span className={styles.name}>{file.name}</span>
-        </UnstyledButton>
-      </Menu.ContextMenu>
-      <Menu.Dropdown>
-        <Menu.Item
-          leftSection={<FileIcon size={14} />}
-          onClick={() => onIntent("open", file.path)}
-        >
-          Open
-        </Menu.Item>
-        <Menu.Item
-          leftSection={<FolderOpenIcon size={14} />}
-          onClick={() => onIntent("reveal", file.path)}
-        >
-          {revealLabel()}
-        </Menu.Item>
-        <Menu.Item
-          leftSection={<CopyIcon size={14} />}
-          onClick={() => onIntent("copy", file.path)}
-        >
-          Copy content
-        </Menu.Item>
-      </Menu.Dropdown>
-    </Menu>
+          <ChevronRightIcon className={styles.chevron} size={14} aria-hidden />
+          <FileIcon size={14} aria-hidden />
+          <span className={styles.name}>{name}</span>
+        </CollapsibleTrigger>
+        <Group className={styles.actions} gap={2} wrap="nowrap">
+          <ActionIcon
+            className={styles.action}
+            variant="transparent"
+            size="sm"
+            aria-label={`Open ${name}`}
+            disabled={!resource.available}
+            onClick={() => onIntent("open", resource.path)}
+          >
+            <FileIcon size={14} />
+          </ActionIcon>
+          <ActionIcon
+            className={styles.action}
+            variant="transparent"
+            size="sm"
+            aria-label={`Show ${name} in folder`}
+            disabled={!resource.available}
+            onClick={() => onIntent("reveal", resource.path)}
+          >
+            <FolderOpenIcon size={14} />
+          </ActionIcon>
+          <ActionIcon
+            className={styles.action}
+            variant="transparent"
+            size="sm"
+            aria-label={`Copy content of ${name}`}
+            disabled={!resource.available}
+            onClick={() => onIntent("copy", resource.path)}
+          >
+            <CopyIcon size={14} />
+          </ActionIcon>
+        </Group>
+      </Group>
+      <CollapsibleContent className={styles.details}>
+        <Text size="xs">{resource.path}</Text>
+        <Text size="xs">
+          {resource.event}
+          {resource.from ? ` · from ${resource.from}` : ""}
+        </Text>
+        {resource.unavailableReason ? (
+          <Text size="xs">{resource.unavailableReason}</Text>
+        ) : null}
+      </CollapsibleContent>
+    </CollapsibleRoot>
   );
 }
 
 export function TouchedFiles(): ReactElement | null {
   const parts = useAuiState((state) => state.message.parts);
+  const threadId = useAuiState((state) => state.threads.mainThreadId);
+  const receiptKey = commandReceiptIdsFromParts(parts).join("|");
   const scan = touchedFilesFromParts(parts);
-  const reviewKey = scan.reviews
-    .map((review) => `${review.operationId}:${review.threadId}`)
-    .join("|");
-  const reviewsRef = useRef(scan.reviews);
-  reviewsRef.current = scan.reviews;
-  const [reviewed, setReviewed] = useState<{
+  const reviewKey = JSON.stringify(scan.reviews);
+  const key = `${threadId}:${receiptKey}:${reviewKey}`;
+  const [loaded, setLoaded] = useState<{
     key: string;
-    files: TouchedFile[];
+    receipts: CommandReceipt[];
+    legacy: CommandResource[];
+    error?: string;
   } | null>(null);
-  const [notice, setNotice] = useState<string | null>(null);
-
+  const [showAll, setShowAll] = useState(false);
+  const [notice, setNotice] = useState<StatusFeedback | null>(null);
   useEffect(() => {
-    if (reviewKey === "" || !window.verbo?.operations) return;
     let cancelled = false;
-    void Promise.all(
-      reviewsRef.current.map((review) =>
-        window.verbo.operations
-          .review(review)
-          .then((next) => (next.ok ? touchedFilesFromItems(next.items) : []))
-          .catch(() => []),
-      ),
-    ).then((groups) => {
-      if (!cancelled) setReviewed({ key: reviewKey, files: groups.flat() });
-    });
+    const load = async (): Promise<void> => {
+      try {
+        const receipts: CommandReceipt[] = [];
+        if (threadId && receiptKey) {
+          for (const receiptId of receiptKey.split("|")) {
+            let offset = 0;
+            let receipt: CommandReceipt | null = null;
+            for (;;) {
+              const page = await window.verbo.commands.receipt({
+                receiptId,
+                threadId,
+                offset,
+              });
+              if (cancelled) return;
+              if (!page) break;
+              if (receipt) receipt.resources.push(...page.resources);
+              else receipt = page;
+              if (!page.more) break;
+              offset += page.resources.length;
+              if (offset > 10000 || page.resources.length === 0)
+                throw new Error("Invalid receipt page");
+            }
+            if (receipt) receipts.push(receipt);
+          }
+        }
+        const legacy: CommandResource[] = [];
+        if (!receiptKey) {
+          const reviews = JSON.parse(reviewKey) as typeof scan.reviews;
+          for (const review of reviews) {
+            const result = await window.verbo.operations.review(review);
+            if (result.ok)
+              legacy.push(
+                ...touchedFilesFromItems(result.items).map((file) => ({
+                  path: file.path,
+                  event: "write" as const,
+                  available: true,
+                })),
+              );
+          }
+        }
+        if (!cancelled) setLoaded({ key, receipts, legacy });
+      } catch {
+        if (!cancelled)
+          setLoaded({
+            key,
+            receipts: [],
+            legacy: [],
+            error: "Operation details could not be loaded.",
+          });
+      }
+    };
+    void load();
     return () => {
       cancelled = true;
     };
-  }, [reviewKey]);
-
-  const files = mergeFiles(
-    scan.files,
-    reviewed?.key === reviewKey ? reviewed.files : null,
-  );
-  if (files.length === 0) return null;
-
+  }, [key, receiptKey, reviewKey, threadId]);
+  const current = loaded?.key === key ? loaded : null;
+  const resources = new Map<string, CommandResource>();
+  for (const resource of current?.receipts.flatMap(
+    (receipt) => receipt.resources,
+  ) ?? [])
+    resources.set(resource.path, resource);
+  if (!receiptKey) {
+    for (const file of scan.files)
+      resources.set(file.path, {
+        path: file.path,
+        event: "write",
+        available: true,
+      });
+    for (const resource of current?.legacy ?? [])
+      resources.set(resource.path, resource);
+  }
+  const files = [...resources.values()];
+  if (!receiptKey && files.length === 0 && !current?.error) return null;
   const onIntent = (intent: FileSurfaceIntent, path: string): void => {
     setNotice(null);
-    if (!window.verbo?.files?.surface) {
-      setNotice("File actions are unavailable.");
-      return;
-    }
-    void window.verbo.files.surface({ path, intent }).then((result) => {
-      if (!result.ok) setNotice(result.summary);
-      else if (intent === "copy") setNotice("Copied.");
-    });
+    void window.verbo.files
+      .surface({ path, intent })
+      .then((result) => {
+        if (!result.ok) setNotice({ text: result.summary, tone: "error" });
+        else if (intent === "copy")
+          setNotice({ text: "Copied.", tone: "success" });
+      })
+      .catch(() => setNotice({ text: "File action failed.", tone: "error" }));
   };
-
   return (
-    <div className={styles.row} role="group" aria-label="Changed files">
-      {files.map((file) => (
-        <TouchedFileChip file={file} key={file.path} onIntent={onIntent} />
+    <div className={styles.row} role="group" aria-label="Operation results">
+      {current?.receipts.map((receipt) => (
+        <CollapsibleRoot key={receipt.id} className={styles.receipt}>
+          <CollapsibleTrigger className={styles.trigger}>
+            <ChevronRightIcon
+              className={styles.chevron}
+              size={14}
+              aria-hidden
+            />
+            <span>
+              {receipt.result.summary} · {receipt.result.status}
+            </span>
+          </CollapsibleTrigger>
+          <CollapsibleContent className={styles.details}>
+            <Text size="xs">
+              {receipt.action} · {receipt.durationMs} ms
+            </Text>
+            {receipt.result.detail ? (
+              <Text size="xs" className={styles.facts}>
+                {receipt.result.detail}
+              </Text>
+            ) : null}
+            {receipt.children.length ? (
+              <pre className={styles.facts}>
+                {JSON.stringify(receipt.children, null, 2)}
+              </pre>
+            ) : null}
+          </CollapsibleContent>
+        </CollapsibleRoot>
       ))}
-      {notice ? <p className={styles.notice}>{notice}</p> : null}
+      {!current && receiptKey ? (
+        <StatusMessage display="plain" size="xs" tone="info">
+          Loading operation details…
+        </StatusMessage>
+      ) : null}
+      {(showAll ? files : files.slice(0, 4)).map((resource) => (
+        <ResourceRow
+          resource={resource}
+          onIntent={onIntent}
+          key={resource.path}
+        />
+      ))}
+      {files.length > 4 ? (
+        <Button
+          size="compact-xs"
+          variant="subtle"
+          onClick={() => setShowAll((value) => !value)}
+        >
+          {showAll ? "Show less" : `Show all (${files.length})`}
+        </Button>
+      ) : null}
+      {current?.error || notice ? (
+        <StatusMessage
+          display="plain"
+          size="xs"
+          tone={current?.error ? "error" : (notice?.tone ?? "info")}
+        >
+          {current?.error ?? notice?.text}
+        </StatusMessage>
+      ) : null}
     </div>
   );
 }

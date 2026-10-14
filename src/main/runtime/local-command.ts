@@ -5,7 +5,6 @@ import {
   routeUtterance,
   type LocalCommandResult,
 } from "../../shared/local-commands";
-import { memoryTextSchema } from "../../shared/memory";
 import type {
   CapabilityRegistry,
   SearchResult,
@@ -20,16 +19,27 @@ function presentAction(result: ActionResult): LocalCommandResult {
   const summary = result.detail
     ? `${result.summary}\n${result.detail}`
     : result.summary;
-  return { status: handled ? "success" : "error", summary };
+  return { status: handled ? "success" : "error", summary, receipt: result };
 }
 
 function helpText(registry: CapabilityRegistry): string {
-  return LOCAL_COMMANDS.map((command) => {
+  const conveniences = LOCAL_COMMANDS.map((command) => {
     if (!command.actionId) return `${command.syntax} — ${command.blurb}`;
     const described = registry.describe([command.actionId]).entries[0];
     const detail = described?.description ?? command.blurb;
     return `${command.syntax} — ${command.actionId}. ${detail}`;
-  }).join("\n");
+  });
+  const definitions = registry.nodes().map((node) => {
+    const described = registry.describe([node.id]).entries[0];
+    const aliases = node.aliases.length ? ` (${node.aliases.join(", ")})` : "";
+    return `${described?.kind === "category" ? node.id : `/${node.id} ${described?.syntax ?? "{}"}`}${aliases} — ${node.description}`;
+  });
+  return [
+    ...conveniences,
+    "",
+    "Canonical paths and aliases accept JSON arguments:",
+    ...definitions,
+  ].join("\n");
 }
 
 function searchText(found: SearchResult): string {
@@ -47,24 +57,24 @@ function searchText(found: SearchResult): string {
 }
 
 function catalogText(registry: CapabilityRegistry): string {
-  const root = registry.list();
   const lines = ["Registered capabilities:"];
-  for (const category of root.children) {
-    const listed = registry.list(category.id);
-    for (const child of listed.children) {
-      lines.push(`${child.id} — ${child.description}`);
-    }
+  for (const node of registry.nodes()) {
+    const entry = registry.describe([node.id]).entries[0];
+    if (entry?.kind !== "category")
+      lines.push(
+        `${node.id}${node.aliases.length ? ` (${node.aliases.join(", ")})` : ""} — ${node.description}`,
+      );
   }
   return lines.join("\n");
 }
 
-export function executeLocalCommand(input: {
+export async function executeLocalCommand(input: {
   text: string;
   source?: "typed" | "voice";
   threadId?: string;
   store: MemoryStore;
   registry: CapabilityRegistry;
-}): LocalCommandResult {
+}): Promise<LocalCommandResult> {
   const route = routeUtterance(input.text, input.source ?? "typed");
   if (route.kind === "new-chat") {
     return {
@@ -104,22 +114,17 @@ export function executeLocalCommand(input: {
     };
   }
   if (parsed.name === "remember") {
-    const text = memoryTextSchema.safeParse(parsed.text);
-    if (!text.success) {
-      return {
-        status: "error",
-        summary: "Memory text is empty or too long.",
-      };
-    }
-    const saved = input.store.add({
-      text: text.data,
-      scope: "global",
-      inclusion: "always",
-      actor: "user_command",
-    });
-    return saved.ok
-      ? { status: "success", summary: saved.summary }
-      : { status: "error", summary: saved.summary };
+    return presentAction(
+      await input.registry.invoke(
+        "memory.add",
+        {
+          text: parsed.text,
+          scope: "global",
+          inclusion: "always",
+        },
+        { actor: "user_command", threadId: input.threadId ?? "settings" },
+      ),
+    );
   }
   if (parsed.name === "files" || parsed.name === "action") {
     if (!input.threadId) {
@@ -129,7 +134,7 @@ export function executeLocalCommand(input: {
       };
     }
     return presentAction(
-      input.registry.invoke(parsed.actionId, parsed.args, {
+      await input.registry.invoke(parsed.actionId, parsed.args, {
         actor: "user_command",
         threadId: input.threadId,
       }),
@@ -138,8 +143,14 @@ export function executeLocalCommand(input: {
   if (parsed.name !== "forget") {
     return { status: "error", summary: "That text is not a local command." };
   }
-  const removed = input.store.remove(parsed.id, "user_command");
-  return removed.ok
-    ? { status: "success", summary: removed.summary }
-    : { status: "error", summary: removed.summary };
+  return presentAction(
+    await input.registry.invoke(
+      "memory.remove",
+      { id: parsed.id },
+      {
+        actor: "user_command",
+        threadId: input.threadId ?? "settings",
+      },
+    ),
+  );
 }

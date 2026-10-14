@@ -17,6 +17,7 @@ import { readImageMeta } from "./image-meta";
 import { resolveFileReference } from "./path-policy";
 import { extractPdfText } from "./pdf-text";
 import { windowsFileFlags } from "./windows-containment";
+import { recordFileResource } from "./resource-events";
 
 const TEXT = new Set<string>(TEXT_EXTENSIONS);
 
@@ -130,6 +131,7 @@ function readPrefix(absolute: string, size: number, maxBytes: number): Buffer {
       if (read === 0) break;
       offset += read;
     }
+    recordFileResource(absolute);
     return buffer.subarray(0, offset);
   } finally {
     closeSync(fd);
@@ -609,6 +611,7 @@ export function hashFiles(
     } finally {
       closeSync(fd);
     }
+    recordFileResource(opened.absolute);
     items.push({
       path: opened.display,
       algorithm: "sha256",

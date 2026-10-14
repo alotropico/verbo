@@ -1,7 +1,15 @@
+import type {
+  CommandDefinition,
+  CommandModule,
+  TrustedCommandBindings,
+} from "./modules";
 import { arch, platform, release } from "node:os";
 import type { DatabaseSync } from "node:sqlite";
 import { z } from "zod";
-import type { ActionResult } from "../../shared/action-contract";
+import {
+  actionResultSchema,
+  type ActionResult,
+} from "../../shared/action-contract";
 import { boundedDetail } from "../../shared/bounded-detail";
 import { createRootStore } from "../db/registered-roots";
 import type { ScopeStore } from "../db/scopes";
@@ -10,19 +18,12 @@ import type { Capability } from "./registry";
 
 const emptyArgs = z.object({}).strict();
 
-function pathsCapability(
+function pathsBindings(
   resolveScopes?: () => ScopeStore,
   resolveDatabase?: () => DatabaseSync,
-): Capability {
+): TrustedCommandBindings["handlers"] {
   return {
-    id: "environment.paths",
-    description:
-      "Well-known folders and registered aliases. Does not list environment variables or secrets.",
-    kind: "read",
-    approval: "none",
-    args: emptyArgs,
-    example: {},
-    execute(): ActionResult {
+    "environment.paths": (): ActionResult => {
       const folders = knownFolders().map((folder) => ({
         kind: "well-known" as const,
         name: folder.name,
@@ -83,15 +84,9 @@ function pathsCapability(
   };
 }
 
-export function platformCapability(): Capability {
+export function platformBindings(): TrustedCommandBindings["handlers"] {
   return {
-    id: "environment.platform",
-    description: "Operating system name, version, and architecture.",
-    kind: "read",
-    approval: "none",
-    args: emptyArgs,
-    example: {},
-    execute(): ActionResult {
+    "environment.platform": (): ActionResult => {
       const facts = {
         platform: platform(),
         release: release(),
@@ -107,12 +102,69 @@ export function platformCapability(): Capability {
   };
 }
 
-export function environmentCapabilities(
+export function environmentBindings(
   resolveScopes?: () => ScopeStore,
   resolveDatabase?: () => DatabaseSync,
-): Capability[] {
-  return [
-    platformCapability(),
-    pathsCapability(resolveScopes, resolveDatabase),
-  ];
+): TrustedCommandBindings["handlers"] {
+  return {
+    ...platformBindings(),
+    ...pathsBindings(resolveScopes, resolveDatabase),
+  };
+}
+
+export const environmentCommands: CommandDefinition[] = [
+  {
+    id: "environment.paths",
+    aliases: ["folders", "locations"],
+    description:
+      "Well-known folders and registered aliases. Does not list environment variables or secrets.",
+    kind: "read",
+    approval: "none",
+    args: emptyArgs,
+    example: {},
+    tags: [],
+    parameterHelp: {},
+    execution: { type: "handler", handler: "environment.paths" },
+    output: actionResultSchema,
+    messages: { failure: "Operation failed" },
+    attachments: "none",
+    configurable: ["aliases"],
+    requirements: ["Verbo backend storage and local platform services."],
+    effect: "read",
+  },
+  {
+    id: "environment.platform",
+    aliases: ["os", "system-info"],
+    description: "Operating system name, version, and architecture.",
+    kind: "read",
+    approval: "none",
+    args: emptyArgs,
+    example: {},
+    tags: [],
+    parameterHelp: {},
+    execution: { type: "handler", handler: "environment.platform" },
+    output: actionResultSchema,
+    messages: { failure: "Operation failed" },
+    attachments: "none",
+    configurable: ["aliases"],
+    requirements: ["Verbo backend storage and local platform services."],
+    effect: "read",
+  },
+];
+
+export const environmentModule: CommandModule = {
+  id: "environment",
+  aliases: ["env", "system", "host"],
+  description: "Platform facts and well-known paths",
+  version: 1,
+  scopes: [],
+  commands: environmentCommands,
+};
+
+/** Narrow fixture convenience derived from the authoritative descriptor. */
+export function platformCapability(): Capability {
+  const command = environmentCommands.find(
+    (entry) => entry.id === "environment.platform",
+  )!;
+  return { ...command, execute: platformBindings()[command.id] };
 }

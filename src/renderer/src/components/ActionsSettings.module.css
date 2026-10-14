@@ -29,6 +29,13 @@
   overflow-wrap: anywhere;
 }
 
+.engineRow {
+  background: var(--surface);
+  border: rem(1px) solid var(--sidebar-border);
+  border-radius: var(--radius-md);
+  padding: var(--mantine-spacing-xs) var(--mantine-spacing-sm);
+}
+
 .row {
   align-items: flex-end;
   display: flex;
@@ -39,4 +46,75 @@
 .aliasField {
   flex: 1;
   min-width: min(100%, rem(200px));
+}
+
+.preferenceFields {
+  align-items: center;
+}
+
+.commandsLayout {
+  display: grid;
+  flex: 1;
+  gap: var(--mantine-spacing-md);
+  grid-template-columns: rem(168px) minmax(0, 1fr);
+  min-height: 0;
+  min-width: 0;
+}
+
+.commandsNav {
+  display: flex;
+  flex-direction: column;
+  gap: rem(4px);
+  overflow-y: auto;
+}
+
+.commandsContent {
+  position: relative;
+  min-height: 0;
+  min-width: 0;
+  overflow: auto;
+  padding-inline-end: var(--mantine-spacing-xs);
+}
+
+.modulePanel[hidden] {
+  display: none;
+}
+
+.moduleLink {
+  border: rem(1px) solid transparent;
+  border-radius: var(--radius-md);
+  color: var(--muted-foreground);
+  flex-shrink: 0;
+  min-height: rem(40px);
+}
+
+.moduleLink[data-active] {
+  background: var(--sidebar-accent);
+  border-color: color-mix(in oklab, var(--primary) 18%, transparent);
+  color: var(--primary);
+}
+
+.moduleLink:hover {
+  background: var(--accent);
+  color: var(--foreground);
+}
+
+.moduleLink:focus-visible {
+  outline: rem(2px) solid var(--primary);
+  outline-offset: rem(-2px);
+}
+
+@media (max-width: em(760px)) {
+  .commandsLayout {
+    grid-template-columns: 1fr;
+    grid-template-rows: auto minmax(0, 1fr);
+  }
+  .commandsNav {
+    flex-direction: row;
+    overflow-x: auto;
+    padding-block-end: var(--mantine-spacing-xs);
+  }
+  .moduleLink {
+    width: auto;
+  }
 }

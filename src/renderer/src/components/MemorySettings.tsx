@@ -8,7 +8,9 @@ import {
   type MemoryUsage,
 } from "@shared/memory";
 import { isPersistedThreadId } from "@shared/thread-identity";
-import { Button, Stack, Text, Textarea } from "@mantine/core";
+import { chatPlaceholderTitle } from "@shared/thread-title";
+import { estimateTokens } from "@shared/token-estimate";
+import { Button, Text, Textarea } from "@mantine/core";
 import { ChoiceInput } from "./ChoiceInput";
 import { schemaResolver, useForm } from "@mantine/form";
 import { useAuiState } from "@assistant-ui/react";
@@ -21,6 +23,11 @@ import {
 } from "react";
 import { z } from "zod";
 import { SettingsLabel } from "./SettingsLabel";
+import { StatusMessage } from "./StatusMessage";
+import { SettingsSection } from "./SettingsSection";
+import { useAutosave } from "@/hooks/use-autosave";
+import { AutosaveStatus } from "./AutosaveStatus";
+import { useConfirmation } from "./confirmation-context";
 import styles from "./MemorySettings.module.css";
 
 type Browser = {
@@ -44,53 +51,32 @@ function MemoryRow({
 }): ReactElement {
   const [text, setText] = useState(entry.text);
   const [error, setError] = useState("");
-  const draftRef = useRef(entry.text);
-  const savedTextRef = useRef(entry.text);
-  const entryIdRef = useRef(entry.id);
-  savedTextRef.current = entry.text;
-  entryIdRef.current = entry.id;
-
-  const save = (
-    inclusion: MemoryInclusion,
-    nextText = draftRef.current,
-  ): void => {
-    if (nextText === entry.text && inclusion === entry.inclusion) return;
-    setError("");
-    void window.verbo.memory
-      .update({
-        id: entry.id,
-        ...(nextText !== entry.text ? { text: nextText } : {}),
-        ...(inclusion !== entry.inclusion ? { inclusion } : {}),
-      })
-      .then((result) => {
-        if (!result.ok) {
-          setError(result.summary);
-          return;
-        }
-        savedTextRef.current = nextText;
-        draftRef.current = nextText;
-        window.dispatchEvent(new Event("verbo:memory-changed"));
-        onChanged();
-      })
-      .catch((caught: unknown) => {
-        setError(
-          caught instanceof Error ? caught.message : "Could not update memory.",
-        );
-      });
-  };
-
+  const [inclusion, setInclusion] = useState(entry.inclusion);
+  const current = useRef(text);
+  const baseline = useRef(entry.text);
+  const confirm = useConfirmation();
+  const autosave = useAutosave<{
+    id: string;
+    text?: string;
+    inclusion?: MemoryInclusion;
+  }>(
+    async (value) => {
+      const result = await window.verbo.memory.update(value);
+      if (!result.ok) throw new Error(result.summary);
+      if (value.text !== undefined) baseline.current = value.text;
+      window.dispatchEvent(new Event("verbo:memory-changed"));
+      onChanged();
+    },
+    (previous, next) => ({ ...previous, ...next }),
+  );
   useEffect(() => {
-    return () => {
-      const nextText = draftRef.current;
-      if (nextText === savedTextRef.current) return;
-      void window.verbo.memory
-        .update({ id: entryIdRef.current, text: nextText })
-        .then((result) => {
-          if (!result.ok) return;
-          window.dispatchEvent(new Event("verbo:memory-changed"));
-        });
-    };
-  }, []);
+    if (current.current === baseline.current) {
+      current.current = entry.text;
+      setText(entry.text);
+      baseline.current = entry.text;
+      setInclusion(entry.inclusion);
+    }
+  }, [entry.text, entry.inclusion]);
 
   return (
     <li className={styles.entry}>
@@ -98,7 +84,7 @@ function MemoryRow({
         label={
           <SettingsLabel
             label="Memory text"
-            tip="The saved note. Leaving the field writes your edit."
+            tip="The saved note. Valid edits save automatically; leaving the field saves immediately."
           />
         }
         autosize
@@ -106,16 +92,22 @@ function MemoryRow({
         value={text}
         onChange={(event) => {
           const next = event.currentTarget.value;
-          draftRef.current = next;
+          current.current = next;
           setText(next);
+          const parsed = memoryTextSchema.safeParse(next);
+          setError(
+            parsed.success
+              ? ""
+              : (parsed.error.issues[0]?.message ?? "Check the memory text."),
+          );
+          if (parsed.success)
+            autosave.controller.schedule({ id: entry.id, text: parsed.data });
         }}
-        onBlur={(event) => {
-          const next = event.currentTarget.value;
-          draftRef.current = next;
-          setText(next);
-          save(entry.inclusion, next);
-        }}
+        onBlur={() => void autosave.controller.flush()}
       />
+      <Text size="xs" c="dimmed">
+        Estimated tokens: {estimateTokens(text.trim())}
+      </Text>
       <div className={styles.entryActions}>
         <ChoiceInput
           label={
@@ -129,43 +121,47 @@ function MemoryRow({
             { value: "always", label: "Always" },
             { value: "on_demand", label: "On demand" },
           ]}
-          value={entry.inclusion}
+          value={inclusion}
           allowDeselect={false}
           onChange={(value) => {
-            if (value === "always" || value === "on_demand") save(value);
+            if (value === "always" || value === "on_demand") {
+              setInclusion(value);
+              autosave.controller.schedule({ id: entry.id, inclusion: value });
+            }
           }}
         />
         <Button
           type="button"
           size="xs"
-          variant="default"
-          onClick={() => save(entry.inclusion)}
-        >
-          Save text
-        </Button>
-        <Button
-          type="button"
-          size="xs"
           variant="subtle"
           color="red"
-          onClick={() => {
-            void window.verbo.memory.remove(entry.id).then((result) => {
-              if (!result.ok) {
-                setError(result.summary);
-                return;
-              }
-              window.dispatchEvent(new Event("verbo:memory-changed"));
-              onChanged();
-            });
-          }}
+          onClick={() =>
+            void confirm({
+              title: "Remove memory?",
+              message: "Remove this saved note?",
+              confirmLabel: "Remove memory",
+              destructive: true,
+              onConfirm: async () => {
+                await autosave.controller.reset();
+                const result = await window.verbo.memory.remove(entry.id);
+                if (!result.ok) throw new Error(result.summary);
+                window.dispatchEvent(new Event("verbo:memory-changed"));
+                onChanged();
+              },
+            })
+          }
         >
           Remove
         </Button>
       </div>
+      <AutosaveStatus
+        state={autosave.state}
+        retry={() => autosave.controller.retry()}
+      />
       {error ? (
-        <Text className={styles.error} size="sm">
+        <StatusMessage display="plain" size="sm" tone="error">
           {error}
-        </Text>
+        </StatusMessage>
       ) : null}
     </li>
   );
@@ -173,6 +169,13 @@ function MemoryRow({
 
 export function MemorySettings(): ReactElement {
   const threadId = useAuiState((state) => state.threads.mainThreadId);
+  const chatName = useAuiState(
+    (state) =>
+      state.threads.threadItems.find(
+        (item) => item.id === state.threads.mainThreadId,
+      )?.title || chatPlaceholderTitle(state.threads.mainThreadId),
+  );
+  const thisChat = `This chat (${chatName})`;
   const persisted = isPersistedThreadId(threadId) ? threadId : undefined;
   const [browser, setBrowser] = useState<Browser | null>(null);
   const [error, setError] = useState("");
@@ -185,6 +188,7 @@ export function MemorySettings(): ReactElement {
     },
     validate: schemaResolver(addSchema, { sync: true }),
   });
+  const memoryText = form.useWatchValue("text");
 
   const load = useCallback((): void => {
     void window.verbo.memory.list().then((next) => {
@@ -194,13 +198,10 @@ export function MemorySettings(): ReactElement {
 
   useEffect(() => {
     load();
+    window.addEventListener("verbo:memory-changed", load);
+    return () => window.removeEventListener("verbo:memory-changed", load);
   }, [load]);
 
-  const usage = browser?.usage;
-  const percent =
-    usage && usage.budget > 0
-      ? Math.round((usage.tokens / usage.budget) * 100)
-      : 0;
   const globalEntries =
     browser?.entries.filter((entry) => entry.scope === "global") ?? [];
   const threadEntries =
@@ -209,12 +210,10 @@ export function MemorySettings(): ReactElement {
     ) ?? [];
 
   return (
-    <Stack gap="md">
-      <Text size="sm">
-        Always-on memory uses {usage?.tokens ?? 0} of {usage?.budget ?? 512}{" "}
-        estimated tokens ({percent}%). Changes are saved immediately and apply
-        to the next message.
-      </Text>
+    <SettingsSection
+      title="Memory"
+      description="Keep notes for future conversations. Valid edits save automatically."
+    >
       <div className={styles.addForm}>
         <Textarea
           label={
@@ -228,13 +227,16 @@ export function MemorySettings(): ReactElement {
           key={form.key("text")}
           {...form.getInputProps("text")}
         />
+        <Text size="xs" c="dimmed">
+          Estimated tokens: {estimateTokens(memoryText.trim())}
+        </Text>
         <div className={styles.addActions}>
           <ChoiceInput
             className={styles.addField}
             label={
               <SettingsLabel
                 label="Scope"
-                tip="All chats keeps the note everywhere. This chat keeps it in the open conversation."
+                tip={`All chats keeps the note everywhere. ${thisChat} keeps it in the open conversation.`}
               />
             }
             allowDeselect={false}
@@ -242,7 +244,7 @@ export function MemorySettings(): ReactElement {
               { value: "global", label: "All chats" },
               {
                 value: "thread",
-                label: "This chat",
+                label: thisChat,
                 disabled: !persisted,
               },
             ]}
@@ -298,9 +300,9 @@ export function MemorySettings(): ReactElement {
         </div>
       </div>
       {error ? (
-        <Text className={styles.error} size="sm">
+        <StatusMessage display="plain" size="sm" tone="error">
           {error}
-        </Text>
+        </StatusMessage>
       ) : null}
       <section>
         <Text fw={500} size="sm">
@@ -313,31 +315,23 @@ export function MemorySettings(): ReactElement {
         ) : (
           <ul className={styles.list}>
             {globalEntries.map((entry) => (
-              <MemoryRow
-                key={`${entry.id}:${entry.updatedAt}`}
-                entry={entry}
-                onChanged={load}
-              />
+              <MemoryRow key={entry.id} entry={entry} onChanged={load} />
             ))}
           </ul>
         )}
       </section>
       <section>
         <Text fw={500} size="sm">
-          This chat
+          {thisChat}
         </Text>
         {threadEntries.length === 0 ? (
           <Text size="sm" c="dimmed">
-            No memories for this chat.
+            No memories for {thisChat}.
           </Text>
         ) : (
           <ul className={styles.list}>
             {threadEntries.map((entry) => (
-              <MemoryRow
-                key={`${entry.id}:${entry.updatedAt}`}
-                entry={entry}
-                onChanged={load}
-              />
+              <MemoryRow key={entry.id} entry={entry} onChanged={load} />
             ))}
           </ul>
         )}
@@ -358,6 +352,6 @@ export function MemorySettings(): ReactElement {
           </ul>
         )}
       </section>
-    </Stack>
+    </SettingsSection>
   );
 }

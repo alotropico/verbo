@@ -41,6 +41,23 @@ function parseJson(value: string): unknown {
   }
 }
 
+/** Only trusted tool results provide receipt identities; text is never scanned. */
+export function commandReceiptIdsFromParts(
+  parts: readonly unknown[],
+): string[] {
+  const ids = new Set<string>();
+  for (const part of parts) {
+    const entry = recordOf(part);
+    if (entry?.type !== "tool-call") continue;
+    const result = recordOf(
+      typeof entry.result === "string" ? parseJson(entry.result) : entry.result,
+    );
+    if (typeof result?.receiptId === "string" && result.receiptId.length <= 128)
+      ids.add(result.receiptId);
+  }
+  return [...ids];
+}
+
 export function touchedFileName(path: string): string {
   const leaf = path.split(/[/\\]/u).findLast((part) => part.length > 0);
   return leaf ?? path;

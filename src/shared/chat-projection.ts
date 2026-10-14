@@ -1,10 +1,12 @@
 import type { ActionResult } from "./action-contract";
 import type { ChatEvent, ChatToolCall, ChatTurnStop } from "./chat-ipc";
+import type { BackendNotice } from "./backend-notice";
 
 type JsonObject = { [key: string]: JsonValue };
 type JsonValue = string | number | boolean | null | JsonValue[] | JsonObject;
 
 export type ProjectedPart =
+  | { type: "data"; name: "backend-notice"; data: BackendNotice }
   | { type: "text"; text: string }
   | {
       type: "tool-call";
@@ -74,6 +76,29 @@ export function projectChatEvent(
   state: ChatProjection,
   event: ChatEvent,
 ): ChatProjection {
+  if (event.type === "backend_notice") {
+    const next: ProjectedPart = {
+      type: "data",
+      name: "backend-notice",
+      data: event.notice,
+    };
+    const exists = state.parts.some(
+      (part) =>
+        part.type === "data" &&
+        part.name === "backend-notice" &&
+        part.data.id === event.notice.id,
+    );
+    return {
+      ...state,
+      parts: exists
+        ? state.parts.map((part) =>
+            part.type === "data" && part.data.id === event.notice.id
+              ? next
+              : part,
+          )
+        : [...state.parts, next],
+    };
+  }
   if (event.type === "delta") {
     return { ...state, openText: event.text };
   }
@@ -123,6 +148,10 @@ export function projectChatEvent(
       openText: state.openText,
       summary:
         event.summary &&
+        !state.parts.some(
+          (part) =>
+            part.type === "data" && part.data.code === `turn_${event.stop}`,
+        ) &&
         (visibleStops.has(event.stop) || event.stop === "completed")
           ? event.summary
           : undefined,

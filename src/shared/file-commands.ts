@@ -154,12 +154,6 @@ function sharedQuery(
   const args: Record<string, unknown> = {};
   const path = one(flags, "path");
   if (path) args.path = path;
-  const depth = one(flags, "depth");
-  if (depth !== undefined) {
-    const parsed = integer(depth, "depth");
-    if (typeof parsed !== "number") return parsed;
-    args.depth = parsed;
-  }
   const entryType = one(flags, "type");
   if (entryType !== undefined) {
     if (
@@ -291,7 +285,6 @@ export function parseFilesCommand(rest: string): ParsedFileCommand {
   }
   const queryFlags = [
     "path",
-    "depth",
     "type",
     "name",
     "glob",
@@ -302,7 +295,7 @@ export function parseFilesCommand(rest: string): ParsedFileCommand {
   const unknown = unknownFlag(
     flags,
     verb === "summary"
-      ? ["path", "depth"]
+      ? ["path"]
       : verb === "grep"
         ? [...queryFlags, "text", "case"]
         : verb === "find"

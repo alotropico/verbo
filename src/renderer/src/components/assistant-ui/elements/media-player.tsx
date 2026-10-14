@@ -10,6 +10,7 @@ import {
 import { PauseIcon, PlayIcon } from "lucide-react";
 import { cx } from "@/lib/cx";
 import { ActionIcon } from "@mantine/core";
+import { StatusMessage } from "@/components/StatusMessage";
 import { field, mono, paper } from "./surfaces";
 import styles from "./media-player.module.css";
 
@@ -209,9 +210,9 @@ export function AudioPlayer({
         onError={() => update({ hasError: true, playing: false })}
       />
       {hasError ? (
-        <span role="alert" className={styles.errorText}>
+        <StatusMessage display="plain" size="xs" tone="error">
           Can&apos;t play this audio
-        </span>
+        </StatusMessage>
       ) : null}
     </div>
   );

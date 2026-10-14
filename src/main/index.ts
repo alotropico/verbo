@@ -21,6 +21,9 @@ import { createScopeStore } from "./db/scopes";
 import { createAssetStore } from "./files/asset-store";
 import { ensureInstalledFileScopes } from "./files/installed-scopes";
 import { reconcileOperations } from "./files/mutation-plan";
+import { closeWebBrowser } from "./web/browser-client";
+import { resolvePublicUrl } from "../shared/public-network";
+import { loadWindowState, rememberWindowState } from "./window-state";
 
 nativeTheme.themeSource = "dark";
 
@@ -32,6 +35,8 @@ app.on("will-quit", () => {
 });
 
 function createWindow(): void {
+  const windowStatePath = join(app.getPath("userData"), "window-state.json");
+  const windowState = loadWindowState(windowStatePath);
   const icon = join(
     app.isPackaged ? process.resourcesPath : app.getAppPath(),
     app.isPackaged ? "icons" : "build",
@@ -39,8 +44,8 @@ function createWindow(): void {
   );
   if (process.platform === "darwin") app.dock?.setIcon(icon);
   mainWindow = new BrowserWindow({
-    width: 1200,
-    height: 800,
+    width: windowState.width,
+    height: windowState.height,
     show: false,
     autoHideMenuBar: true,
     icon,
@@ -54,13 +59,17 @@ function createWindow(): void {
       nodeIntegration: false,
     },
   });
+  rememberWindowState(mainWindow, windowStatePath);
 
   mainWindow.on("ready-to-show", () => {
+    if (windowState.maximized) mainWindow?.maximize();
     mainWindow?.show();
   });
 
   mainWindow.webContents.setWindowOpenHandler((details) => {
-    shell.openExternal(details.url);
+    void resolvePublicUrl(details.url)
+      .then((destination) => shell.openExternal(destination.url.href))
+      .catch(() => {});
     return { action: "deny" };
   });
 
@@ -159,6 +168,15 @@ app.on("window-all-closed", () => {
   }
 });
 
-app.on("before-quit", () => {
-  closeDatabase();
+let webShutdownComplete = false;
+app.on("before-quit", (event) => {
+  if (webShutdownComplete) {
+    closeDatabase();
+    return;
+  }
+  event.preventDefault();
+  void closeWebBrowser().finally(() => {
+    webShutdownComplete = true;
+    app.quit();
+  });
 });

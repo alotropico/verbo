@@ -24,11 +24,18 @@ import {
 } from "@/components/assistant-ui/elements/tool-group.aui";
 import { TouchedFiles } from "./touched-files";
 import { TooltipIconButton } from "./tooltip-icon-button";
+import { BackendNotice } from "@/components/BackendNotice";
 import { CommandNotice } from "@/components/CommandNotice";
+import { StatusMessage } from "@/components/StatusMessage";
+import { WebSources } from "@/components/WebSources";
 import { ContextMeters } from "@/components/ContextMeters";
-import { ChatBlob } from "@/features/chat-blob";
 import { noteThreadActivity, timestampMs } from "@/runtime/thread-activity";
-import { VoiceDraftPanel, VoiceSessionButton } from "@/components/VoiceSession";
+import {
+  VoiceDraftPanel,
+  VoiceOrb,
+  VoiceSessionButton,
+} from "@/components/VoiceSession";
+import { QueueRows } from "@/components/QueueSidebar";
 import { useVoiceListening } from "@/components/voice-session-context";
 import { getQueueEdit, subscribeQueueEdit } from "@/runtime/queue-edit";
 import {
@@ -38,7 +45,7 @@ import {
 } from "@/runtime/latest-exchange";
 import { useLocalCommandGuard } from "@/runtime/use-local-command";
 import { USER_ABORT_NOTICE } from "@shared/chat-ipc";
-import { ActionIcon, Button, Skeleton, Tooltip } from "@mantine/core";
+import { ActionIcon, Button, Skeleton, Text, Tooltip } from "@mantine/core";
 import { cx } from "@/lib/cx";
 import a11y from "@/lib/a11y.module.css";
 import {
@@ -76,15 +83,16 @@ import {
   RefreshCwIcon,
   SquareIcon,
   SparklesIcon,
-  TriangleAlertIcon,
   OrbitIcon,
   ThumbsDownIcon,
   ThumbsUpIcon,
+  XIcon,
 } from "lucide-react";
 import {
   createContext,
   useContext,
   useEffect,
+  useId,
   useLayoutEffect,
   useRef,
   useState,
@@ -264,6 +272,7 @@ const ThreadRoot: FC<{ isEmpty: boolean; autoFocus: boolean }> = ({
             <ThreadPrimitive.Messages>
               {() => <ThreadMessage />}
             </ThreadPrimitive.Messages>
+            <VoiceDraftPanel />
           </div>
 
           <ThreadPrimitive.ViewportFooter
@@ -276,12 +285,11 @@ const ThreadRoot: FC<{ isEmpty: boolean; autoFocus: boolean }> = ({
             {!isEmpty && <div aria-hidden className={styles.threadFade} />}
             <ThreadFollowupSuggestions />
             <CommandNotice />
-            <VoiceDraftPanel />
             <div className={styles.composerBlock}>
+              <QueueRows />
+              <VoiceOrb />
               <Composer autoFocus={autoFocus} />
-              <AuiIf condition={(s) => s.thread.messages.length > 0}>
-                <ContextMeters />
-              </AuiIf>
+              <ContextMeters />
             </div>
             <AuiIf condition={(s) => isNewChatView(s) && s.composer.isEmpty}>
               <ThreadSuggestions />
@@ -552,10 +560,19 @@ const WELCOME_MODIFIERS: readonly WelcomePart[] = [
   { word: "askew", gloss: "At an angle or poorly aligned." },
   { word: "at an odd hour", gloss: "At an unusual or inconvenient time." },
   { word: "betwixt hushes", gloss: "Between two moments of quiet." },
-  { word: "beyond the pale", gloss: "Outside accepted standards of decent behavior." },
-  { word: "by shady means", gloss: "Using methods of questionable legitimacy." },
+  {
+    word: "beyond the pale",
+    gloss: "Outside accepted standards of decent behavior.",
+  },
+  {
+    word: "by shady means",
+    gloss: "Using methods of questionable legitimacy.",
+  },
   { word: "contrariwise", gloss: "In the opposite way or direction." },
-  { word: "in a loaned hat", gloss: "Wearing a hat belonging to someone else." },
+  {
+    word: "in a loaned hat",
+    gloss: "Wearing a hat belonging to someone else.",
+  },
   { word: "in a minor key", gloss: "With a subdued or melancholy tone." },
   { word: "among rogues", gloss: "Among people of questionable character." },
   { word: "obliquely", gloss: "At an angle or indirectly." },
@@ -566,28 +583,67 @@ const WELCOME_MODIFIERS: readonly WelcomePart[] = [
   { word: "under protest", gloss: "With some reluctance or objection." },
   { word: "with sly aplomb", gloss: "With crafty confidence and composure." },
   { word: "with gravitas", gloss: "With an air of solemn importance." },
-  { word: "ceremoniously", gloss: "With elaborate formality for the occasion." },
+  {
+    word: "ceremoniously",
+    gloss: "With elaborate formality for the occasion.",
+  },
   { word: "without a map", gloss: "Without guidance or a clear direction." },
-  { word: "against custom", gloss: "Contrary to prevailing habits or expectations." },
-  { word: "amid the hubbub", gloss: "Surrounded by noisy activity and chatter." },
+  {
+    word: "against custom",
+    gloss: "Contrary to prevailing habits or expectations.",
+  },
+  {
+    word: "amid the hubbub",
+    gloss: "Surrounded by noisy activity and chatter.",
+  },
   { word: "as fate permits", gloss: "As circumstances or chance will allow." },
   { word: "rakishly askew", gloss: "Tilted with a jaunty, mischievous air." },
   { word: "by candlelight", gloss: "Illuminated by the glow of candles." },
-  { word: "for odd reasons", gloss: "For peculiar or hard-to-explain motives." },
-  { word: "in a fake beard", gloss: "Wearing an unconvincing disguise on your chin." },
+  {
+    word: "for odd reasons",
+    gloss: "For peculiar or hard-to-explain motives.",
+  },
+  {
+    word: "in a fake beard",
+    gloss: "Wearing an unconvincing disguise on your chin.",
+  },
   { word: "in a pique", gloss: "During a sudden burst of irritation." },
-  { word: "amid misgivings", gloss: "With uncertainty clouding your thoughts." },
-  { word: "in full plumage", gloss: "Dressed elaborately to attract admiring attention." },
-  { word: "in high dudgeon", gloss: "With pronounced indignation or offended pride." },
+  {
+    word: "amid misgivings",
+    gloss: "With uncertainty clouding your thoughts.",
+  },
+  {
+    word: "in full plumage",
+    gloss: "Dressed elaborately to attract admiring attention.",
+  },
+  {
+    word: "in high dudgeon",
+    gloss: "With pronounced indignation or offended pride.",
+  },
   { word: "in odd socks", gloss: "Wearing socks that do not match." },
-  { word: "in shady haste", gloss: "With urgency that raises awkward questions." },
-  { word: "past the bell", gloss: "Beyond the expected or permitted duration." },
+  {
+    word: "in shady haste",
+    gloss: "With urgency that raises awkward questions.",
+  },
+  {
+    word: "past the bell",
+    gloss: "Beyond the expected or permitted duration.",
+  },
   { word: "under an alias", gloss: "While pretending to be someone else." },
-  { word: "with a sly grin", gloss: "With a knowing, slightly mischievous smile." },
+  {
+    word: "with a sly grin",
+    gloss: "With a knowing, slightly mischievous smile.",
+  },
   { word: "with faux poise", gloss: "With composure that is merely an act." },
-  { word: "with mock pomp", gloss: "With exaggerated ceremony intended as a joke." },
+  {
+    word: "with mock pomp",
+    gloss: "With exaggerated ceremony intended as a joke.",
+  },
   { word: "with panache", gloss: "With striking style and confident flair." },
-  { word: "without fanfare", gloss: "Without ceremony, publicity, or special attention." },
+  {
+    word: "without fanfare",
+    gloss: "Without ceremony, publicity, or special attention.",
+  },
 ];
 
 const pickWelcomePart = (parts: readonly WelcomePart[]): WelcomePart =>
@@ -644,7 +700,6 @@ const ThreadWelcome: FC = () => {
         <Tooltip label={modifier.gloss} multiline maw={280}>
           <em className={styles.welcomeEmphasis}>{modifier.word}</em>
         </Tooltip>{" "}
-        <ChatBlob />
       </h1>
       <p className={styles.welcomeDescription}>
         {line ?? (linePending ? <TypingDots label="Writing a line" /> : null)}
@@ -713,6 +768,10 @@ const STARTER_PROMPTS = [
 
 const Composer: FC<{ autoFocus: boolean }> = ({ autoFocus }) => {
   const command = useLocalCommandGuard();
+  const threadId = useAuiState((state) => state.threads.mainThreadId);
+  const editing = useSyncExternalStore(subscribeQueueEdit, () =>
+    getQueueEdit(threadId),
+  );
   return (
     <ComposerPrimitive.Root
       className={cx("aui-composer-root", styles.composerRoot)}
@@ -727,6 +786,12 @@ const Composer: FC<{ autoFocus: boolean }> = ({ autoFocus }) => {
         }
       >
         <ComposerAttachments />
+        {editing?.attachmentRefs.length ? (
+          <Text size="xs" c="dimmed" aria-label="Queued attachments">
+            Queued attachments:{" "}
+            {editing.attachmentRefs.map((ref) => ref.name).join(", ")}
+          </Text>
+        ) : null}
         <ComposerPrimitive.Input
           placeholder="What's on your mind?"
           className={cx("aui-composer-input", styles.composerInput)}
@@ -739,6 +804,7 @@ const Composer: FC<{ autoFocus: boolean }> = ({ autoFocus }) => {
         <ComposerAction
           canSend={command.canSend}
           onSend={command.sendOrCommand}
+          onCancelEdit={command.cancelQueueEdit}
         />
       </ComposerPrimitive.AttachmentDropzone>
     </ComposerPrimitive.Root>
@@ -748,12 +814,14 @@ const Composer: FC<{ autoFocus: boolean }> = ({ autoFocus }) => {
 const ComposerAction: FC<{
   canSend: boolean;
   onSend: () => void;
-}> = ({ canSend, onSend }) => {
+  onCancelEdit: () => void;
+}> = ({ canSend, onSend, onCancelEdit }) => {
   const listening = useVoiceListening();
+  const threadId = useAuiState((state) => state.threads.mainThreadId);
   const editing = useSyncExternalStore(
     subscribeQueueEdit,
-    getQueueEdit,
-    getQueueEdit,
+    () => getQueueEdit(threadId),
+    () => getQueueEdit(threadId),
   );
   // The stop control only cancels the send while no run it could stop is going.
   const isSending = useAuiState(
@@ -772,14 +840,18 @@ const ComposerAction: FC<{
       <AuiIf condition={(s) => s.thread.capabilities.attachments}>
         <ComposerAddAttachment />
       </AuiIf>
-      <span className={styles.composerHint}>
-        Enter to send <span aria-hidden="true">↵</span>
-        <span className={styles.composerHintDetail}>
-          {" "}
-          · Shift + Enter for a new line
-        </span>
-      </span>
       <div className={styles.composerActions}>
+        {editing ? (
+          <TooltipIconButton
+            tooltip="Cancel queue edit"
+            type="button"
+            aria-label="Cancel queue edit"
+            className={styles.composerIconButton}
+            onClick={onCancelEdit}
+          >
+            <XIcon className={styles.composerIconSm} />
+          </TooltipIconButton>
+        ) : null}
         <AuiIf condition={(s) => s.thread.capabilities.dictation}>
           <AuiIf condition={(s) => s.composer.dictation == null}>
             <ComposerPrimitive.Dictate
@@ -889,12 +961,14 @@ const MessageError: FC = () => {
       <ErrorPrimitive.Root
         className={cx("aui-message-error-root", styles.messageErrorRoot)}
       >
-        <ErrorPrimitive.Message
-          className={cx(
-            "aui-message-error-message",
-            styles.messageErrorMessage,
-          )}
-        />
+        <StatusMessage display="outline" role={false} size="sm" tone="error">
+          <ErrorPrimitive.Message
+            className={cx(
+              "aui-message-error-message",
+              styles.messageErrorMessage,
+            )}
+          />
+        </StatusMessage>
       </ErrorPrimitive.Root>
     </MessagePrimitive.Error>
   );
@@ -962,13 +1036,9 @@ const AssistantMessage: FC = () => {
               }
               case "text":
                 return part.text === USER_ABORT_NOTICE ? (
-                  <p className={styles.abortNotice} role="status">
-                    <TriangleAlertIcon
-                      className={styles.abortNoticeIcon}
-                      aria-hidden
-                    />
-                    <span>{USER_ABORT_NOTICE}</span>
-                  </p>
+                  <StatusMessage display="plain" size="sm" tone="warning">
+                    {USER_ABORT_NOTICE}
+                  </StatusMessage>
                 ) : (
                   <SpeechSyncedText />
                 );
@@ -977,7 +1047,11 @@ const AssistantMessage: FC = () => {
               case "tool-call":
                 return part.toolUI ?? <ToolFallbackComponent {...part} />;
               case "data":
-                return part.dataRendererUI;
+                return part.name === "backend-notice" ? (
+                  <BackendNotice data={part.data} />
+                ) : (
+                  part.dataRendererUI
+                );
               case "file":
                 return (
                   <div
@@ -1013,6 +1087,7 @@ const AssistantMessage: FC = () => {
         </MessagePrimitive.GroupedParts>
         <MessageError />
         <TouchedFiles />
+        <WebSources />
       </div>
 
       <div
@@ -1205,6 +1280,63 @@ const UserImagePart: ImageMessagePartComponent = (part) => (
   </div>
 );
 
+const CollapsibleUserText: TextMessagePartComponent = ({ text }) => {
+  const [expanded, setExpanded] = useState(false);
+  const [overflowing, setOverflowing] = useState(false);
+  const node = useRef<HTMLDivElement | null>(null);
+  const id = useId();
+  useLayoutEffect(() => {
+    const element = node.current;
+    if (!element) return undefined;
+    const measure = (): void =>
+      setOverflowing(element.scrollHeight > element.clientHeight + 1);
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [text, expanded]);
+  const toggle = (): void => {
+    if (!window.getSelection()?.toString() && (overflowing || expanded))
+      setExpanded((value) => !value);
+  };
+  return (
+    <>
+      <div
+        id={id}
+        ref={node}
+        className={cx(styles.userText, !expanded && styles.userTextClamped)}
+        role={overflowing || expanded ? "button" : undefined}
+        tabIndex={overflowing || expanded ? 0 : undefined}
+        aria-expanded={overflowing || expanded ? expanded : undefined}
+        onClick={toggle}
+        onKeyDown={(event) => {
+          if (
+            (event.key === "Enter" || event.key === " ") &&
+            (overflowing || expanded)
+          ) {
+            event.preventDefault();
+            setExpanded((value) => !value);
+          }
+        }}
+      >
+        {text}
+      </div>
+      {overflowing || expanded ? (
+        <Button
+          type="button"
+          size="compact-xs"
+          variant="subtle"
+          aria-controls={id}
+          aria-expanded={expanded}
+          onClick={() => setExpanded((value) => !value)}
+        >
+          {expanded ? "Show less" : "Show full message"}
+        </Button>
+      ) : null}
+    </>
+  );
+};
+
 const UserMessage: FC = () => {
   return (
     <MessagePrimitive.Root
@@ -1224,7 +1356,11 @@ const UserMessage: FC = () => {
           className={cx("aui-user-message-content", styles.userMessageContent)}
         >
           <MessagePrimitive.Parts
-            components={{ File: UserFilePart, Image: UserImagePart }}
+            components={{
+              Text: CollapsibleUserText,
+              File: UserFilePart,
+              Image: UserImagePart,
+            }}
           />
         </div>
         <div

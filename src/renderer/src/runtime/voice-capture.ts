@@ -6,6 +6,8 @@ import {
   type LevelClock,
   type LevelLimits,
 } from "@shared/voice-audio";
+import { MAX_VOICE_AUDIO_BYTES } from "@shared/voice";
+import type { RecognitionSnapshot } from "@shared/progressive-recognition";
 
 export type VoiceCapture = {
   stop: () => void;
@@ -26,10 +28,11 @@ function captureError(error: unknown): Error {
 
 export async function startVoiceCapture(input: {
   paused: () => boolean;
-  onSpeechStart?: () => void;
-  onSpeechEnd?: (emitted: boolean) => void;
-  onSegmentSkipped?: () => void;
+  onSpeechStart?: (id: string) => void;
+  onSpeechEnd?: (emitted: boolean, id: string) => void;
+  onSegmentSkipped?: (id: string) => void;
   onSegment: (audio: Uint8Array) => void;
+  onSnapshot?: (snapshot: RecognitionSnapshot) => void;
   limits?: () => LevelLimits;
 }): Promise<VoiceCapture> {
   if (
@@ -72,39 +75,86 @@ export async function startVoiceCapture(input: {
   const samples = new Float32Array(analyser.fftSize);
   let clock: LevelClock = idleLevelClock();
   let recorder: MediaRecorder | null = null;
-  let chunks: Blob[] = [];
-  let emit = false;
+  let current: { id: string; emit: boolean } | null = null;
   let stopped = false;
   let timer = 0;
   let last = performance.now();
 
   const stopRecorder = (shouldEmit: boolean): void => {
-    emit = shouldEmit;
+    if (current) current.emit = shouldEmit;
     if (recorder?.state === "recording") recorder.stop();
   };
 
   const startRecorder = (): void => {
     if (recorder?.state === "recording") return;
-    chunks = [];
-    emit = false;
+    const segment = { id: crypto.randomUUID(), emit: false };
+    current = segment;
+    input.onSpeechStart?.(segment.id);
+    const chunks: Blob[] = [];
+    let bytes = 0;
+    let sequence = 0;
+    let snapshotAt = performance.now();
     const next = new MediaRecorder(stream, { mimeType });
     next.ondataavailable = (event) => {
-      if (event.data.size > 0) chunks.push(event.data);
+      if (event.data.size <= 0) return;
+      bytes += event.data.size;
+      if (bytes > MAX_VOICE_AUDIO_BYTES) {
+        segment.emit = false;
+        if (next.state === "recording") next.stop();
+        return;
+      }
+      chunks.push(event.data);
+      if (
+        input.onSnapshot &&
+        next.state === "recording" &&
+        performance.now() - snapshotAt >= 2000
+      ) {
+        snapshotAt = performance.now();
+        const seq = ++sequence;
+        // Always include the initial WebM header and every earlier chunk, never decode a bare timeslice.
+        void new Blob(chunks, { type: mimeType })
+          .arrayBuffer()
+          .then((buffer) => {
+            if (!stopped && next.state === "recording")
+              input.onSnapshot?.({
+                id: segment.id,
+                sequence: seq,
+                final: false,
+                audio: new Uint8Array(buffer),
+              });
+          })
+          .catch(() => undefined);
+      }
     };
     next.onstop = () => {
       const blob = new Blob(chunks, { type: mimeType });
-      chunks = [];
-      if (!emit || blob.size === 0 || stopped) {
-        input.onSegmentSkipped?.();
+      if (
+        !segment.emit ||
+        blob.size === 0 ||
+        stopped ||
+        bytes > MAX_VOICE_AUDIO_BYTES
+      ) {
+        input.onSegmentSkipped?.(segment.id);
         return;
       }
-      void blob.arrayBuffer().then((buffer) => {
-        if (stopped) return;
-        input.onSegment(new Uint8Array(buffer));
-      });
+      void blob
+        .arrayBuffer()
+        .then((buffer) => {
+          if (stopped) return;
+          const audio = new Uint8Array(buffer);
+          if (input.onSnapshot)
+            input.onSnapshot({
+              id: segment.id,
+              sequence: ++sequence,
+              final: true,
+              audio,
+            });
+          else input.onSegment(audio);
+        })
+        .catch(() => input.onSegmentSkipped?.(segment.id));
     };
     recorder = next;
-    next.start();
+    next.start(1000);
   };
 
   const tick = (): void => {
@@ -124,12 +174,11 @@ export async function startVoiceCapture(input: {
     );
     clock = step.clock;
     if (step.start) {
-      input.onSpeechStart?.();
       startRecorder();
     }
     if (step.finish) {
       const emitted = step.finish === "emit";
-      input.onSpeechEnd?.(emitted);
+      input.onSpeechEnd?.(emitted, current?.id ?? "");
       stopRecorder(emitted);
     }
     timer = window.setTimeout(tick, 100);

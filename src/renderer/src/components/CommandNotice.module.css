@@ -7,17 +7,3 @@
   margin-inline-start: var(--mantine-spacing-sm);
   text-decoration: underline;
 }
-
-.error {
-  color: var(--destructive);
-  font-size: var(--mantine-font-size-sm);
-  margin: 0;
-  white-space: pre-wrap;
-}
-
-.notice {
-  color: var(--muted-foreground);
-  font-size: var(--mantine-font-size-sm);
-  margin: 0;
-  white-space: pre-wrap;
-}

@@ -1,9 +1,6 @@
 import type { ChatMessage } from "../../shared/chat-ipc";
-
-/** Rough token budget: ~4 chars per token for Latin text. */
-export function estimateTokens(text: string): number {
-  return Math.ceil(text.length / 4);
-}
+import { estimateTokens } from "../../shared/token-estimate";
+export { estimateTokens } from "../../shared/token-estimate";
 
 export type TrimResult = {
   messages: ChatMessage[];

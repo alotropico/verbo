@@ -23,9 +23,8 @@
   text-align: center;
 }
 
-.error {
-  color: var(--destructive);
-  margin-top: var(--mantine-spacing-xs);
+.alert {
+  margin-block-start: var(--mantine-spacing-xs);
 }
 
 .label {

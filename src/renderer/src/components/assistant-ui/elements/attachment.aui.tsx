@@ -18,6 +18,7 @@ import {
 import { Avatar, Modal, Tooltip } from "@mantine/core";
 import { useDisclosure } from "@mantine/hooks";
 import { TooltipIconButton } from "./tooltip-icon-button";
+import { StatusMessage } from "@/components/StatusMessage";
 import { useAttachmentSrc } from "@/hooks/use-attachment-src";
 import { cx } from "@/lib/cx";
 import a11y from "@/lib/a11y.module.css";
@@ -159,7 +160,11 @@ const AttachmentUI: FC = () => {
         label={
           <>
             <AttachmentPrimitive.Name />
-            {errorMessage ? <p>{errorMessage}</p> : null}
+            {errorMessage ? (
+              <StatusMessage display="plain" size="xs" tone="error">
+                {errorMessage}
+              </StatusMessage>
+            ) : null}
           </>
         }
         position="top"

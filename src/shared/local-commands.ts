@@ -1,4 +1,5 @@
 import { parseActionCommand, parseFilesCommand } from "./file-commands";
+import type { ActionResult } from "./action-contract";
 
 export const LOCAL_COMMANDS = [
   {
@@ -80,6 +81,7 @@ export type LocalCommandResult = {
   summary: string;
   openMemory?: boolean;
   newThread?: boolean;
+  receipt?: ActionResult;
 };
 
 export type ParsedCommand =
@@ -104,7 +106,7 @@ const known = new Set<string>(LOCAL_COMMANDS.map((command) => command.name));
 export function parseLocalCommand(text: string): ParsedCommand {
   const trimmed = text.trim();
   if (!trimmed.startsWith("/")) return { handled: false };
-  const match = /^\/([A-Za-z][A-Za-z0-9-]*)(?:\s+([\s\S]*))?$/.exec(trimmed);
+  const match = /^\/([A-Za-z][A-Za-z0-9_.-]*)(?:\s+([\s\S]*))?$/.exec(trimmed);
   if (!match) {
     return {
       handled: true,
@@ -115,6 +117,17 @@ export function parseLocalCommand(text: string): ParsedCommand {
   const name = match[1]?.toLowerCase() ?? "";
   const rest = match[2]?.trim() ?? "";
   if (!known.has(name)) {
+    if (name.includes(".")) {
+      const parsed = parseActionCommand(`${name} ${rest || "{}"}`);
+      return parsed.ok
+        ? {
+            handled: true,
+            name: "action",
+            actionId: parsed.call.actionId,
+            args: parsed.call.args,
+          }
+        : { handled: true, name: "malformed", summary: parsed.summary };
+    }
     return {
       handled: true,
       name: "malformed",

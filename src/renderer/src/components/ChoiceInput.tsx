@@ -13,7 +13,8 @@ function options(data: SelectProps["data"]): Option[] {
     }
     if ("group" in item) {
       for (const child of item.items) {
-        if (typeof child === "string") list.push({ value: child, label: child });
+        if (typeof child === "string")
+          list.push({ value: child, label: child });
         else if ("value" in child) {
           list.push({
             value: child.value,
@@ -34,7 +35,7 @@ export function ChoiceInput({
   ...props
 }: SelectProps): ReactElement {
   const choices = options(data);
-  if (choices.length === 1) {
+  if (choices.length === 1 && !props.clearable && !props.searchable) {
     const only = choices[0];
     return (
       <TextInput
@@ -45,6 +46,7 @@ export function ChoiceInput({
         className={props.className}
         value={only?.label ?? ""}
         readOnly
+        disabled={props.disabled}
       />
     );
   }

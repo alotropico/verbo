@@ -13,6 +13,45 @@ const listed: ActionResult = {
 };
 
 describe("chat projection", () => {
+  it("keeps backend progress distinct, updates it in place and avoids repeating a terminal notice as model text", () => {
+    let state = emptyChatProjection();
+    const notice = {
+      id: "progress:call",
+      origin: "backend" as const,
+      severity: "info" as const,
+      message: "Searching Google",
+      code: "command_progress",
+    };
+    state = projectChatEvent(state, { type: "backend_notice", notice });
+    state = projectChatEvent(state, {
+      type: "backend_notice",
+      notice: { ...notice, message: "Searching DuckDuckGo" },
+    });
+    expect(state.parts).toHaveLength(1);
+    expect(state.parts[0]).toMatchObject({
+      type: "data",
+      name: "backend-notice",
+      data: { message: "Searching DuckDuckGo" },
+    });
+    state = projectChatEvent(state, {
+      type: "backend_notice",
+      notice: {
+        ...notice,
+        id: "turn:limit",
+        severity: "error",
+        message: "Turn limit reached",
+        code: "turn_limit",
+      },
+    });
+    state = projectChatEvent(state, {
+      type: "turn_status",
+      stop: "limit",
+      summary: "Turn limit reached",
+    });
+    expect(
+      visibleProjection(state).filter((part) => part.type === "text"),
+    ).toEqual([]);
+  });
   it("keeps earlier text and a settled tool when the next round streams", () => {
     let state = emptyChatProjection();
     state = projectChatEvent(state, { type: "delta", text: "Checking" });

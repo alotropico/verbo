@@ -3,7 +3,7 @@ import {
   useAui,
   useAuiState,
 } from "@assistant-ui/react";
-import type { AttachmentRef } from "@shared/attachments";
+import { ATTACHMENT_LIMITS, type AttachmentRef } from "@shared/attachments";
 import { parseLocalCommand } from "@shared/local-commands";
 import {
   isPersistedThreadId,
@@ -17,6 +17,9 @@ import {
 import { publishCommandStatus } from "@/runtime/command-status";
 import {
   getQueueEdit,
+  clearQueueEdit,
+  keepQueueComposerRestore,
+  takeQueueComposerRestore,
   setQueueEdit,
   type QueueEditLock,
 } from "@/runtime/queue-edit";
@@ -26,6 +29,7 @@ export function useLocalCommandGuard(): {
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
   onKeyDown: (event: KeyboardEvent<HTMLTextAreaElement>) => void;
   sendOrCommand: () => void;
+  cancelQueueEdit: () => void;
   canSend: boolean;
 } {
   const aui = useAui();
@@ -39,14 +43,64 @@ export function useLocalCommandGuard(): {
   useEffect(() => {
     const onEdit = (event: Event): void => {
       const detail = (
-        event as CustomEvent<{ text: string; lock: QueueEditLock | null }>
+        event as CustomEvent<{
+          threadId: string;
+          text: string;
+          lock: QueueEditLock | null;
+        }>
       ).detail;
+      if (detail.threadId !== aui.threads().getState().mainThreadId) return;
       setQueueEdit(detail.lock);
       input.setText(detail.text);
     };
     window.addEventListener("verbo:queue-edit", onEdit);
     return () => window.removeEventListener("verbo:queue-edit", onEdit);
-  }, [input]);
+  }, [input, aui]);
+
+  useEffect(() => {
+    const restored = takeQueueComposerRestore(threadId);
+    if (restored === undefined) return;
+    input.setText(restored);
+    void aui.composer().clearAttachments();
+  }, [threadId, input, aui]);
+
+  const restoreComposer = (text: string): void => {
+    if (aui.threads().getState().mainThreadId !== threadId) {
+      keepQueueComposerRestore(threadId, text);
+      return;
+    }
+    input.setText(text);
+    void aui.composer().clearAttachments();
+  };
+
+  const cancelQueueEdit = (): void => {
+    const editing = getQueueEdit(threadId);
+    if (!editing || sending.current) return;
+    sending.current = true;
+    void window.verbo.queue
+      .cancelEdit({
+        id: editing.id,
+        threadId: editing.threadId,
+        token: editing.token,
+      })
+      .then((result) => {
+        if (!result.ok) {
+          publishCommandStatus({ status: "error", summary: result.summary });
+          return;
+        }
+        clearQueueEdit(editing);
+        restoreComposer(result.composerText);
+      })
+      .catch(() =>
+        publishCommandStatus({
+          status: "error",
+          summary: "The queued edit could not be cancelled.",
+        }),
+      )
+      .finally(() => {
+        sending.current = false;
+      });
+  };
 
   const runIfCommand = (): boolean => {
     if (!parseLocalCommand(input.value).handled) return false;
@@ -82,8 +136,24 @@ export function useLocalCommandGuard(): {
   const submitText = (): void => {
     const text = input.value.trim();
     const pending = aui.composer().getState().attachments;
-    if ((!text && pending.length === 0) || sending.current || runIfCommand())
+    const editing = getQueueEdit(threadId);
+    if (
+      (!text && pending.length === 0 && !editing?.attachmentRefs.length) ||
+      sending.current ||
+      (!editing && runIfCommand())
+    )
       return;
+    if (
+      editing &&
+      pending.length + editing.attachmentRefs.length >
+        ATTACHMENT_LIMITS.maxPerTurn
+    ) {
+      publishCommandStatus({
+        status: "error",
+        summary: `A queued message can have at most ${ATTACHMENT_LIMITS.maxPerTurn} attachments.`,
+      });
+      return;
+    }
     sending.current = true;
     void (async () => {
       const stored: AttachmentRef[] = [];
@@ -116,23 +186,25 @@ export function useLocalCommandGuard(): {
           }
           stored.push(savedFile.attachment);
         }
-        const editing = getQueueEdit();
         if (editing) {
           const saved = await window.verbo.queue.saveEdit({
             id: editing.id,
             threadId: editing.threadId,
             revision: editing.revision,
             token: editing.token,
-            text: text || stored.map((ref) => ref.name).join(", "),
-            attachmentRefs: stored.length > 0 ? stored : editing.attachmentRefs,
+            text:
+              text ||
+              [...editing.attachmentRefs, ...stored]
+                .map((ref) => ref.name)
+                .join(", "),
+            attachmentRefs: [...editing.attachmentRefs, ...stored],
           });
           if (!saved.ok) {
             publishCommandStatus({ status: "error", summary: saved.summary });
             return;
           }
-          setQueueEdit(null);
-          input.setText(saved.composerText);
-          await aui.composer().clearAttachments();
+          clearQueueEdit(editing);
+          restoreComposer(saved.composerText);
           return;
         }
         const queuedText = text || stored.map((ref) => ref.name).join(", ");
@@ -185,17 +257,25 @@ export function useLocalCommandGuard(): {
       submitText();
     },
     onKeyDown: (event) => {
+      if (event.key === "Escape" && getQueueEdit(threadId)) {
+        event.preventDefault();
+        cancelQueueEdit();
+        return;
+      }
       if (event.key !== "Enter" || event.shiftKey) return;
       if (event.nativeEvent.isComposing) return;
-      if (!isRunning && !getQueueEdit()) return;
+      if (!isRunning && !getQueueEdit(threadId)) return;
       event.preventDefault();
       submitText();
     },
     sendOrCommand: () => {
       submitText();
     },
+    cancelQueueEdit,
     canSend:
-      (input.value.trim().length > 0 || attachmentCount > 0) &&
+      (input.value.trim().length > 0 ||
+        attachmentCount > 0 ||
+        Boolean(getQueueEdit(threadId)?.attachmentRefs.length)) &&
       !input.isDisabled,
   };
 }

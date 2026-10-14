@@ -1,4 +1,4 @@
-import type { FileScopeRecord, ScopeCommit } from "@shared/files";
+import type { FileScopeRecord, ScopeCommit, FolderKind } from "@shared/files";
 
 export type FileScopeDraft = {
   key: string;
@@ -11,6 +11,7 @@ export type FileScopeDraft = {
   write: boolean;
   defaultSave: boolean;
   removed: boolean;
+  kind?: FolderKind;
 };
 
 export function draftsFromScopes(scopes: FileScopeRecord[]): FileScopeDraft[] {
@@ -23,6 +24,7 @@ export function draftsFromScopes(scopes: FileScopeRecord[]): FileScopeDraft[] {
     write: scope.write,
     defaultSave: scope.defaultSave,
     removed: false,
+    kind: scope.kind ?? "none",
   }));
 }
 
@@ -38,6 +40,7 @@ export function scopeCommitFromDrafts(rows: FileScopeDraft[]): ScopeCommit {
               read: row.read,
               write: row.write,
               defaultSave: row.defaultSave,
+              kind: row.kind ?? "none",
             },
           ]
         : [],
@@ -51,6 +54,7 @@ export function scopeCommitFromDrafts(rows: FileScopeDraft[]): ScopeCommit {
               read: row.read,
               write: row.write,
               defaultSave: row.defaultSave,
+              kind: row.kind,
             },
           ]
         : [],

@@ -1,5 +1,9 @@
 import { z } from "zod";
 
+export const folderKinds = ["none", "projects", "obsidian"] as const;
+export const folderKindSchema = z.enum(folderKinds);
+export type FolderKind = z.infer<typeof folderKindSchema>;
+
 export const scopeAliasSchema = z
   .string()
   .trim()
@@ -49,6 +53,7 @@ export const scopeFlagSchema = z
     read: z.boolean(),
     write: z.boolean(),
     defaultSave: z.boolean(),
+    kind: folderKindSchema.optional(),
   })
   .strict();
 
@@ -77,6 +82,12 @@ export const scopeCommitSchema = z
   })
   .strict();
 
+export const scopePatchSchema = scopeFlagSchema
+  .partial()
+  .extend({ id: z.string().min(1).max(128) })
+  .strict();
+export type ScopePatch = z.infer<typeof scopePatchSchema>;
+
 export type ScopeCommit = z.infer<typeof scopeCommitSchema>;
 
 export type FileScopeRecord = {
@@ -87,11 +98,16 @@ export type FileScopeRecord = {
   read: boolean;
   write: boolean;
   defaultSave: boolean;
+  kind?: FolderKind;
   createdAt: number;
   updatedAt: number;
 };
 
 export type FileGrantKind = "file" | "directory";
+
+export type ScopeMutationResult =
+  | { ok: true; summary: string; scopes: FileScopeRecord[] }
+  | { ok: false; code: string; summary: string };
 
 export type FileGrantRecord = {
   id: string;

@@ -1,6 +1,5 @@
 import { useAui, useAuiState } from "@assistant-ui/react";
-import { ActionIcon, Button, Group, Text } from "@mantine/core";
-import { useMediaQuery } from "@mantine/hooks";
+import { ActionIcon, Text, UnstyledButton } from "@mantine/core";
 import { isPersistedThreadId } from "@shared/thread-identity";
 import type { AttachmentRef } from "@shared/attachments";
 import type { QueuedTurn } from "@shared/turn-queue";
@@ -9,20 +8,38 @@ import {
   ArrowUpIcon,
   PencilIcon,
   Trash2Icon,
-  XIcon,
 } from "lucide-react";
-import { useEffect, useState, type ReactElement } from "react";
+import {
+  createContext,
+  useContext,
+  useEffect,
+  useState,
+  type PropsWithChildren,
+  type ReactElement,
+} from "react";
 import { appendUserTurn } from "@/runtime/attachment-message";
-import { TtsControls } from "@/components/VoiceSession";
-import { useVoiceSession } from "@/components/voice-session-context";
-import { holdQueueLease } from "@/runtime/queue-lease";
+import { holdQueueLease, takeQueueLease } from "@/runtime/queue-lease";
 import {
   suppressHistoryAppends,
+  clearQueueEdit,
+  getQueueEdit,
+  keepQueueComposerRestore,
   type QueueEditLock,
 } from "@/runtime/queue-edit";
 import { publishCommandStatus } from "@/runtime/command-status";
 import styles from "./QueueSidebar.module.css";
 
+type QueueSnapshot = {
+  threadId: string;
+  items: QueuedTurn[];
+  outgoingId: string | null;
+};
+const EMPTY_QUEUE: QueuedTurn[] = [];
+const QueueContext = createContext<QueueSnapshot>({
+  threadId: "",
+  items: EMPTY_QUEUE,
+  outgoingId: null,
+});
 function statusLabel(item: QueuedTurn): string {
   if (item.status === "editing") return "Editing";
   if (item.status === "pinned") return "Pinned";
@@ -30,28 +47,40 @@ function statusLabel(item: QueuedTurn): string {
   if (item.status === "interrupted") return "Interrupted";
   return "Queued";
 }
-
-export function QueueSidebar(): ReactElement | null {
+/** Owns queue delivery independently of whether waiting rows are displayed. */
+export function QueueLifecycleProvider({
+  children,
+}: PropsWithChildren): ReactElement {
   const aui = useAui();
   const threadId = useAuiState((state) => state.threads.mainThreadId);
-  const narrow = useMediaQuery("(max-width: 47.99em)", false, {
-    getInitialValueInEffect: false,
+  const [snapshot, setSnapshot] = useState<QueueSnapshot>({
+    threadId: "",
+    items: EMPTY_QUEUE,
+    outgoingId: null,
   });
-  const [items, setItems] = useState<QueuedTurn[]>([]);
-  const [outgoingId, setOutgoingId] = useState<string | null>(null);
-  const [open, setOpen] = useState(true);
-  const [expandedId, setExpandedId] = useState<string | null>(null);
-  const [drawer, setDrawer] = useState(false);
-
   useEffect(() => {
     if (!isPersistedThreadId(threadId)) return undefined;
     let cancelled = false;
+    let requested = 0;
     const load = (): void => {
-      void window.verbo.queue.list(threadId).then((snapshot) => {
-        if (cancelled) return;
-        setItems(snapshot.items);
-        setOutgoingId(snapshot.outgoingId);
-      });
+      const revision = ++requested;
+      void window.verbo.queue
+        .list(threadId)
+        .then((next) => {
+          if (!cancelled && requested === revision)
+            setSnapshot({
+              threadId,
+              items: next.items,
+              outgoingId: next.outgoingId,
+            });
+        })
+        .catch(() => {
+          if (!cancelled)
+            publishCommandStatus({
+              status: "error",
+              summary: "Queued messages could not be loaded.",
+            });
+        });
     };
     load();
     const stop = window.verbo.queue.subscribe(load);
@@ -60,7 +89,6 @@ export function QueueSidebar(): ReactElement | null {
       stop();
     };
   }, [threadId]);
-
   useEffect(() => {
     if (!isPersistedThreadId(threadId)) return undefined;
     let pending: {
@@ -74,7 +102,16 @@ export function QueueSidebar(): ReactElement | null {
       pending = null;
       suppressHistoryAppends(2);
       holdQueueLease(next.queueItemId);
-      aui.thread().append(appendUserTurn(next.text, next.attachmentRefs));
+      try {
+        aui.thread().append(appendUserTurn(next.text, next.attachmentRefs));
+      } catch {
+        takeQueueLease();
+        void window.verbo.queue.release(next.queueItemId);
+        publishCommandStatus({
+          status: "error",
+          summary: "The promoted queued message could not be displayed.",
+        });
+      }
     };
     const stopStarted = window.verbo.turns.onStarted((payload) => {
       if (payload.event || payload.threadId !== threadId || !payload.text)
@@ -92,217 +129,173 @@ export function QueueSidebar(): ReactElement | null {
       stopRun();
     };
   }, [aui, threadId]);
+  const visible =
+    snapshot.threadId === threadId
+      ? snapshot
+      : { threadId, items: EMPTY_QUEUE, outgoingId: null };
+  return (
+    <QueueContext.Provider value={visible}>{children}</QueueContext.Provider>
+  );
+}
 
-  const queued = isPersistedThreadId(threadId);
-  const voiceOn = useVoiceSession()?.active === true;
+export function QueueRows(): ReactElement | null {
+  const aui = useAui();
+  const { threadId, items, outgoingId } = useContext(QueueContext);
   const waiting = items.filter((item) => item.id !== outgoingId);
-
+  const report = (summary: string): void =>
+    publishCommandStatus({ status: "error", summary });
   const edit = (item: QueuedTurn): void => {
-    const lock = window.dispatchEvent;
+    if (aui.composer().getState().attachments.length > 0) {
+      report(
+        "Send or remove composer attachments before editing a queued message.",
+      );
+      return;
+    }
     void window.verbo.queue
       .beginEdit({
         id: item.id,
         threadId,
         revision: item.revision,
-        composerText: "",
+        composerText: aui.composer().getState().text,
         composerRefs: [],
       })
       .then((result) => {
         if (!result.ok || !result.item.editToken) {
-          publishCommandStatus({
-            status: "error",
-            summary: result.ok
+          report(
+            result.ok
               ? "That message can no longer be edited."
               : result.summary,
-          });
+          );
           return;
         }
-        const next: QueueEditLock = {
+        if (aui.threads().getState().mainThreadId !== threadId) {
+          void window.verbo.queue
+            .cancelEdit({
+              id: result.item.id,
+              threadId,
+              token: result.item.editToken,
+            })
+            .catch(() => report("The queued edit could not be cancelled."));
+          return;
+        }
+        const lock: QueueEditLock = {
           id: result.item.id,
           revision: result.item.revision,
           token: result.item.editToken,
           threadId,
           attachmentRefs: result.item.attachmentRefs,
         };
-        lock(
-          new CustomEvent("verbo:queue-edit", {
-            detail: { text: result.item.text, lock: next },
-          }),
-        );
-      });
-  };
-
-  const remove = (item: QueuedTurn): void => {
-    void window.verbo.queue.remove(item.id).then((result) => {
-      if (!result.ok) {
-        publishCommandStatus({ status: "error", summary: result.summary });
-        return;
-      }
-      if (item.status === "editing") {
         window.dispatchEvent(
           new CustomEvent("verbo:queue-edit", {
-            detail: { text: result.composerText ?? "", lock: null },
+            detail: { threadId, text: result.item.text, lock },
           }),
         );
-      }
-    });
+      })
+      .catch(() => report("The queued message could not be edited."));
   };
-
-  const body = (
-    <aside
-      className={
-        narrow && drawer ? `${styles.sidebar} ${styles.drawer}` : styles.sidebar
-      }
-      aria-label="Queue and speech"
-    >
-      <div className={styles.queueBody}>
-      {!open ? (
-        <div className={styles.rail} aria-label="Queued messages">
-          {waiting.map((item) => (
-            <button
-              key={item.id}
-              type="button"
-              className={
-                item.status === "editing"
-                  ? `${styles.marker} ${styles.markerEditing}`
-                  : styles.marker
-              }
-              aria-label={`${statusLabel(item)}. ${item.text}`}
-              onClick={() => setOpen(true)}
-            />
-          ))}
-        </div>
-      ) : queued && waiting.length > 0 ? (
-        <>
-      <Group justify="space-between">
-        <Text size="xs">Queue</Text>
-        <ActionIcon
-          variant="subtle"
-          size="sm"
-          aria-label={narrow ? "Close queue" : "Minimize queue"}
-          onClick={() => {
-            if (narrow) setDrawer(false);
-            else setOpen(false);
-          }}
-        >
-          <XIcon size={14} />
-        </ActionIcon>
-      </Group>
+  const remove = (item: QueuedTurn): void => {
+    void window.verbo.queue
+      .remove(item.id)
+      .then((result) => {
+        if (!result.ok) {
+          report(result.summary);
+          return;
+        }
+        if (item.status === "editing") {
+          const lock = getQueueEdit(threadId);
+          if (lock?.id === item.id) clearQueueEdit(lock);
+          if (aui.threads().getState().mainThreadId !== threadId) {
+            keepQueueComposerRestore(threadId, result.composerText ?? "");
+            return;
+          }
+          window.dispatchEvent(
+            new CustomEvent("verbo:queue-edit", {
+              detail: { threadId, text: result.composerText ?? "", lock: null },
+            }),
+          );
+          void aui.composer().clearAttachments();
+        }
+      })
+      .catch(() => report("The queued message could not be removed."));
+  };
+  const reorder = (item: QueuedTurn, direction: "up" | "down"): void => {
+    void window.verbo.queue
+      .reorder({ id: item.id, threadId, revision: item.revision, direction })
+      .then((result) => {
+        if (!result.ok) report(result.summary);
+      })
+      .catch(() => report("The queued message could not be moved."));
+  };
+  if (!waiting.length) return null;
+  return (
+    <section aria-label="Queued messages" className={styles.queue}>
       {waiting.map((item, index) => (
         <article
           key={item.id}
           className={styles.row}
-          tabIndex={0}
-          aria-label={`${statusLabel(item)}. ${item.text}`}
-          onKeyDown={(event) => {
-            if (event.key === "Delete" || event.key === "Backspace") {
-              event.preventDefault();
-              remove(item);
-            } else if (event.key === "Enter") {
-              event.preventDefault();
-              edit(item);
-            } else if (event.key === "ArrowUp") {
-              event.preventDefault();
-              void window.verbo.queue.reorder({
-                id: item.id,
-                threadId,
-                revision: item.revision,
-                direction: "up",
-              });
-            } else if (event.key === "ArrowDown") {
-              event.preventDefault();
-              void window.verbo.queue.reorder({
-                id: item.id,
-                threadId,
-                revision: item.revision,
-                direction: "down",
-              });
-            }
-          }}
+          aria-label={`${statusLabel(item)} message ${index + 1}`}
         >
-          <button
+          <Text size="xs" className={styles.status}>
+            {statusLabel(item)}
+          </Text>
+          <UnstyledButton
             type="button"
             className={styles.preview}
-            aria-expanded={expandedId === item.id}
-            onClick={() =>
-              setExpandedId((current) => (current === item.id ? null : item.id))
-            }
+            aria-label={`Edit queued message ${index + 1}: ${item.text}`}
+            onClick={() => edit(item)}
           >
-            {expandedId === item.id ? item.text : item.text}
-          </button>
-          <Text size="xs">{statusLabel(item)}</Text>
+            {item.text}
+          </UnstyledButton>
+          {item.attachmentRefs.length ? (
+            <Text
+              size="xs"
+              aria-label={`${item.attachmentRefs.length} attachments`}
+            >
+              +{item.attachmentRefs.length}
+            </Text>
+          ) : null}
           <div className={styles.actions}>
             <ActionIcon
-              variant="subtle"
+              className={styles.action}
               size="sm"
+              variant="transparent"
+              aria-label={`Move queued message ${index + 1} up`}
+              disabled={index === 0}
+              onClick={() => reorder(item, "up")}
+            >
+              <ArrowUpIcon size={14} />
+            </ActionIcon>
+            <ActionIcon
+              className={styles.action}
+              size="sm"
+              variant="transparent"
+              aria-label={`Move queued message ${index + 1} down`}
+              disabled={index === waiting.length - 1}
+              onClick={() => reorder(item, "down")}
+            >
+              <ArrowDownIcon size={14} />
+            </ActionIcon>
+            <ActionIcon
+              className={styles.action}
+              size="sm"
+              variant="transparent"
               aria-label={`Edit queued message ${index + 1}`}
               onClick={() => edit(item)}
             >
               <PencilIcon size={14} />
             </ActionIcon>
             <ActionIcon
-              variant="subtle"
+              className={styles.action}
               size="sm"
+              variant="transparent"
               aria-label={`Remove queued message ${index + 1}`}
               onClick={() => remove(item)}
             >
               <Trash2Icon size={14} />
             </ActionIcon>
-            <ActionIcon
-              variant="subtle"
-              size="sm"
-              aria-label={`Move queued message ${index + 1} up`}
-              onClick={() =>
-                void window.verbo.queue.reorder({
-                  id: item.id,
-                  threadId,
-                  revision: item.revision,
-                  direction: "up",
-                })
-              }
-            >
-              <ArrowUpIcon size={14} />
-            </ActionIcon>
-            <ActionIcon
-              variant="subtle"
-              size="sm"
-              aria-label={`Move queued message ${index + 1} down`}
-              onClick={() =>
-                void window.verbo.queue.reorder({
-                  id: item.id,
-                  threadId,
-                  revision: item.revision,
-                  direction: "down",
-                })
-              }
-            >
-              <ArrowDownIcon size={14} />
-            </ActionIcon>
           </div>
         </article>
       ))}
-        </>
-      ) : null}
-      </div>
-      <TtsControls />
-    </aside>
+    </section>
   );
-
-  if (!voiceOn && (!queued || waiting.length === 0)) return null;
-
-  if (narrow && !drawer) {
-    return (
-      <Button
-        type="button"
-        size="compact-xs"
-        variant="subtle"
-        aria-label="Open queue"
-        onClick={() => setDrawer(true)}
-      >
-        {items.length}
-      </Button>
-    );
-  }
-
-  return body;
 }

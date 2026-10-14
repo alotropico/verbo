@@ -133,6 +133,8 @@ const verbo = {
       ipcRenderer.invoke(IPC_CHANNELS.ollamaWelcomeLine, payload),
   },
   settings: {
+    patch: (patch: Partial<ChatSettings>): Promise<ChatSettings> =>
+      ipcRenderer.invoke(IPC_CHANNELS.settingsPatch, patch),
     get: (): Promise<SettingsRecovery> =>
       ipcRenderer.invoke(IPC_CHANNELS.settingsGet),
     set: (settings: ChatSettings): Promise<ChatSettings> =>
@@ -178,6 +180,46 @@ const verbo = {
     > => ipcRenderer.invoke(IPC_CHANNELS.memoryRemove, { id }),
   },
   commands: {
+    entities: (): Promise<
+      import("../shared/application-registration").EntitySettings
+    > => ipcRenderer.invoke(IPC_CHANNELS.entitiesSettings),
+    saveApplication: (
+      input: import("../shared/application-registration").ApplicationRegistrationInput,
+    ): Promise<import("../shared/application-registration").EntitySaveResult> =>
+      ipcRenderer.invoke(IPC_CHANNELS.applicationsSave, input),
+    removeApplication: (
+      id: string,
+    ): Promise<import("../shared/application-registration").EntitySaveResult> =>
+      ipcRenderer.invoke(IPC_CHANNELS.applicationsRemove, { id }),
+    saveProject: (
+      input: import("../shared/application-registration").ProjectPreferences,
+    ): Promise<import("../shared/application-registration").EntitySaveResult> =>
+      ipcRenderer.invoke(IPC_CHANNELS.projectsPreferencesSave, input),
+    saveProjectImport: (
+      input: import("../shared/application-registration").ProjectImportSettings,
+    ): Promise<import("../shared/application-registration").EntitySaveResult> =>
+      ipcRenderer.invoke(IPC_CHANNELS.projectImportSave, input),
+    discoverApplications: (): Promise<
+      Array<{ name: string; aliases: string[]; executable: string }>
+    > => ipcRenderer.invoke(IPC_CHANNELS.applicationsDiscover),
+    saveWeb: (
+      input: import("../shared/web-contracts").WebSettings,
+    ): Promise<{ ok: true } | { ok: false; summary: string }> =>
+      ipcRenderer.invoke(IPC_CHANNELS.commandsWebSave, input),
+    settings: (): Promise<import("../shared/commands").CommandSettings> =>
+      ipcRenderer.invoke(IPC_CHANNELS.commandsSettings),
+    save: (
+      input: import("../shared/commands").CommandOverride,
+    ): Promise<{ ok: true } | { ok: false; summary: string }> =>
+      ipcRenderer.invoke(IPC_CHANNELS.commandsSave, input),
+    reset: (nodeId: string): Promise<void> =>
+      ipcRenderer.invoke(IPC_CHANNELS.commandsReset, { nodeId }),
+    receipt: (input: {
+      receiptId: string;
+      threadId: string;
+      offset?: number;
+    }): Promise<import("../shared/command-receipts").CommandReceipt | null> =>
+      ipcRenderer.invoke(IPC_CHANNELS.commandsReceipt, input),
     run: (input: {
       text: string;
       threadId?: string;
@@ -189,6 +231,10 @@ const verbo = {
       ipcRenderer.invoke(IPC_CHANNELS.contextEstimate, input ?? {}),
   },
   files: {
+    update: (
+      input: import("../shared/files").ScopePatch,
+    ): Promise<import("../shared/files").ScopeMutationResult> =>
+      ipcRenderer.invoke(IPC_CHANNELS.filesUpdate, input),
     list: (): Promise<{
       scopes: FileScopeRecord[];
       proposal: FileScopeProposal;
@@ -205,7 +251,13 @@ const verbo = {
     }): Promise<FileSurfaceResult> =>
       ipcRenderer.invoke(IPC_CHANNELS.filesSurface, input),
     pick: (): Promise<
-      | { ok: true; pickId: string; path: string; suggestedAlias: string }
+      | {
+          ok: true;
+          pickId: string;
+          path: string;
+          suggestedAlias: string;
+          kind?: import("../shared/files").FolderKind;
+        }
       | { ok: false; code: string; summary: string }
     > => ipcRenderer.invoke(IPC_CHANNELS.filesPick),
     commit: (

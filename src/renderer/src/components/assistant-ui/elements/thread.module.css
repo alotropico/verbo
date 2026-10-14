@@ -214,11 +214,7 @@
   pointer-events: none;
   position: absolute;
   top: calc(rem(12px) - rem(72px));
-  -webkit-mask-image: linear-gradient(
-    to bottom,
-    transparent,
-    black rem(72px)
-  );
+  -webkit-mask-image: linear-gradient(to bottom, transparent, black rem(72px));
   mask-image: linear-gradient(to bottom, transparent, black rem(72px));
 
   &::before {
@@ -298,7 +294,7 @@
   height: calc(1.7 * 3em);
   margin-block: rem(12px) 0;
   text-wrap: pretty;
-  max-width: 70ch;
+  width: min(fit-content, 50ch);
 }
 
 .typingDots {
@@ -481,8 +477,9 @@
   color: var(--primary-foreground);
 }
 
-.composerSend:not(:disabled):hover {
+.composerSend:not(:disabled):not([data-disabled]):hover {
   background: color-mix(in oklab, var(--primary) 85%, var(--foreground));
+  color: var(--primary-foreground);
 }
 
 .composerSend:disabled {
@@ -632,28 +629,8 @@
   animation: zoomIn75 150ms ease-out both;
 }
 
-.abortNotice {
-  align-items: center;
-  color: var(--muted-foreground);
-  display: flex;
-  font-size: var(--mantine-font-size-sm);
-  gap: rem(8px);
-  margin: 0;
-}
-
-.abortNoticeIcon {
-  color: var(--destructive);
-  flex-shrink: 0;
-}
-
 .messageErrorRoot {
-  margin-top: rem(8px);
-  border-radius: var(--radius);
-  border: rem(1px) solid var(--destructive);
-  background: color-mix(in oklab, var(--destructive) 10%, transparent);
-  padding: rem(12px);
-  font-size: rem(14px);
-  color: var(--destructive);
+  margin-block-start: rem(8px);
 }
 
 .messageErrorMessage {
@@ -695,7 +672,7 @@
   align-items: center;
   margin-inline-start: rem(8px);
   min-height: rem(30px);
-  padding-top: rem(6px);
+  padding-top: rem(10px);
 }
 
 .assistantActionBar {
@@ -817,6 +794,18 @@
 
 .userMessageContent:empty {
   display: none;
+}
+
+.userText {
+  white-space: pre-wrap;
+}
+
+.userTextClamped {
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  display: -webkit-box;
+  line-clamp: 3;
+  overflow: hidden;
 }
 
 .userActionBarWrapper {

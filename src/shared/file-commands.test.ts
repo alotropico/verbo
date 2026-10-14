@@ -3,10 +3,13 @@ import { parseLocalCommand } from "./local-commands";
 import { parseActionCommand, parseFilesCommand } from "./file-commands";
 
 describe("file commands", () => {
+  it("rejects obsolete depth flags instead of restricting descendants", () => {
+    expect(parseFilesCommand("list notes: --depth 0").ok).toBe(false);
+  });
   it("parses quoted Windows paths and file aliases", () => {
     expect(
       parseFilesCommand(
-        'list "D:\\cosmos\\projects\\notes" --depth 0 --type directories --sort name --page-size 50',
+        'list "D:\\cosmos\\projects\\notes" --type directories --sort name --page-size 50',
       ),
     ).toEqual({
       ok: true,
@@ -14,7 +17,6 @@ describe("file commands", () => {
         actionId: "files.list",
         args: {
           root: "D:\\cosmos\\projects\\notes",
-          depth: 0,
           entryType: "directories",
           sort: { by: "name", direction: "asc" },
           pageSize: 50,

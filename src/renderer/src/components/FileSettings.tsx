@@ -1,231 +1,316 @@
+import { Button, Group, Select, Switch, Text, TextInput } from "@mantine/core";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type ReactElement,
+} from "react";
 import {
   displayFinalPath,
-  splitScopeAliases,
+  scopeAliasListSchema,
+  type FileScopeRecord,
   type FileScopeProposal,
+  type ScopePatch,
+  type FolderKind,
 } from "@shared/files";
-import { Button, Switch, Text, TextInput } from "@mantine/core";
-import { useState, type ReactElement } from "react";
-import type { FileScopeDraft } from "./file-scope-draft";
+import { useAutosave } from "@/hooks/use-autosave";
 import { SettingsLabel } from "./SettingsLabel";
+import { SettingsSection } from "./SettingsSection";
+import { AutosaveStatus } from "./AutosaveStatus";
+import { StatusMessage } from "./StatusMessage";
+import { useConfirmation } from "./confirmation-context";
 import styles from "./FileSettings.module.css";
 
-function uniqueAlias(alias: string, rows: readonly FileScopeDraft[]): string {
-  const used = new Set(
-    rows
-      .filter((row) => !row.removed)
-      .flatMap((row) => splitScopeAliases(row.alias)),
+function FolderRow({
+  scope,
+  reload,
+}: {
+  scope: FileScopeRecord;
+  reload: () => void;
+}): ReactElement {
+  const [draft, setDraft] = useState({
+    alias: scope.aliases.join(", "),
+    write: scope.write,
+    defaultSave: scope.defaultSave,
+    kind: scope.kind ?? "none",
+  });
+  const [aliasError, setAliasError] = useState("");
+  const confirm = useConfirmation();
+  const baseline = useRef(JSON.stringify(draft));
+  const draftRef = useRef(draft);
+  const autosave = useAutosave<ScopePatch>(
+    async (patch) => {
+      const result = await window.verbo.files.update(patch);
+      if (!result.ok) throw new Error(result.summary);
+      const saved = result.scopes.find((item) => item.id === scope.id);
+      if (saved)
+        baseline.current = JSON.stringify({
+          alias: saved.aliases.join(", "),
+          write: saved.write,
+          defaultSave: saved.defaultSave,
+          kind: saved.kind ?? "none",
+        });
+      window.dispatchEvent(new Event("verbo:entities-changed"));
+      reload();
+    },
+    (previous, next) => ({ ...previous, ...next }),
   );
-  if (!used.has(alias)) return alias;
-  let suffix = 2;
-  let next = `${alias.slice(0, 28)}-${suffix}`.slice(0, 32);
-  while (used.has(next)) {
-    suffix += 1;
-    next = `${alias.slice(0, 28)}-${suffix}`.slice(0, 32);
-  }
-  return next;
+  useEffect(() => {
+    const next = {
+      alias: scope.aliases.join(", "),
+      write: scope.write,
+      defaultSave: scope.defaultSave,
+      kind: scope.kind ?? "none",
+    };
+    if (JSON.stringify(draftRef.current) === baseline.current) {
+      draftRef.current = next;
+      setDraft(next);
+      baseline.current = JSON.stringify(next);
+    }
+  }, [scope]);
+  const patch = (value: Partial<typeof draft>): void => {
+    const next = { ...draftRef.current, ...value };
+    draftRef.current = next;
+    setDraft(next);
+    autosave.controller.schedule({ id: scope.id, ...value });
+  };
+  return (
+    <li className={styles.entry}>
+      <Group align="flex-start" grow>
+        <TextInput
+          label={
+            <SettingsLabel
+              label="Aliases"
+              tip="Short lowercase folder names, separated by commas. Valid edits save automatically."
+            />
+          }
+          value={draft.alias}
+          error={aliasError}
+          onChange={(event) => {
+            const alias = event.currentTarget.value.toLowerCase();
+            const next = { ...draftRef.current, alias };
+            draftRef.current = next;
+            setDraft(next);
+            const parsed = scopeAliasListSchema.safeParse(alias);
+            if (parsed.success) {
+              setAliasError("");
+              autosave.controller.schedule({
+                id: scope.id,
+                alias: parsed.data,
+              });
+            }
+          }}
+          onBlur={() => {
+            const parsed = scopeAliasListSchema.safeParse(draft.alias);
+            setAliasError(
+              parsed.success
+                ? ""
+                : (parsed.error.issues[0]?.message ?? "Check the aliases."),
+            );
+            void autosave.controller.flush();
+          }}
+        />
+        <Select
+          label={
+            <SettingsLabel
+              label="Folder type"
+              tip="Projects imports folders with package.json or AGENTS.md in the first two child levels. Obsidian marks a vault; normal folders have no special role."
+            />
+          }
+          data={[
+            { value: "none", label: "Nothing in particular" },
+            { value: "projects", label: "Projects folder" },
+            { value: "obsidian", label: "Obsidian vault" },
+          ]}
+          value={draft.kind}
+          allowDeselect={false}
+          onChange={(value) => {
+            if (value) patch({ kind: value as FolderKind });
+          }}
+        />
+      </Group>
+      <Text className={styles.path} size="xs">
+        {displayFinalPath(scope.path)}
+      </Text>
+      <Group gap="md">
+        <Switch
+          label={
+            <SettingsLabel
+              label="Write"
+              tip="Allow changing files in this folder. Read access is included."
+            />
+          }
+          checked={draft.write}
+          onChange={(event) =>
+            patch({
+              write: event.currentTarget.checked,
+              ...(!event.currentTarget.checked ? { defaultSave: false } : {}),
+            })
+          }
+        />
+        <Switch
+          label={
+            <SettingsLabel
+              label="Default save"
+              tip="Bare filenames are saved here. Write must be enabled."
+            />
+          }
+          disabled={!draft.write}
+          checked={draft.defaultSave}
+          onChange={(event) =>
+            patch({ defaultSave: event.currentTarget.checked })
+          }
+        />
+        <Button
+          variant="subtle"
+          color="red"
+          size="xs"
+          onClick={() =>
+            void confirm({
+              title: "Remove folder?",
+              message: `Remove ${scope.alias} from registered folders? Files and imported projects will remain.`,
+              confirmLabel: "Remove folder",
+              destructive: true,
+              onConfirm: async () => {
+                await autosave.controller.reset();
+                const result = await window.verbo.files.commit({
+                  removeIds: [scope.id],
+                  updates: [],
+                  picks: [],
+                  acceptDefault: false,
+                });
+                if (!result.ok) throw new Error(result.summary);
+                reload();
+              },
+            })
+          }
+        >
+          Remove folder
+        </Button>
+      </Group>
+      <AutosaveStatus
+        state={autosave.state}
+        retry={() => autosave.controller.retry()}
+      />
+    </li>
+  );
 }
 
-export function FileSettings({
-  proposal,
-  rows,
-  error,
-  onChange,
-  onError,
-}: {
-  proposal: FileScopeProposal | null;
-  rows: FileScopeDraft[];
-  error: string;
-  onChange: (rows: FileScopeDraft[]) => void;
-  onError: (message: string) => void;
-}): ReactElement {
-  const [picking, setPicking] = useState(false);
-  const visible = rows.filter((row) => !row.removed);
-  const defaultTaken = visible.some((row) =>
-    splitScopeAliases(row.alias).includes("tmp"),
-  );
-
-  const patch = (key: string, change: Partial<FileScopeDraft>): void => {
-    onChange(
-      rows.map((row) => {
-        if (row.key !== key) {
-          return change.defaultSave ? { ...row, defaultSave: false } : row;
-        }
-        const next = { ...row, ...change };
-        if (next.write) next.read = true;
-        return next;
-      }),
-    );
+export function FileSettings(): ReactElement {
+  const [scopes, setScopes] = useState<FileScopeRecord[]>([]);
+  const [proposal, setProposal] = useState<FileScopeProposal | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
+  const load = useCallback((): void => {
+    void window.verbo.files
+      .list()
+      .then((result) => {
+        setScopes(result.scopes);
+        setProposal(result.proposal);
+      })
+      .catch(() => setError("Could not load folders."));
+  }, []);
+  useEffect(load, [load]);
+  const add = async (): Promise<void> => {
+    setBusy(true);
+    setError("");
+    try {
+      const pick = await window.verbo.files.pick();
+      if (!pick.ok) {
+        if (pick.code !== "cancelled") setError(pick.summary);
+        return;
+      }
+      const used = new Set(scopes.flatMap((scope) => scope.aliases));
+      let alias = pick.suggestedAlias;
+      let suffix = 2;
+      while (used.has(alias))
+        alias = `${pick.suggestedAlias.slice(0, 25)}-${suffix++}`;
+      const result = await window.verbo.files.commit({
+        removeIds: [],
+        updates: [],
+        picks: [
+          {
+            pickId: pick.pickId,
+            alias,
+            read: true,
+            write: false,
+            defaultSave: false,
+            kind: pick.kind,
+          },
+        ],
+        acceptDefault: false,
+      });
+      if (!result.ok) throw new Error(result.summary);
+      setScopes(result.scopes);
+      setNotice(result.summary);
+      window.dispatchEvent(new Event("verbo:entities-changed"));
+    } catch (cause) {
+      setError(
+        cause instanceof Error ? cause.message : "Could not add the folder.",
+      );
+    } finally {
+      setBusy(false);
+    }
   };
-
   return (
-    <div className={styles.list}>
-      <Text size="sm">
-        Save to apply folder registrations. Verbo can read other folders, but
-        file changes require a writable folder. Use .tmp as the default save
-        folder.
-      </Text>
+    <SettingsSection
+      title="Folders"
+      description="Choose folder aliases, access and type. New folders detect project containers or Obsidian vaults automatically."
+    >
       {error ? (
-        <Text className={styles.error} size="sm">
+        <StatusMessage display="plain" tone="error">
           {error}
-        </Text>
+        </StatusMessage>
       ) : null}
-      <div className={styles.actions}>
-        {proposal && !proposal.saved && !defaultTaken ? (
-          <Button
-            type="button"
-            size="xs"
-            variant="default"
-            onClick={() => {
-              onChange([
-                ...rows.map((row) => ({ ...row, defaultSave: false })),
-                {
-                  key: "proposed-default",
-                  proposedDefault: true,
-                  alias: proposal.alias,
-                  path: proposal.path,
-                  read: true,
-                  write: true,
-                  defaultSave: true,
-                  removed: false,
-                },
-              ]);
-            }}
-          >
-            Use .tmp
-          </Button>
-        ) : null}
-        <Button
-          type="button"
-          size="xs"
-          loading={picking}
-          onClick={() => {
-            setPicking(true);
-            onError("");
-            void window.verbo.files
-              .pick()
-              .then((result) => {
-                if (!result.ok) {
-                  if (result.code !== "cancelled") onError(result.summary);
-                  return;
-                }
-                onChange([
-                  ...rows,
-                  {
-                    key: result.pickId,
-                    pickId: result.pickId,
-                    alias: uniqueAlias(result.suggestedAlias, rows),
-                    path: result.path,
-                    read: true,
-                    write: false,
-                    defaultSave: false,
-                    removed: false,
-                  },
-                ]);
-              })
-              .catch((caught: unknown) => {
-                onError(
-                  caught instanceof Error
-                    ? caught.message
-                    : "Could not choose a folder.",
-                );
-              })
-              .finally(() => setPicking(false));
-          }}
-        >
+      {notice ? (
+        <StatusMessage display="plain" tone="info">
+          {notice}
+        </StatusMessage>
+      ) : null}
+      <Group>
+        <Button loading={busy} onClick={() => void add()}>
           Add folder
         </Button>
-      </div>
-      {visible.length === 0 ? (
+        {proposal && !proposal.saved ? (
+          <Button
+            variant="default"
+            disabled={busy}
+            onClick={() => {
+              setBusy(true);
+              void window.verbo.files
+                .commit({
+                  removeIds: [],
+                  updates: [],
+                  picks: [],
+                  acceptDefault: true,
+                })
+                .then((result) => {
+                  if (!result.ok) setError(result.summary);
+                  else {
+                    setScopes(result.scopes);
+                    load();
+                  }
+                })
+                .finally(() => setBusy(false));
+            }}
+          >
+            Use .tmp for saving
+          </Button>
+        ) : null}
+      </Group>
+      {scopes.length ? (
+        <ul className={styles.list}>
+          {scopes.map((scope) => (
+            <FolderRow key={scope.id} scope={scope} reload={load} />
+          ))}
+        </ul>
+      ) : (
         <Text size="sm" c="dimmed">
           No folders registered.
         </Text>
-      ) : (
-        <ul className={styles.list}>
-          {visible.map((row) => (
-            <li key={row.key} className={styles.entry}>
-              <TextInput
-                label={
-                  <SettingsLabel
-                    label="Alias"
-                    tip="Short names used in file paths, separated by commas, such as tmp, scratch."
-                  />
-                }
-                placeholder="tmp, scratch"
-                value={row.alias}
-                onChange={(event) =>
-                  patch(row.key, {
-                    alias: event.currentTarget.value.toLowerCase(),
-                  })
-                }
-              />
-              <Text className={styles.path} size="xs">
-                {displayFinalPath(row.path)}
-              </Text>
-              <div className={styles.actions}>
-                <Switch
-                  label={
-                    <SettingsLabel
-                      label="Read"
-                      tip="Allow listing and reading files in this folder."
-                    />
-                  }
-                  checked={row.read}
-                  onChange={(event) =>
-                    patch(row.key, {
-                      read: event.currentTarget.checked,
-                      write: event.currentTarget.checked ? row.write : false,
-                    })
-                  }
-                />
-                <Switch
-                  label={
-                    <SettingsLabel
-                      label="Write"
-                      tip="Allow changing files in this folder."
-                    />
-                  }
-                  checked={row.write}
-                  onChange={(event) =>
-                    patch(row.key, { write: event.currentTarget.checked })
-                  }
-                />
-                <Switch
-                  label={
-                    <SettingsLabel
-                      label="Default save"
-                      tip="Bare filenames are saved in this folder."
-                    />
-                  }
-                  checked={row.defaultSave}
-                  onChange={(event) =>
-                    patch(row.key, {
-                      defaultSave: event.currentTarget.checked,
-                    })
-                  }
-                />
-                <Button
-                  type="button"
-                  size="xs"
-                  variant="default"
-                  onClick={() =>
-                    onChange(
-                      row.id
-                        ? rows.map((item) =>
-                            item.key === row.key
-                              ? { ...item, removed: true }
-                              : item,
-                          )
-                        : rows.filter((item) => item.key !== row.key),
-                    )
-                  }
-                >
-                  Remove
-                </Button>
-              </div>
-            </li>
-          ))}
-        </ul>
       )}
-    </div>
+    </SettingsSection>
   );
 }

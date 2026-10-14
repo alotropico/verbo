@@ -2,6 +2,10 @@ import {
   createTheme,
   Button,
   Combobox,
+  Select,
+  MultiSelect,
+  TagsInput,
+  Autocomplete,
   defaultVariantColorsResolver,
   Input,
   InputWrapper,
@@ -151,6 +155,22 @@ export const theme = createTheme({
       },
     }),
     Combobox: Combobox.extend({
+      classNames: { dropdown: styles.dropdown, option: styles.option },
+    }),
+    Select: Select.extend({
+      defaultProps: { scrollAreaProps: { type: "auto" } },
+      classNames: { dropdown: styles.dropdown, option: styles.option },
+    }),
+    MultiSelect: MultiSelect.extend({
+      defaultProps: { scrollAreaProps: { type: "auto" } },
+      classNames: { dropdown: styles.dropdown, option: styles.option },
+    }),
+    TagsInput: TagsInput.extend({
+      defaultProps: { scrollAreaProps: { type: "auto" } },
+      classNames: { dropdown: styles.dropdown, option: styles.option },
+    }),
+    Autocomplete: Autocomplete.extend({
+      defaultProps: { scrollAreaProps: { type: "auto" } },
       classNames: { dropdown: styles.dropdown, option: styles.option },
     }),
     Tooltip: Tooltip.extend({ classNames: { tooltip: styles.tooltip } }),

@@ -129,6 +129,10 @@
   position: relative;
 }
 
+.threadPane[hidden] {
+  display: none;
+}
+
 @media (max-width: em(768px)) {
   .navbar {
     background: var(--surface-raised);

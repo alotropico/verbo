@@ -1,5 +1,6 @@
 import type { DatabaseSync } from "node:sqlite";
 import { z } from "zod";
+import { backendNoticeSchema } from "../../shared/backend-notice";
 import type { ChatMessage } from "../../shared/chat-ipc";
 import type { ContextMessage } from "../runtime/context-builder";
 
@@ -30,7 +31,7 @@ const assistantTextPayload = z
   .strict();
 
 export type TurnEventKind =
-  "assistant_tools" | "tool_result" | "assistant_text";
+  "assistant_tools" | "tool_result" | "assistant_text" | "backend_notice";
 
 export type TurnEventRecord = {
   id: string;
@@ -101,6 +102,7 @@ export function loadTurnEvents(
 function eventsToContext(events: readonly StoredEvent[]): ContextMessage[] {
   const messages: ContextMessage[] = [];
   for (const event of events) {
+    if (event.kind === "backend_notice") continue;
     if (event.kind === "assistant_tools") {
       const payload = assistantToolsPayload.parse(event.payload);
       messages.push({
@@ -150,11 +152,13 @@ function isKind(value: string): value is TurnEventKind {
   return (
     value === "assistant_tools" ||
     value === "tool_result" ||
-    value === "assistant_text"
+    value === "assistant_text" ||
+    value === "backend_notice"
   );
 }
 
 function parsePayload(kind: TurnEventKind, payload: unknown): unknown {
+  if (kind === "backend_notice") return backendNoticeSchema.parse(payload);
   if (kind === "assistant_tools") return assistantToolsPayload.parse(payload);
   if (kind === "tool_result") return toolResultPayload.parse(payload);
   return assistantTextPayload.parse(payload);
@@ -162,11 +166,13 @@ function parsePayload(kind: TurnEventKind, payload: unknown): unknown {
 
 function safePayload(kind: TurnEventKind, payload: unknown): unknown {
   const schema =
-    kind === "assistant_tools"
-      ? assistantToolsPayload
-      : kind === "tool_result"
-        ? toolResultPayload
-        : assistantTextPayload;
+    kind === "backend_notice"
+      ? backendNoticeSchema
+      : kind === "assistant_tools"
+        ? assistantToolsPayload
+        : kind === "tool_result"
+          ? toolResultPayload
+          : assistantTextPayload;
   const parsed = schema.safeParse(payload);
   return parsed.success ? parsed.data : undefined;
 }

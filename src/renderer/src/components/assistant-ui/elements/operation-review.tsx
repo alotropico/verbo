@@ -6,7 +6,7 @@ import {
   type OperationReview,
   type OperationReviewFailure,
 } from "@shared/file-mutation";
-import { cx } from "@/lib/cx";
+import { StatusMessage } from "@/components/StatusMessage";
 import styles from "./operation-review.module.css";
 
 type ReviewResponse = OperationReview | OperationReviewFailure;
@@ -81,9 +81,9 @@ export function OperationReviewCard({
         <p className={styles.summary}>{operationInventoryLine(shown)}</p>
       ) : null}
       {shown?.risks.map((risk) => (
-        <p className={cx(styles.risk)} key={risk}>
+        <StatusMessage display="plain" key={risk} size="xs" tone="warning">
           {risk}
-        </p>
+        </StatusMessage>
       ))}
       {shown && shown.items.length > 0 ? (
         <ul className={styles.list}>
@@ -100,7 +100,11 @@ export function OperationReviewCard({
           ))}
         </ul>
       ) : null}
-      {error ? <p className={styles.risk}>{error}</p> : null}
+      {error ? (
+        <StatusMessage display="plain" size="xs" tone="error">
+          {error}
+        </StatusMessage>
+      ) : null}
       {waiting && window.verbo?.operations ? (
         <div className={styles.actions}>
           <Button
@@ -143,7 +147,9 @@ export function OperationReviewCard({
         </div>
       ) : null}
       {waiting && !window.verbo?.operations ? (
-        <p className={styles.summary}>Confirmation opens in the app window.</p>
+        <StatusMessage display="plain" size="sm" tone="info">
+          Confirmation opens in the app window.
+        </StatusMessage>
       ) : null}
     </section>
   );

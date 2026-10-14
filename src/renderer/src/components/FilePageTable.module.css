@@ -6,10 +6,6 @@
   white-space: pre-wrap;
 }
 
-.error {
-  color: var(--destructive);
-}
-
 .path {
   display: block;
   overflow-wrap: anywhere;

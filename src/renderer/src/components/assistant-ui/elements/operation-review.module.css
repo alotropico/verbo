@@ -36,11 +36,6 @@
   justify-content: flex-end;
 }
 
-.risk {
-  color: var(--destructive);
-  margin: 0;
-}
-
 .summary {
   margin: 0;
 }

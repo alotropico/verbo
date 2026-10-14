@@ -7,6 +7,7 @@ import {
   buildTurnContext,
   composeSystemPrompt,
   CORE_INSTRUCTIONS,
+  contextTokens,
 } from "./context-builder";
 import {
   BACKGROUND_REQUEST_PRIORITY,
@@ -21,6 +22,20 @@ function deferred<T>(): { promise: Promise<T>; resolve: (value: T) => void } {
     resolve = done;
   });
   return { promise, resolve };
+}
+
+// Leave room for the required prompt and recent message, but not the old 400-character round.
+function trimmingBudget(
+  userText: string,
+  memory?: Parameters<typeof composeSystemPrompt>[0],
+): number {
+  return Math.ceil(
+    contextTokens([
+      { role: "system", content: composeSystemPrompt(memory) },
+      { role: "assistant", content: "kept-recent" },
+      { role: "user", content: userText },
+    ]) / 0.75,
+  );
 }
 
 describe("request gate", () => {
@@ -55,7 +70,7 @@ describe("turn context", () => {
       ],
       userText: "latest question",
       toolEvents: [],
-      numCtx: 224,
+      numCtx: trimmingBudget("latest question"),
     });
     expect(built.ok).toBe(true);
     if (!built.ok) return;
@@ -104,7 +119,7 @@ describe("turn context", () => {
       ],
       userText: "next",
       toolEvents: [],
-      numCtx: 224,
+      numCtx: trimmingBudget("next"),
     });
     expect(built.ok).toBe(true);
     if (!built.ok) return;
@@ -130,7 +145,12 @@ describe("turn context", () => {
       ],
       userText: "latest question",
       toolEvents: [],
-      numCtx: 284,
+      numCtx: trimmingBudget("latest question", {
+        alwaysGlobal: ["Prefers short replies"],
+        alwaysThread: [],
+        onDemandGlobalCount: 1,
+        onDemandThreadCount: 0,
+      }),
       memory: {
         alwaysGlobal: ["Prefers short replies"],
         alwaysThread: [],
@@ -421,7 +441,9 @@ describe("turn runner", () => {
       numCtx: 8192,
       context: { actor: "model", threadId: "thread-1" },
       gate,
-      model: async () => [{ message: { role: "assistant", content: "" }, done: true }],
+      model: async () => [
+        { message: { role: "assistant", content: "" }, done: true },
+      ],
     });
     expect(outcome.stop).toBe("completed");
     expect(outcome.content).toBe("");

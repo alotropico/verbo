@@ -222,6 +222,10 @@ async function startPromotedTurn(
     });
   };
   const onUpdate = (update: TurnUpdate): void => {
+    if (update.type === "notice") {
+      persist("backend_notice", update.notice);
+      emit({ type: "backend_notice", notice: update.notice });
+    }
     if (update.type === "text") emit({ type: "delta", text: update.text });
     if (update.type === "approval") {
       dispatcher.awaitApproval(turnId);
@@ -313,10 +317,10 @@ async function startPromotedTurn(
           turnId,
           abortController.signal,
         );
-        const timer = setTimeout(() => {
+        const timer = setTimeout(async () => {
           resolveApproval(
             operationId,
-            decideOperation({
+            await decideOperation({
               database: getDatabase(),
               scopes: createScopeStore(getDatabase()),
               operationId,
@@ -400,7 +404,10 @@ export function registerAssistantStreamIpc(mainWindow: BrowserWindow): void {
       events: liveEvents(live.turnId),
     };
   });
-  const handleStream = (event: IpcMainEvent, request: unknown): void => {
+  const handleStream = async (
+    event: IpcMainEvent,
+    request: unknown,
+  ): Promise<void> => {
     const [port] = event.ports;
     if (!port) return;
 
@@ -453,7 +460,7 @@ export function registerAssistantStreamIpc(mainWindow: BrowserWindow): void {
       : null;
     const source = chatRequest.source ?? queuedSource ?? "typed";
     if (routeUtterance(latest.content, source).kind !== "model") {
-      const result = executeLocalCommand({
+      const result = await executeLocalCommand({
         text: latest.content,
         source,
         threadId: chatRequest.threadId,
@@ -463,7 +470,18 @@ export function registerAssistantStreamIpc(mainWindow: BrowserWindow): void {
       if (chatRequest.queueItemId) {
         dispatcher.completeReserved(chatRequest.queueItemId);
       }
-      send({ type: "delta", text: result.summary });
+      if (result.receipt) {
+        send({
+          type:
+            result.receipt.status === "requires_confirmation"
+              ? "approval"
+              : "tool_result",
+          toolCallId: result.receipt.receiptId ?? randomUUID(),
+          name: "actions.invoke",
+          args: { name: result.receipt.action, args: {} },
+          result: result.receipt,
+        });
+      } else send({ type: "delta", text: result.summary });
       if (result.newThread || result.openMemory) {
         send({
           type: "local_command",
@@ -539,6 +557,10 @@ export function registerAssistantStreamIpc(mainWindow: BrowserWindow): void {
     };
 
     const onUpdate = (update: TurnUpdate): void => {
+      if (update.type === "notice") {
+        persist("backend_notice", update.notice);
+        emit({ type: "backend_notice", notice: update.notice });
+      }
       if (update.type === "trimmed" && update.removedCount > 0) {
         emit({ type: "context_trimmed", removedCount: update.removedCount });
       }
@@ -635,8 +657,8 @@ export function registerAssistantStreamIpc(mainWindow: BrowserWindow): void {
             turnId,
             abortController.signal,
           );
-          const timer = setTimeout(() => {
-            const expired = decideOperation({
+          const timer = setTimeout(async () => {
+            const expired = await decideOperation({
               database: getDatabase(),
               scopes: createScopeStore(getDatabase()),
               operationId,
@@ -654,12 +676,7 @@ export function registerAssistantStreamIpc(mainWindow: BrowserWindow): void {
             clearTimeout(timer);
           }
         },
-        model: recordingModel(
-          settings,
-          images,
-          abortController.signal,
-          rounds,
-        ),
+        model: recordingModel(settings, images, abortController.signal, rounds),
       })
         .then(() => {
           const traced = exchangeEvent(

@@ -102,7 +102,11 @@ export function createChatModelAdapter(
       if (abortSignal.aborted) onAbort();
 
       let state = emptyChatProjection();
-      const yieldVisible = function* () {
+      const yieldVisible = function* (): Generator<
+        { content: ReturnType<typeof visibleProjection> },
+        void,
+        unknown
+      > {
         const content = visibleProjection(state);
         if (content.length > 0) yield { content };
       };

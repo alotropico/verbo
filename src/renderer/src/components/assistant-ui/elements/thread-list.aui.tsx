@@ -1,4 +1,6 @@
 "use client";
+import { useConfirmation } from "../../confirmation-context";
+import { useSettingsNavigation } from "../../settings-navigation-context";
 
 import {
   ActionIcon,
@@ -177,7 +179,9 @@ const useFilteredThreadIndices = (searchQuery = "") => {
   const query = searchQuery.trim().toLowerCase();
 
   return useMemo(() => {
-    const itemsById = new Map(threadItems.map((item) => [item.id, item]));
+    const itemsById = new Map<string, (typeof threadItems)[number]>(
+      threadItems.map((item) => [item.id, item]),
+    );
     const filteredIndices = threadIds
       .map((id, index) => ({ id, index }))
       .filter(
@@ -229,16 +233,18 @@ export const ThreadListNew = forwardRef<
   HTMLButtonElement,
   ButtonProps & { labelClassName?: string }
 >(({ className, labelClassName, children, ...props }, ref) => {
+  const { showChat } = useSettingsNavigation();
   return (
     <div className={styles.newWrap}>
       <ThreadListPrimitive.New
+        onClick={showChat}
         render={
           <Button
             ref={ref}
             variant="default"
             radius="xl"
             fullWidth
-            justify="flex-start"
+            justify="center"
             data-slot="aui_thread-list-new"
             className={cx(styles.newButton, className)}
             {...props}
@@ -360,6 +366,7 @@ const threadTriggers = (node: HTMLElement): HTMLButtonElement[] => {
 };
 
 export const ThreadListItem: FC = () => {
+  const { showChat } = useSettingsNavigation();
   const isRunning = useAuiState((s) => s.threadListItem.isRunning);
   const itemId = useAuiState((s) => s.threadListItem.id);
   const storedAt = useAuiState((s) => {
@@ -470,6 +477,7 @@ export const ThreadListItem: FC = () => {
               return;
             }
             cancel();
+            showChat();
           }}
         >
           {isRunning && (
@@ -623,6 +631,7 @@ const exportChatFile = async (
 
 const ThreadListItemMore: FC<{ onRename: () => void }> = ({ onRename }) => {
   const aui = useAui();
+  const confirm = useConfirmation();
 
   const exportAs = (kind: "json" | "md"): void => {
     const item = aui.threadListItem.getState();
@@ -694,17 +703,27 @@ const ThreadListItemMore: FC<{ onRename: () => void }> = ({ onRename }) => {
           <ArchiveIcon className={styles.moreItemIcon} />
           Archive
         </ThreadListItemPrimitive.Archive>
-        <ThreadListItemPrimitive.Delete
-          render={
-            <ThreadListItemMorePrimitive.Item
-              data-slot="aui_thread-list-item-more-item"
-              className={cx(styles.moreItem, styles.moreItemDestructive)}
-            />
-          }
+        <ThreadListItemMorePrimitive.Item
+          data-slot="aui_thread-list-item-more-item"
+          className={cx(styles.moreItem, styles.moreItemDestructive)}
+          onSelect={() => {
+            const item = aui.threadListItem.getState();
+            const id = item.id;
+            void confirm({
+              title: "Delete chat?",
+              message:
+                "Permanently delete " +
+                (item.title || "this chat") +
+                "? This cannot be undone.",
+              confirmLabel: "Delete chat",
+              destructive: true,
+              onConfirm: () => aui.threads.item({ id }).delete(),
+            });
+          }}
         >
           <TrashIcon className={styles.moreItemIcon} />
           Delete
-        </ThreadListItemPrimitive.Delete>
+        </ThreadListItemMorePrimitive.Item>
       </ThreadListItemMorePrimitive.Content>
     </ThreadListItemMorePrimitive.Root>
   );

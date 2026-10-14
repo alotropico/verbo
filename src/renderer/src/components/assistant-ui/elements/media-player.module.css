@@ -76,11 +76,6 @@
   display: none;
 }
 
-.errorText {
-  font-size: rem(12px);
-  color: var(--muted-foreground);
-}
-
 .videoRoot {
   display: flex;
   width: 100%;
