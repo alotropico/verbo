@@ -162,6 +162,7 @@ describe("turn context", () => {
     if (!built.ok) return;
     const text = JSON.stringify(built.messages);
     expect(text).toContain("Prefers short replies");
+    expect(built.messages[0]?.content).toContain(CORE_INSTRUCTIONS);
     expect(text).toContain("On-demand memories available: 1 global");
     expect(text).not.toContain(secret);
     expect(text).toContain("kept-recent");
@@ -271,6 +272,7 @@ describe("turn runner", () => {
       },
     });
     expect(seen).toHaveLength(2);
+    expect(seen[0]).toContain(CORE_INSTRUCTIONS);
     expect(seen[0]).toContain("Prefers short replies");
     expect(seen[1]).toBe(seen[0]);
   });
@@ -328,78 +330,94 @@ describe("turn runner", () => {
     expect(calls).toBe(1);
   });
 
-  it("continues the same turn after one approval receipt", async () => {
-    const mutation: Capability = {
-      id: "files.rename",
-      description: "Test mutation.",
-      kind: "mutation",
-      approval: "required",
-      args: z.object({}).strict(),
-      example: {},
-      execute(): ActionResult {
-        return {
+  it.each(["success", "error", "denied"] as const)(
+    "retains core instructions after a %s approval receipt",
+    async (status) => {
+      const mutation: Capability = {
+        id: "files.rename",
+        description: "Test mutation.",
+        kind: "mutation",
+        approval: "required",
+        args: z.object({}).strict(),
+        example: {},
+        execute(): ActionResult {
+          return {
+            action: "files.rename",
+            status: "requires_confirmation",
+            summary: "Rename 1 file",
+            operationId: "op-1",
+          };
+        },
+      };
+      const gate = createRequestGate();
+      let calls = 0;
+      const seen: string[] = [];
+      const outcome = await runTurn({
+        userText: "Rename it",
+        history: [],
+        numCtx: 8192,
+        context: { actor: "model", threadId: "thread-1" },
+        gate,
+        registry: createRegistry([platformCapability(), mutation]),
+        awaitDecision: async () => ({
           action: "files.rename",
-          status: "requires_confirmation",
-          summary: "Rename 1 file",
+          status,
+          summary:
+            status === "success" ? "Renamed 1 file" : "No file was renamed",
           operationId: "op-1",
-        };
-      },
-    };
-    const gate = createRequestGate();
-    let calls = 0;
-    const seen: string[] = [];
-    const outcome = await runTurn({
-      userText: "Rename it",
-      history: [],
-      numCtx: 8192,
-      context: { actor: "model", threadId: "thread-1" },
-      gate,
-      registry: createRegistry([platformCapability(), mutation]),
-      awaitDecision: async () => ({
-        action: "files.rename",
-        status: "success",
-        summary: "Renamed 1 file",
-        operationId: "op-1",
-      }),
-      onUpdate: (update) => {
-        if (update.type === "approval") seen.push(update.result.status);
-        if (update.type === "tool_result") seen.push(update.result.status);
-      },
-      model: async () => {
-        calls += 1;
-        if (calls === 1) {
+        }),
+        onUpdate: (update) => {
+          if (update.type === "approval") seen.push(update.result.status);
+          if (update.type === "tool_result") seen.push(update.result.status);
+        },
+        model: async (messages) => {
+          expect(messages[0]).toEqual({
+            role: "system",
+            content: CORE_INSTRUCTIONS,
+          });
+          calls += 1;
+          if (calls === 1) {
+            return [
+              {
+                message: {
+                  role: "assistant",
+                  content: "",
+                  tool_calls: [
+                    {
+                      function: {
+                        index: 0,
+                        name: "actions.invoke",
+                        arguments: { name: "files.rename", args: {} },
+                      },
+                    },
+                  ],
+                },
+                done: true,
+              },
+            ];
+          }
+          expect(messages.at(-1)).toMatchObject({
+            role: "tool",
+            content: expect.stringContaining(`"status":"${status}"`),
+          });
           return [
             {
               message: {
                 role: "assistant",
-                content: "",
-                tool_calls: [
-                  {
-                    function: {
-                      index: 0,
-                      name: "actions.invoke",
-                      arguments: { name: "files.rename", args: {} },
-                    },
-                  },
-                ],
+                content:
+                  status === "success" ? "Renamed." : "No file was renamed.",
               },
               done: true,
             },
           ];
-        }
-        return [
-          {
-            message: { role: "assistant", content: "Renamed." },
-            done: true,
-          },
-        ];
-      },
-    });
-    expect(outcome.stop).toBe("completed");
-    expect(outcome.results.map((result) => result.status)).toEqual(["success"]);
-    expect(seen).toEqual(["requires_confirmation", "success"]);
-    expect(calls).toBe(2);
-  });
+        },
+      });
+      expect(outcome.stop).toBe("completed");
+      expect(outcome.results.map((result) => result.status)).toEqual([status]);
+      expect(seen).toEqual(["requires_confirmation", status]);
+      expect(calls).toBe(2);
+    },
+  );
 
   it("stops when the same tool request repeats", async () => {
     const gate = createRequestGate();
