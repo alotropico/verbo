@@ -4,9 +4,9 @@
 }
 
 .duration {
+  color: var(--muted-foreground);
   flex-shrink: 0;
   font-size: rem(12px);
-  color: var(--muted-foreground);
   font-variant-numeric: tabular-nums;
 }
 
@@ -16,16 +16,16 @@
   background: transparent;
   border: 0;
   border-radius: var(--radius-md);
-  display: flex;
-  width: fit-content;
-  max-width: 100%;
-  gap: rem(8px);
-  padding: var(--mantine-spacing-xs) var(--mantine-spacing-sm);
-  font-size: var(--mantine-font-size-xs);
   color: var(--muted-foreground);
+  display: flex;
+  font-size: var(--mantine-font-size-xs);
+  gap: rem(8px);
+  max-width: 100%;
+  padding: var(--mantine-spacing-xs) var(--mantine-spacing-sm);
   transition:
-    background-color 150ms,
-    color 150ms;
+    background-color var(--duration-fast),
+    color var(--duration-fast);
+  width: fit-content;
 }
 
 .trigger:hover {
@@ -40,9 +40,9 @@
 
 .triggerIcon {
   color: var(--primary);
-  width: rem(16px);
-  height: rem(16px);
   flex-shrink: 0;
+  height: rem(16px);
+  width: rem(16px);
 }
 
 .trigger[data-status="incomplete"] .triggerIcon:not(.triggerIconCancelled) {
@@ -63,10 +63,10 @@
 
 .triggerLabel {
   display: inline-block;
-  min-width: 0;
-  text-align: start;
   line-height: 1.6;
+  min-width: 0;
   overflow-wrap: anywhere;
+  text-align: start;
 }
 
 .toolName {
@@ -81,11 +81,11 @@
 }
 
 .chevron {
-  width: rem(16px);
-  height: rem(16px);
   flex-shrink: 0;
+  height: rem(16px);
   transform: rotate(-90deg);
   transition: transform var(--animation-duration) cubic-bezier(0.32, 0.72, 0, 1);
+  width: rem(16px);
 }
 
 .trigger[data-open] .chevron,
@@ -105,10 +105,10 @@
 }
 
 .content {
-  position: relative;
-  overflow: hidden;
   font-size: rem(14px);
   outline: none;
+  overflow: hidden;
+  position: relative;
 }
 
 .content[data-open] {
@@ -135,11 +135,11 @@
   display: flex;
   flex-direction: column;
   gap: rem(8px);
-  margin-inline-start: rem(20px);
+  margin-inline-start: var(--mantine-spacing-lg);
   min-width: 0;
   padding-inline-start: var(--mantine-spacing-md);
-  padding-top: rem(4px);
-  padding-bottom: rem(8px);
+  padding-block-start: rem(4px);
+  padding-block-end: rem(8px);
 }
 
 .content[data-open] .contentInner {
@@ -154,27 +154,27 @@
 
 @keyframes toolFallbackInnerIn {
   from {
+    filter: blur(rem(2px));
     opacity: 0;
     transform: translateY(-rem(4px));
-    filter: blur(rem(2px));
   }
   to {
+    filter: blur(0);
     opacity: 1;
     transform: translateY(0);
-    filter: blur(0);
   }
 }
 
 @keyframes toolFallbackInnerOut {
   from {
+    filter: blur(0);
     opacity: 1;
     transform: translateY(0);
-    filter: blur(0);
   }
   to {
+    filter: blur(rem(2px));
     opacity: 0;
     transform: translateY(-rem(4px));
-    filter: blur(rem(2px));
   }
 }
 
@@ -203,21 +203,21 @@
 }
 
 .resultHeader {
+  color: var(--muted-foreground);
   font-size: rem(12px);
   font-weight: 500;
-  color: var(--muted-foreground);
   margin: 0 0 var(--mantine-spacing-xs);
 }
 
 .resultContent {
-  margin-top: rem(4px);
+  margin-block-start: rem(4px);
 }
 
 .approvalReceipt {
   display: flex;
   flex-direction: column;
   gap: rem(6px);
-  padding-top: rem(4px);
+  padding-block-start: rem(4px);
 }
 
 .approvalPrompt {
@@ -231,16 +231,16 @@
 }
 
 .receiptLabel {
-  display: flex;
   align-items: center;
+  display: flex;
   gap: rem(6px);
 }
 
 .receiptIcon {
-  width: rem(14px);
-  height: rem(14px);
-  flex-shrink: 0;
   color: var(--muted-foreground);
+  flex-shrink: 0;
+  height: rem(14px);
+  width: rem(14px);
 }
 
 .receiptOption {
@@ -260,11 +260,11 @@
   display: flex;
   flex-direction: column;
   gap: rem(8px);
-  padding-top: rem(4px);
+  padding-block-start: rem(4px);
 }
 
 .approvalStackLoose {
-  gap: rem(12px);
+  gap: var(--mantine-spacing-sm);
 }
 
 .approvalQuestion {
@@ -279,24 +279,24 @@
 }
 
 .questionHeader {
-  margin-inline-end: rem(6px);
+  color: var(--muted-foreground);
   font-size: rem(12px);
   font-weight: 500;
+  margin-inline-end: rem(6px);
   text-transform: uppercase;
-  color: var(--muted-foreground);
 }
 
 .optionsRow {
+  align-items: center;
   display: flex;
   flex-wrap: wrap;
-  align-items: center;
   gap: rem(8px);
 }
 
 .optionsCol {
+  align-items: stretch;
   display: flex;
   flex-direction: column;
-  align-items: stretch;
   gap: rem(8px);
 }
 
@@ -307,25 +307,25 @@
 }
 
 .optionButtonStack {
-  height: auto;
-  flex-direction: column;
   align-items: flex-start;
+  flex-direction: column;
   gap: rem(2px);
+  height: auto;
   padding-block: rem(8px);
   text-align: start;
   white-space: normal;
 }
 
 .actionsRow {
-  display: flex;
   align-items: center;
+  display: flex;
   gap: rem(8px);
 }
 
 .approvalAnswer {
+  align-items: flex-start;
   display: flex;
   flex-direction: column;
-  align-items: flex-start;
   gap: rem(8px);
 }
 
@@ -345,11 +345,11 @@
 }
 
 .confirmGrant {
-  border-radius: var(--radius);
   background: var(--muted);
+  border-radius: var(--radius);
+  font-size: rem(12px);
   padding-inline: rem(6px);
   padding-block: rem(2px);
-  font-size: rem(12px);
 }
 
 .pressable:active {

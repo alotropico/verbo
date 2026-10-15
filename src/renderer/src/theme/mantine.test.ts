@@ -15,6 +15,10 @@ describe("shared Mantine tokens", () => {
     expect(resolved.variables["--mantine-radius-default"]).toBe(
       "var(--radius)",
     );
+    expect(resolved.variables["--mantine-radius-sm"]).toBe("var(--radius-sm)");
+    expect(resolved.variables["--mantine-radius-lg"]).toBe(
+      "var(--radius-control)",
+    );
   });
 
   it("uses semantic tokens for primary filled variants", () => {

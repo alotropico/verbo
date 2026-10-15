@@ -1,30 +1,30 @@
 .root {
-  position: relative;
-  overflow: hidden;
   border-radius: var(--radius-lg);
+  overflow: hidden;
+  position: relative;
 }
 
-.root[data-variant='outline'] {
+.root[data-variant="outline"] {
   border: rem(1px) solid var(--border);
 }
 
-.root[data-variant='muted'] {
+.root[data-variant="muted"] {
   background: color-mix(in oklab, var(--muted) 50%, transparent);
 }
 
-.root[data-size='sm'] {
+.root[data-size="sm"] {
   max-width: rem(256px);
 }
 
-.root[data-size='default'] {
+.root[data-size="default"] {
   max-width: rem(384px);
 }
 
-.root[data-size='lg'] {
+.root[data-size="lg"] {
   max-width: rem(512px);
 }
 
-.root[data-size='full'] {
+.root[data-size="full"] {
   width: 100%;
 }
 
@@ -53,39 +53,39 @@
 }
 
 .loadingOverlay {
-  position: absolute;
-  inset: 0;
-  display: flex;
   align-items: center;
-  justify-content: center;
   background: color-mix(in oklab, var(--muted) 50%, transparent);
+  display: flex;
+  inset: 0;
+  justify-content: center;
+  position: absolute;
 }
 
 .loadingIcon {
-  width: rem(32px);
-  height: rem(32px);
-  color: var(--muted-foreground);
   animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+  color: var(--muted-foreground);
+  height: rem(32px);
+  width: rem(32px);
 }
 
 .errorPanel {
-  display: flex;
-  min-height: rem(128px);
   align-items: center;
-  justify-content: center;
-  padding: rem(16px);
   background: color-mix(in oklab, var(--muted) 50%, transparent);
+  display: flex;
+  justify-content: center;
+  min-height: rem(128px);
+  padding: var(--mantine-spacing-md);
 }
 
 .errorPanelFixed {
-  position: absolute;
   inset: 0;
+  position: absolute;
 }
 
 .errorIcon {
-  width: rem(32px);
-  height: rem(32px);
   color: var(--muted-foreground);
+  height: rem(32px);
+  width: rem(32px);
 }
 
 .imgFixed {
@@ -105,8 +105,8 @@
 .imgAuto {
   display: block;
   height: auto;
-  width: 100%;
   object-fit: contain;
+  width: 100%;
 }
 
 .imgHidden {
@@ -114,34 +114,34 @@
 }
 
 .source {
-  display: flex;
   align-items: center;
+  border-block-start: rem(1px) solid var(--border);
+  color: var(--muted-foreground);
+  display: flex;
+  font-size: rem(12px);
   gap: rem(8px);
-  border-top: rem(1px) solid var(--border);
   padding-inline: rem(8px);
   padding-block: rem(6px);
-  font-size: rem(12px);
-  color: var(--muted-foreground);
 }
 
 .sourceIcon {
-  width: rem(16px);
-  height: rem(16px);
-  flex-shrink: 0;
   border-radius: var(--radius-sm);
+  flex-shrink: 0;
+  height: rem(16px);
+  width: rem(16px);
 }
 
 .sourceIconFallback {
-  display: flex;
-  width: rem(16px);
-  height: rem(16px);
-  flex-shrink: 0;
   align-items: center;
-  justify-content: center;
-  border-radius: var(--radius-sm);
   background: var(--muted);
+  border-radius: var(--radius-sm);
+  display: flex;
+  flex-shrink: 0;
   font-size: rem(10px);
   font-weight: 500;
+  height: rem(16px);
+  justify-content: center;
+  width: rem(16px);
 }
 
 .sourceLink {
@@ -155,14 +155,14 @@
 }
 
 .filename {
+  color: var(--muted-foreground);
   display: block;
+  font-size: rem(12px);
   overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
   padding-inline: rem(8px);
   padding-block: rem(6px);
-  font-size: rem(12px);
-  color: var(--muted-foreground);
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .zoomTrigger {
@@ -170,22 +170,22 @@
 }
 
 .zoomOverlay {
-  position: fixed;
-  inset: 0;
-  z-index: 50;
-  display: flex;
   align-items: center;
+  animation: fade-in var(--duration-normal) ease-out;
+  background: var(--overlay-scrim);
+  display: flex;
+  inset: 0;
   justify-content: center;
-  background: rgb(0 0 0 / 80%);
-  animation: fade-in 200ms ease-out;
+  position: fixed;
+  z-index: var(--mantine-z-index-modal);
 }
 
 .zoomContent {
+  animation: imageZoomIn var(--duration-normal) ease-out;
+  cursor: zoom-out;
   max-height: 90%;
   max-width: 90%;
-  cursor: zoom-out;
   object-fit: contain;
-  animation: imageZoomIn 200ms ease-out;
 }
 
 @keyframes imageZoomIn {
@@ -200,10 +200,10 @@
 }
 
 .zoomClose {
-  position: absolute;
-  inset-inline-end: rem(16px);
-  top: rem(16px);
   color: var(--muted-foreground);
+  inset-inline-end: rem(16px);
+  position: absolute;
+  top: rem(16px);
 }
 
 .zoomClose:hover {
@@ -211,36 +211,36 @@
 }
 
 .closeIcon {
-  width: rem(20px);
   height: rem(20px);
+  width: rem(20px);
 }
 
 .generating {
-  display: flex;
-  min-height: rem(128px);
   align-items: center;
-  justify-content: center;
-  padding: rem(16px);
   background: color-mix(in oklab, var(--muted) 50%, transparent);
+  display: flex;
+  justify-content: center;
+  min-height: rem(128px);
+  padding: var(--mantine-spacing-md);
 }
 
 .spinner {
-  width: rem(32px);
-  height: rem(32px);
-  color: var(--muted-foreground);
   animation: spin 1s linear infinite;
+  color: var(--muted-foreground);
+  height: rem(32px);
+  width: rem(32px);
 }
 
 .filterError {
-  display: flex;
-  min-height: rem(128px);
-  flex-direction: column;
   align-items: center;
-  justify-content: center;
-  gap: rem(8px);
-  padding: rem(16px);
-  text-align: center;
   background: color-mix(in oklab, var(--muted) 50%, transparent);
+  display: flex;
+  flex-direction: column;
+  gap: rem(8px);
+  justify-content: center;
+  min-height: rem(128px);
+  padding: var(--mantine-spacing-md);
+  text-align: center;
 }
 
 .filterTitle {
@@ -249,13 +249,13 @@
 }
 
 .filterReason {
-  font-size: rem(12px);
   color: var(--muted-foreground);
+  font-size: rem(12px);
 }
 
 .actions {
-  display: flex;
   align-items: center;
+  display: flex;
   gap: rem(4px);
   padding: rem(4px);
 }
@@ -269,8 +269,8 @@
 }
 
 .actionIcon {
-  width: rem(16px);
   height: rem(16px);
+  width: rem(16px);
 }
 
 .actionIconSpin {

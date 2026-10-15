@@ -1,44 +1,7 @@
 .shell {
-  --shell-backdrop:
-    url("data:image/svg+xml,%3Csvg viewBox='0 0 1746 1746' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.65' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)'/%3E%3C/svg%3E"),
-    radial-gradient(
-      circle at 0% 99%,
-      hsla(192, 10%, 31%, 1) 0%,
-      transparent 67%
-    ),
-    radial-gradient(
-      circle at 46% 94%,
-      hsla(200, 9%, 36%, 1) 0%,
-      transparent 81%
-    ),
-    radial-gradient(
-      circle at 89% 8%,
-      hsla(265, 14%, 16%, 1) 0%,
-      transparent 150%
-    ),
-    radial-gradient(
-      circle at 89% 8%,
-      hsla(206, 100%, 9%, 1) 0%,
-      transparent 150%
-    ),
-    radial-gradient(
-      circle at 93% 95%,
-      hsla(196, 17%, 20%, 1) 0%,
-      transparent 66%
-    ),
-    radial-gradient(
-      circle at 89% 8%,
-      hsla(0, 0%, 60%, 1) 0%,
-      transparent 150%
-    ),
-    radial-gradient(
-      circle at 89% 8%,
-      hsla(55, 0%, 20%, 1) 0%,
-      transparent 150%
-    );
-  isolation: isolate;
-  height: 100dvh;
   color: var(--foreground);
+  height: 100dvh;
+  isolation: isolate;
 
   &::after {
     background-attachment: fixed;
@@ -55,11 +18,11 @@
 }
 
 .navbar {
-  background: var(--sidebar);
   backdrop-filter: blur(rem(16px));
+  background: var(--sidebar);
+  border-inline-end: rem(1px) solid var(--sidebar-border);
   box-shadow: rem(8px) 0 rem(40px) rem(-24px) var(--shadow-color);
   color: var(--sidebar-foreground);
-  border-inline-end: rem(1px) solid var(--sidebar-border);
 }
 
 .inset {
@@ -72,19 +35,19 @@
 
 .header {
   -webkit-app-region: drag;
+  align-items: center;
   background: color-mix(in oklab, var(--background) 14%, transparent);
-  border-bottom: rem(1px) solid var(--sidebar-border);
-  position: relative;
+  border-block-end: rem(1px) solid var(--sidebar-border);
   display: flex;
   flex-shrink: 0;
-  align-items: center;
-  gap: rem(16px);
+  gap: var(--mantine-spacing-md);
   min-height: env(titlebar-area-height, rem(48px));
   padding: rem(8px) rem(24px);
   padding-inline-end: max(
     var(--mantine-spacing-xs),
     calc(100vw - env(titlebar-area-x, 0px) - env(titlebar-area-width, 100vw))
   );
+  position: relative;
 }
 
 .headerDivider {
@@ -101,15 +64,15 @@
 }
 
 .headerTitle {
-  min-width: 0;
   flex: 1;
-  margin: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
   font-size: var(--mantine-font-size-sm);
   font-weight: var(--mantine-font-weight-medium);
   letter-spacing: -0.01em;
+  margin: 0;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .main {
@@ -135,8 +98,8 @@
 
 @media (max-width: em(768px)) {
   .navbar {
-    background: var(--surface-raised);
     backdrop-filter: blur(rem(32px));
+    background: var(--surface-raised);
   }
 
   .header {

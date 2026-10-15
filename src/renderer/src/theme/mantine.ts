@@ -47,13 +47,12 @@ const semantic = {
 export const cssVariablesResolver: CSSVariablesResolver = () => ({
   variables: {
     "--mantine-radius-default": "var(--radius)",
-    "--mantine-radius-sm": "calc(var(--radius) - 4px)",
+    "--mantine-radius-sm": "var(--radius-sm)",
     "--mantine-radius-md": "var(--radius)",
-    "--mantine-radius-lg": "calc(var(--radius) + 4px)",
+    "--mantine-radius-lg": "var(--radius-control)",
     "--mantine-font-family": "inherit",
     "--mantine-font-family-headings": "inherit",
-    "--mantine-font-family-monospace":
-      "var(--font-mono, ui-monospace, monospace)",
+    "--mantine-font-family-monospace": "var(--font-mono)",
   },
   light: semantic,
   dark: semantic,
@@ -123,7 +122,10 @@ export const theme = createTheme({
   defaultRadius: "md",
   variantColorResolver,
   components: {
-    Button: Button.extend({ classNames: { root: styles.button } }),
+    Button: Button.extend({
+      defaultProps: { variant: "light", radius: "lg" },
+      classNames: { root: styles.button },
+    }),
     Input: Input.extend({ classNames: { input: styles.input } }),
     InputWrapper: InputWrapper.extend({
       classNames: { label: styles.label, description: styles.description },

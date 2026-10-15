@@ -1,10 +1,10 @@
 .scrollRow {
   margin-block: -rem(4px);
-  width: 100%;
   overflow-x: hidden;
+  -ms-overflow-style: none;
   padding-block: rem(4px);
   scrollbar-width: none;
-  -ms-overflow-style: none;
+  width: 100%;
 }
 
 .scrollRow::-webkit-scrollbar {
@@ -35,6 +35,6 @@
 }
 
 .label {
-  margin-inline-start: rem(4px);
   color: var(--muted-foreground);
+  margin-inline-start: rem(4px);
 }

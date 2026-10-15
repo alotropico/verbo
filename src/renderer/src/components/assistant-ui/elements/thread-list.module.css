@@ -3,7 +3,7 @@
   flex: 1;
   flex-direction: column;
   font-size: rem(14px);
-  gap: rem(16px);
+  gap: var(--mantine-spacing-md);
   min-height: 0;
 }
 
@@ -22,9 +22,9 @@
 }
 
 .searchIcon {
-  width: rem(16px);
-  height: rem(16px);
   color: var(--muted-foreground);
+  height: rem(16px);
+  width: rem(16px);
 }
 
 .searchInput.searchInput {
@@ -33,8 +33,8 @@
   border-radius: unset;
   border-width: 0 0 1px;
   box-shadow: none !important;
-  padding-top: 0;
   outline: none;
+  padding-block-start: 0;
 
   &::-webkit-search-cancel-button {
     appearance: none;
@@ -46,9 +46,9 @@
 }
 
 .empty {
-  padding-inline: rem(10px);
-  padding-block: rem(16px);
   color: var(--muted-foreground);
+  padding-inline: var(--mantine-spacing-xs);
+  padding-block: var(--mantine-spacing-md);
 }
 
 .sidebarActions {
@@ -56,7 +56,7 @@
   flex-direction: column;
   flex-shrink: 0;
   gap: rem(8px);
-  padding-block-end: rem(16px);
+  padding-block-end: var(--mantine-spacing-md);
 }
 
 .newWrap {
@@ -71,9 +71,9 @@
   color: var(--primary);
   height: rem(40px);
   transition:
-    background 180ms,
-    border-color 180ms,
-    box-shadow 180ms;
+    background var(--duration-control),
+    border-color var(--duration-control),
+    box-shadow var(--duration-control);
 }
 
 .newButton:hover {
@@ -83,10 +83,10 @@
 }
 
 .newIcon {
+  flex-shrink: 0;
+  height: rem(16px);
   margin-inline-end: rem(8px);
   width: rem(16px);
-  height: rem(16px);
-  flex-shrink: 0;
 }
 
 .newLabel {
@@ -100,10 +100,10 @@
 }
 
 .skeletonRow {
+  align-items: center;
   display: flex;
   min-height: rem(38px);
-  align-items: center;
-  padding-inline: rem(10px);
+  padding-inline: var(--mantine-spacing-xs);
 }
 
 .skeletonBar {
@@ -112,16 +112,16 @@
 }
 
 .itemRoot {
-  position: relative;
-  display: flex;
-  min-height: rem(48px);
   align-items: center;
   border: rem(1px) solid transparent;
   border-radius: var(--radius);
   color: var(--muted-foreground);
+  display: flex;
+  min-height: rem(48px);
+  position: relative;
   transition:
-    background-color 150ms,
-    border-color 150ms;
+    background-color var(--duration-fast),
+    border-color var(--duration-fast);
 }
 
 .itemRoot:hover,
@@ -158,18 +158,18 @@
 }
 
 .trigger {
+  align-items: center;
   background: transparent;
   border: 0;
+  border-radius: var(--radius);
   color: inherit;
   display: flex;
+  flex: 1;
   min-height: rem(46px);
   min-width: 0;
-  flex: 1;
-  align-items: center;
-  border-radius: var(--radius);
-  padding-inline: rem(10px);
-  text-align: start;
   outline: none;
+  padding-inline: var(--mantine-spacing-xs);
+  text-align: start;
 }
 
 .itemRoot:hover .trigger,
@@ -188,12 +188,12 @@
 }
 
 .runningIcon {
+  animation: spin 1s linear infinite;
+  color: var(--muted-foreground);
+  flex-shrink: 0;
+  height: rem(14px);
   margin-inline-end: rem(6px);
   width: rem(14px);
-  height: rem(14px);
-  flex-shrink: 0;
-  color: var(--muted-foreground);
-  animation: spin 1s linear infinite;
 }
 
 .itemBody {
@@ -222,26 +222,26 @@
 }
 
 .renameWrap {
-  min-width: 0;
   flex: 1;
+  min-width: 0;
 }
 
 .renameInput {
   height: rem(28px);
   min-width: 0;
-  padding-inline-start: rem(10px);
+  padding-inline-start: var(--mantine-spacing-xs);
   padding-inline-end: rem(36px);
 }
 
 .moreTrigger {
-  position: absolute;
-  inset-inline-end: rem(6px);
-  top: 50%;
-  width: rem(24px);
   height: rem(24px);
-  padding: 0;
-  transform: translateY(-50%);
+  inset-inline-end: rem(6px);
   opacity: 0;
+  padding: 0;
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  width: rem(24px);
 }
 
 .itemRoot:hover .moreTrigger,
@@ -252,29 +252,29 @@
 }
 
 .moreIcon {
-  width: rem(14px);
   height: rem(14px);
+  width: rem(14px);
 }
 
 .moreContent {
   backdrop-filter: blur(rem(24px));
-  box-shadow: var(--shadow-floating);
-  z-index: 50;
-  min-width: rem(128px);
-  overflow: hidden;
+  background: var(--surface-raised);
   border-radius: calc(var(--radius) + rem(4px));
   border: rem(1px) solid var(--border);
-  background: var(--surface-raised);
-  padding: rem(6px);
+  box-shadow: var(--shadow-floating);
   color: var(--popover-foreground);
+  min-width: rem(128px);
+  overflow: hidden;
+  padding: rem(6px);
+  z-index: var(--mantine-z-index-popover);
 }
 
 .moreContent[data-state="open"] {
-  animation: moreContentEnter 150ms ease-out;
+  animation: moreContentEnter var(--duration-fast) ease-out;
 }
 
 .moreContent[data-state="closed"] {
-  animation: moreContentExit 150ms ease-in;
+  animation: moreContentExit var(--duration-fast) ease-in;
 }
 
 @keyframes moreContentEnter {
@@ -300,14 +300,14 @@
 }
 
 .moreItem {
-  display: flex;
-  cursor: pointer;
   align-items: center;
-  gap: rem(8px);
   border-radius: var(--radius);
-  padding-inline: rem(10px);
-  padding-block: rem(6px);
+  cursor: pointer;
+  display: flex;
+  gap: rem(8px);
   outline: none;
+  padding-inline: var(--mantine-spacing-xs);
+  padding-block: rem(6px);
   user-select: none;
 }
 
@@ -318,8 +318,8 @@
 }
 
 .moreItemIcon {
-  width: rem(16px);
   height: rem(16px);
+  width: rem(16px);
 }
 
 .moreItemDestructive {

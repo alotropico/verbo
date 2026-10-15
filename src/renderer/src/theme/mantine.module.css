@@ -2,6 +2,15 @@
   border: var(--button-bd, rem(1px) solid transparent);
   font-size: var(--button-fz);
   font-weight: 500;
+  transition:
+    background-color var(--duration-control),
+    border-color var(--duration-control),
+    box-shadow var(--duration-control);
+}
+
+.button[data-variant="light"]:not(:disabled):not([data-disabled]) {
+  border-color: color-mix(in oklab, var(--button-color) 16%, transparent);
+  box-shadow: inset 0 rem(1px) 0 var(--sidebar-border);
 }
 
 .input {
@@ -10,8 +19,8 @@
   color: var(--foreground);
   font-size: var(--mantine-font-size-sm);
   transition:
-    border-color 180ms,
-    box-shadow 180ms;
+    border-color var(--duration-control),
+    box-shadow var(--duration-control);
 }
 
 .input:not([data-error]):not(:disabled):focus,
@@ -34,7 +43,7 @@
   color: var(--foreground);
   font-size: rem(13px);
   font-weight: 500;
-  margin-bottom: rem(6px);
+  margin-block-end: rem(6px);
 }
 
 .description {
@@ -113,7 +122,7 @@
     ),
     var(--surface-raised);
   border: rem(1px) solid var(--surface-edge);
-  border-radius: rem(22px);
+  border-radius: var(--radius-panel);
   box-shadow:
     inset 0 rem(1px) 0 var(--sidebar-border),
     var(--shadow-floating);
@@ -121,7 +130,7 @@
 
 .modalHeader {
   background: transparent;
-  padding: rem(24px) rem(24px) rem(12px);
+  padding: rem(24px) rem(24px) var(--mantine-spacing-sm);
 }
 
 .modalTitle {
@@ -177,6 +186,7 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .button,
   .input {
     transition: none;
   }

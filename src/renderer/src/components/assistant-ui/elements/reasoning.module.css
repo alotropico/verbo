@@ -1,42 +1,42 @@
 .root {
-  margin-bottom: rem(16px);
+  margin-block-end: var(--mantine-spacing-md);
   width: 100%;
 }
 
 .root[data-variant="outline"] {
   border-radius: var(--radius-lg);
   border: rem(1px) solid var(--border);
-  padding-inline: rem(12px);
+  padding-inline: var(--mantine-spacing-sm);
   padding-block: rem(8px);
 }
 
 .root[data-variant="muted"] {
-  border-radius: var(--radius-lg);
   background: color-mix(in oklab, var(--muted) 50%, transparent);
-  padding-inline: rem(12px);
+  border-radius: var(--radius-lg);
+  padding-inline: var(--mantine-spacing-sm);
   padding-block: rem(8px);
 }
 
 .fadeTop {
+  animation: fade-in var(--animation-duration) ease-out;
+  background: linear-gradient(to bottom, var(--background), transparent);
+  height: rem(32px);
+  inset-inline: 0;
   pointer-events: none;
   position: absolute;
-  inset-inline: 0;
   top: 0;
   z-index: 10;
-  height: rem(32px);
-  background: linear-gradient(to bottom, var(--background), transparent);
-  animation: fade-in var(--animation-duration) ease-out;
 }
 
 .fadeBottom {
+  animation: fade-in var(--animation-duration) ease-out;
+  background: linear-gradient(to top, var(--background), transparent);
+  bottom: 0;
+  height: rem(32px);
+  inset-inline: 0;
   pointer-events: none;
   position: absolute;
-  inset-inline: 0;
-  bottom: 0;
   z-index: 10;
-  height: rem(32px);
-  background: linear-gradient(to top, var(--background), transparent);
-  animation: fade-in var(--animation-duration) ease-out;
 }
 
 .root[data-variant="muted"] .fadeTop {
@@ -61,16 +61,16 @@
   background: transparent;
   border: 0;
   border-radius: var(--radius-md);
-  display: flex;
-  max-width: 100%;
-  transform-origin: left;
-  gap: rem(8px);
-  padding: var(--mantine-spacing-xs) var(--mantine-spacing-sm);
-  font-size: var(--mantine-font-size-xs);
   color: var(--muted-foreground);
+  display: flex;
+  font-size: var(--mantine-font-size-xs);
+  gap: rem(8px);
+  max-width: 100%;
+  padding: var(--mantine-spacing-xs) var(--mantine-spacing-sm);
+  transform-origin: left;
   transition:
-    color 150ms,
-    transform 150ms;
+    color var(--duration-fast),
+    transform var(--duration-fast);
 }
 
 .trigger:hover {
@@ -89,24 +89,24 @@
 
 .triggerIcon {
   color: var(--insight);
-  width: rem(16px);
-  height: rem(16px);
   flex-shrink: 0;
+  height: rem(16px);
+  width: rem(16px);
 }
 
 .triggerLabel {
   display: inline-block;
-  line-height: 1.5;
   font-variant-numeric: tabular-nums;
+  line-height: 1.5;
 }
 
 .triggerChevron {
-  margin-top: rem(2px);
-  width: rem(16px);
-  height: rem(16px);
   flex-shrink: 0;
+  height: rem(16px);
+  margin-block-start: rem(2px);
   transform: rotate(-90deg);
   transition: transform var(--animation-duration) cubic-bezier(0.32, 0.72, 0, 1);
+  width: rem(16px);
 }
 
 .trigger[data-open] .chevron,
@@ -121,11 +121,11 @@
 }
 
 .content {
-  position: relative;
-  overflow: hidden;
-  font-size: rem(14px);
   color: var(--muted-foreground);
+  font-size: rem(14px);
   outline: none;
+  overflow: hidden;
+  position: relative;
 }
 
 .content[data-open] {
@@ -150,24 +150,24 @@
 .text {
   border-inline-start: rem(1px) solid
     color-mix(in oklab, var(--insight) 20%, transparent);
-  position: relative;
-  z-index: 0;
+  line-height: 1.625;
   max-height: rem(256px);
   overflow-y: auto;
   padding-inline-start: rem(24px);
   padding-block: rem(8px);
-  line-height: 1.625;
+  position: relative;
   text-wrap: pretty;
   transform: translateZ(0);
   transition:
     transform var(--animation-duration) cubic-bezier(0.32, 0.72, 0, 1),
     opacity var(--animation-duration) cubic-bezier(0.32, 0.72, 0, 1);
+  z-index: 0;
 }
 
 .textContent {
   display: flex;
   flex-direction: column;
-  gap: rem(16px);
+  gap: var(--mantine-spacing-md);
 }
 
 .content[data-open] .text {
@@ -182,27 +182,27 @@
 
 @keyframes reasoningTextIn {
   from {
+    filter: blur(rem(2px));
     opacity: 0;
     transform: translateY(-rem(16px));
-    filter: blur(rem(2px));
   }
   to {
+    filter: blur(0);
     opacity: 1;
     transform: translateY(0);
-    filter: blur(0);
   }
 }
 
 @keyframes reasoningTextOut {
   from {
+    filter: blur(0);
     opacity: 1;
     transform: translateY(0);
-    filter: blur(0);
   }
   to {
+    filter: blur(rem(2px));
     opacity: 0;
     transform: translateY(-rem(16px));
-    filter: blur(rem(2px));
   }
 }
 

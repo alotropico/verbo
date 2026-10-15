@@ -5,10 +5,10 @@
   flex: none;
   inline-size: 60px;
   isolation: isolate;
-  pointer-events: none;
-  vertical-align: middle;
   margin: 0 5px;
   opacity: 0.9;
+  pointer-events: none;
+  vertical-align: middle;
 }
 
 .canvas {
@@ -19,8 +19,13 @@
 
 .fallback {
   background:
-    radial-gradient(ellipse at 28% 22%, #fff 0%, #9ce5c6 30%, transparent 65%),
-    radial-gradient(ellipse at 70% 75%, #9ce5c6, #294d40);
+    radial-gradient(
+      ellipse at 28% 22%,
+      var(--orb-highlight) 0%,
+      var(--orb-tint) 30%,
+      transparent 65%
+    ),
+    radial-gradient(ellipse at 70% 75%, var(--orb-tint), var(--orb-shadow));
   block-size: 50px;
   border-radius: 44% 56% 63% 37% / 48% 42% 58% 52%;
   inline-size: 50px;

@@ -4,7 +4,7 @@
   color: inherit;
   height: rem(24px);
   padding: rem(4px);
-  transition: color 150ms;
+  transition: color var(--duration-fast);
   width: rem(24px);
 }
 

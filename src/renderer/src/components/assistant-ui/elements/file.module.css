@@ -1,79 +1,81 @@
 .root {
-  display: inline-flex;
   align-items: center;
-  gap: rem(12px);
   border-radius: var(--radius-lg);
-  transition: background-color 150ms;
+  display: inline-flex;
+  gap: var(--mantine-spacing-sm);
+  transition: background-color var(--duration-fast);
 }
 
-.root[data-variant='outline'] {
+.root[data-variant="outline"] {
   border: rem(1px) solid var(--border);
 }
 
-.root[data-variant='outline']:hover {
+.root[data-variant="outline"]:hover {
   background: color-mix(in oklab, var(--muted) 50%, transparent);
 }
 
-.root[data-variant='ghost']:hover {
+.root[data-variant="ghost"]:hover {
   background: color-mix(in oklab, var(--muted) 50%, transparent);
 }
 
-.root[data-variant='muted'] {
+.root[data-variant="muted"] {
   background: color-mix(in oklab, var(--muted) 50%, transparent);
 }
 
-.root[data-variant='muted']:hover {
+.root[data-variant="muted"]:hover {
   background: color-mix(in oklab, var(--muted) 70%, transparent);
 }
 
-.root[data-size='sm'] {
-  padding-inline: rem(10px);
-  padding-block: rem(6px);
+.root[data-size="sm"] {
   font-size: rem(12px);
+  padding-inline: var(--mantine-spacing-xs);
+  padding-block: rem(6px);
 }
 
-.root[data-size='default'] {
-  padding-inline: rem(12px);
-  padding-block: rem(8px);
+.root[data-size="default"] {
   font-size: rem(14px);
+  padding-inline: var(--mantine-spacing-sm);
+  padding-block: rem(8px);
 }
 
-.root[data-size='lg'] {
-  padding-inline: rem(16px);
-  padding-block: rem(12px);
+.root[data-size="lg"] {
   font-size: rem(16px);
+  padding-inline: var(--mantine-spacing-md);
+  padding-block: var(--mantine-spacing-sm);
 }
 
 .icon {
-  flex-shrink: 0;
   color: var(--muted-foreground);
+  flex-shrink: 0;
 }
 
 .iconSize {
-  width: rem(20px);
   height: rem(20px);
+  width: rem(20px);
 }
 
 .name {
-  min-width: 0;
   flex: 1;
+  font-weight: 500;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-weight: 500;
 }
 
 .size {
-  flex-shrink: 0;
   color: var(--muted-foreground);
+  flex-shrink: 0;
 }
 
 .download {
-  flex-shrink: 0;
   border-radius: var(--radius);
-  padding: rem(4px);
   color: var(--muted-foreground);
-  transition: background-color 150ms, color 150ms;
+  flex-shrink: 0;
+  padding: rem(4px);
+  transition:
+    background-color var(--duration-fast),
+    color var(--duration-fast);
 }
 
 .download:hover {
@@ -82,8 +84,8 @@
 }
 
 .downloadIcon {
-  width: rem(16px);
   height: rem(16px);
+  width: rem(16px);
 }
 
 .playerWrap {
@@ -92,18 +94,18 @@
 
 .mediaLayout {
   display: flex;
-  width: 100%;
-  max-width: rem(576px);
   flex-direction: column;
   gap: rem(8px);
+  max-width: rem(576px);
+  width: 100%;
 }
 
 .mediaFooter {
-  display: flex;
-  min-width: 0;
   align-items: center;
-  justify-content: flex-end;
+  display: flex;
   gap: rem(8px);
+  justify-content: flex-end;
+  min-width: 0;
   padding-inline: rem(4px);
 }
 
@@ -113,10 +115,10 @@
 
 .metaCol {
   display: flex;
-  min-width: 0;
   flex: 1;
   flex-direction: column;
   gap: rem(2px);
+  min-width: 0;
 }
 
 .sizeSm {

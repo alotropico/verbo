@@ -233,11 +233,14 @@ export const ThreadListNew = forwardRef<
   HTMLButtonElement,
   ButtonProps & { labelClassName?: string }
 >(({ className, labelClassName, children, ...props }, ref) => {
-  const { showChat } = useSettingsNavigation();
+  const { opened, showChat } = useSettingsNavigation();
   return (
     <div className={styles.newWrap}>
       <ThreadListPrimitive.New
         onClick={showChat}
+        {...(opened
+          ? { "data-active": undefined, "aria-current": undefined }
+          : {})}
         render={
           <Button
             ref={ref}
@@ -366,7 +369,7 @@ const threadTriggers = (node: HTMLElement): HTMLButtonElement[] => {
 };
 
 export const ThreadListItem: FC = () => {
-  const { showChat } = useSettingsNavigation();
+  const { opened, showChat } = useSettingsNavigation();
   const isRunning = useAuiState((s) => s.threadListItem.isRunning);
   const itemId = useAuiState((s) => s.threadListItem.id);
   const storedAt = useAuiState((s) => {
@@ -449,6 +452,9 @@ export const ThreadListItem: FC = () => {
     <ThreadListItemPrimitive.Root
       data-slot="aui_thread-list-item"
       data-thread-id={itemId}
+      {...(opened
+        ? { "data-active": undefined, "aria-current": undefined }
+        : {})}
       data-selected={selected ? "true" : undefined}
       className={styles.itemRoot}
       onKeyDown={onItemKeyDown}

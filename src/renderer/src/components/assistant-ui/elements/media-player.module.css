@@ -1,29 +1,29 @@
 .audioRoot {
-  display: flex;
-  width: 100%;
-  max-width: rem(448px);
   align-items: center;
-  gap: rem(12px);
   border-radius: rem(16px);
-  padding: rem(12px);
+  display: flex;
+  gap: var(--mantine-spacing-sm);
+  max-width: rem(448px);
+  padding: var(--mantine-spacing-sm);
+  width: 100%;
 }
 
 .artwork {
-  width: rem(40px);
-  height: rem(40px);
-  flex-shrink: 0;
   border-radius: var(--radius);
+  flex-shrink: 0;
+  height: rem(40px);
   object-fit: cover;
+  width: rem(40px);
 }
 
 .playButton {
-  display: flex;
-  width: rem(36px);
-  height: rem(36px);
-  flex-shrink: 0;
   align-items: center;
+  border-radius: var(--radius-pill);
+  display: flex;
+  flex-shrink: 0;
+  height: rem(36px);
   justify-content: center;
-  border-radius: rem(9999px);
+  width: rem(36px);
 }
 
 .playButton:disabled {
@@ -36,31 +36,31 @@
 }
 
 .iconSm {
-  width: rem(16px);
   height: rem(16px);
+  width: rem(16px);
 }
 
 .metaCol {
   display: flex;
-  min-width: 0;
   flex-grow: 1;
   flex-basis: rem(64px);
   flex-direction: column;
   gap: rem(6px);
+  min-width: 0;
 }
 
 .title {
+  font-size: rem(13.5px);
+  font-weight: 500;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: rem(13.5px);
-  font-weight: 500;
 }
 
 .seek {
-  width: 100%;
-  cursor: pointer;
   accent-color: var(--foreground);
+  cursor: pointer;
+  width: 100%;
 }
 
 .seek:disabled {
@@ -78,15 +78,15 @@
 
 .videoRoot {
   display: flex;
-  width: 100%;
-  max-width: rem(576px);
   flex-direction: column;
   gap: rem(8px);
+  max-width: rem(576px);
+  width: 100%;
 }
 
 .videoField {
-  overflow: hidden;
   border-radius: calc(var(--radius) + rem(4px));
+  overflow: hidden;
 }
 
 .aspectSquare {
@@ -112,30 +112,30 @@
 
 .videoElContain {
   height: 100%;
-  width: 100%;
   object-fit: contain;
+  width: 100%;
 }
 
 .videoFooter {
-  display: flex;
-  min-width: 0;
   align-items: center;
+  display: flex;
   gap: rem(8px);
+  min-width: 0;
   padding-inline: rem(4px);
 }
 
 .videoTitle {
-  min-width: 0;
   flex: 1;
+  font-size: rem(13.5px);
+  font-weight: 500;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: rem(13.5px);
-  font-weight: 500;
 }
 
 .durationShrink {
-  flex-shrink: 0;
   color: var(--muted-foreground);
+  flex-shrink: 0;
   font-variant-numeric: tabular-nums;
 }

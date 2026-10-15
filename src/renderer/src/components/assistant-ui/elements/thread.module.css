@@ -88,11 +88,11 @@
 }
 
 .historySkeleton {
+  animation: enterFade var(--duration-normal) both;
+  animation-delay: var(--duration-fast);
   display: flex;
   flex-direction: column;
   gap: rem(24px);
-  animation: enterFade 200ms both;
-  animation-delay: 150ms;
 }
 
 .historySkeletonGroup {
@@ -102,9 +102,9 @@
 }
 
 .skeletonUser {
-  margin-inline-start: auto;
-  height: rem(36px);
   border-radius: calc(var(--radius) + rem(4px));
+  height: rem(36px);
+  margin-inline-start: auto;
 }
 
 .skeletonUserWide {
@@ -137,17 +137,18 @@
 
 .threadRoot {
   --thread-max-width: rem(760px);
-  --composer-radius: rem(22px);
+  --composer-radius: var(--radius-panel);
   --composer-padding: rem(14px);
   --composer-bg: var(--surface);
+  background: transparent;
   container-type: inline-size;
   display: flex;
   flex: 1;
+  flex-direction: column;
   height: 100%;
   min-width: 0;
+  padding-block-start: var(--mantine-spacing-xl);
   position: relative;
-  flex-direction: column;
-  background: transparent;
 }
 
 .viewport {
@@ -169,21 +170,20 @@
   margin-inline: auto;
   max-width: var(--thread-max-width);
   padding-inline: rem(28px);
-  padding-top: rem(32px);
   position: relative;
   width: 100%;
 }
 
 .mainColumnEmpty {
   justify-content: center;
-  padding-bottom: 5vh;
+  padding-block-end: 5vh;
 }
 
 .messageGroup {
-  margin-bottom: rem(56px);
   display: flex;
   flex-direction: column;
   gap: rem(36px);
+  margin-block-end: rem(56px);
 }
 
 .messageGroup:empty {
@@ -193,29 +193,29 @@
 .viewportFooter {
   display: flex;
   flex-direction: column;
-  gap: rem(16px);
+  gap: var(--mantine-spacing-md);
   overflow: visible;
-  padding-bottom: rem(16px);
+  padding-block-end: var(--mantine-spacing-md);
 }
 
 .viewportFooterDocked {
-  position: sticky;
-  bottom: 0;
-  margin-top: auto;
   border-top-left-radius: var(--composer-radius);
   border-top-right-radius: var(--composer-radius);
-  padding-top: rem(12px);
+  bottom: 0;
+  margin-block-start: auto;
+  padding-block-start: var(--mantine-spacing-sm);
+  position: sticky;
 }
 
 .threadFade {
+  -webkit-mask-image: linear-gradient(to bottom, transparent, black rem(72px));
   background: var(--background);
   bottom: 0;
   inset-inline: 0;
+  mask-image: linear-gradient(to bottom, transparent, black rem(72px));
   pointer-events: none;
   position: absolute;
   top: calc(rem(12px) - rem(72px));
-  -webkit-mask-image: linear-gradient(to bottom, transparent, black rem(72px));
-  mask-image: linear-gradient(to bottom, transparent, black rem(72px));
 
   &::before {
     background-attachment: fixed;
@@ -231,7 +231,7 @@
 
 @media (min-width: em(768px)) {
   .viewportFooter {
-    padding-bottom: rem(24px);
+    padding-block-end: rem(24px);
   }
 }
 
@@ -240,10 +240,10 @@
 }
 
 .loadEarlierButton {
-  margin-bottom: rem(24px);
   align-self: center;
-  border-radius: rem(9999px);
+  border-radius: var(--radius-pill);
   color: var(--muted-foreground);
+  margin-block-end: rem(24px);
 }
 
 .scrollToBottom {
@@ -263,19 +263,19 @@
   cursor: default;
   display: flex;
   flex-direction: column;
-  margin-bottom: rem(32px) 0;
+  margin-block-end: var(--mantine-spacing-xl) 0;
   padding-inline: rem(4px);
   text-box-edge: cap alphabetic;
   text-box-trim: trim-both;
 }
 
 .welcomeMessageInner {
-  margin: 0;
+  animation: enterFadeSlideUp4 var(--duration-normal) both;
   font-size: clamp(rem(36px), 5.5cqi, rem(58px));
   font-weight: 400;
   letter-spacing: -0.06em;
   line-height: 1.15;
-  animation: enterFadeSlideUp4 200ms both;
+  margin: 0;
 }
 
 .welcomeEmphasis {
@@ -290,9 +290,9 @@
 .welcomeDescription {
   color: var(--muted-foreground);
   font-size: rem(15px);
-  line-height: 1.7;
   height: calc(1.7 * 3em);
-  margin-block: rem(12px) 0;
+  line-height: 1.7;
+  margin-block: var(--mantine-spacing-sm) 0;
   text-wrap: pretty;
   width: min(fit-content, 50ch);
 }
@@ -336,12 +336,12 @@
   font-size: rem(12px);
   font-weight: 400;
   height: rem(36px);
-  padding-inline: rem(12px);
+  padding-inline: var(--mantine-spacing-sm);
   transition:
-    background 180ms,
-    border-color 180ms,
-    color 180ms,
-    box-shadow 180ms;
+    background var(--duration-control),
+    border-color var(--duration-control),
+    color var(--duration-control),
+    box-shadow var(--duration-control);
 }
 
 .starterButton[data-intent="create"] {
@@ -379,24 +379,14 @@
 }
 
 .composerRoot {
-  position: relative;
   display: flex;
-  width: 100%;
   flex-direction: column;
+  position: relative;
+  width: 100%;
 }
 
 .composerShell {
   backdrop-filter: blur(rem(20px));
-  box-shadow:
-    inset 0 rem(1px) 0 color-mix(in oklab, var(--foreground) 5%, transparent),
-    var(--shadow-soft);
-  display: flex;
-  width: 100%;
-  cursor: text;
-  flex-direction: column;
-  gap: rem(8px);
-  border-radius: var(--composer-radius);
-  border: rem(1px) solid var(--surface-edge);
   background:
     linear-gradient(
       120deg,
@@ -404,11 +394,21 @@
       transparent 60%
     ),
     var(--composer-bg);
+  border-radius: var(--composer-radius);
+  border: rem(1px) solid var(--surface-edge);
+  box-shadow:
+    inset 0 rem(1px) 0 color-mix(in oklab, var(--foreground) 5%, transparent),
+    var(--shadow-soft);
+  cursor: text;
+  display: flex;
+  flex-direction: column;
+  gap: rem(8px);
   padding: var(--composer-padding);
   transition:
-    border-color 180ms,
-    box-shadow 180ms,
-    background 180ms;
+    border-color var(--duration-control),
+    box-shadow var(--duration-control),
+    background var(--duration-control);
+  width: 100%;
 }
 
 .composerShell:focus-within {
@@ -420,24 +420,24 @@
 }
 
 .composerShell[data-dragging="true"] {
+  background: color-mix(in oklab, var(--accent) 50%, var(--background));
   border-color: var(--ring);
   border-style: dashed;
-  background: color-mix(in oklab, var(--accent) 50%, var(--background));
 }
 
 .composerInput {
-  height: fit-content !important;
-  width: 100%;
-  resize: none;
-  border: none;
   background: transparent;
-  padding-inline: rem(6px);
-  padding-block: rem(6px);
+  border: none;
+  caret-color: var(--primary);
   color: var(--foreground);
   font-size: rem(16px);
+  height: fit-content !important;
   line-height: rem(24px);
   outline: none;
-  caret-color: var(--primary);
+  padding-inline: rem(6px);
+  padding-block: rem(6px);
+  resize: none;
+  width: 100%;
 }
 
 .composerInput::placeholder {
@@ -445,10 +445,10 @@
 }
 
 .composerActionWrapper {
-  position: relative;
-  display: flex;
   align-items: center;
+  display: flex;
   justify-content: space-between;
+  position: relative;
 }
 
 .composerHint {
@@ -459,16 +459,16 @@
 }
 
 .composerActions {
-  display: flex;
   align-items: center;
+  display: flex;
   gap: rem(6px);
 }
 
 .composerIconButton {
-  width: rem(32px);
+  border-radius: var(--radius-pill);
   height: rem(32px);
   padding: 0;
-  border-radius: rem(9999px);
+  width: rem(32px);
 }
 
 .composerSend:not(:disabled) {
@@ -513,18 +513,18 @@
 }
 
 .composerIconSm {
-  width: rem(16px);
   height: rem(16px);
+  width: rem(16px);
 }
 
 .composerIconMd {
-  width: rem(14px);
   height: rem(14px);
+  width: rem(14px);
 }
 
 .composerStopIcon {
-  fill: currentColor;
   animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+  fill: currentColor;
 }
 
 .composerCancelIcon {
@@ -532,12 +532,12 @@
 }
 
 .spokenMessage {
-  margin-inline: rem(8px);
-  padding-inline: rem(12px);
-  padding-block: rem(6px);
+  background: color-mix(in oklab, var(--muted) 40%, transparent);
   contain-intrinsic-size: auto rem(48px);
   content-visibility: auto;
-  background: color-mix(in oklab, var(--muted) 40%, transparent);
+  margin-inline: rem(8px);
+  padding-inline: var(--mantine-spacing-sm);
+  padding-block: rem(6px);
 }
 
 .spokenSingle {
@@ -548,85 +548,85 @@
 .spokenStart {
   border-top-left-radius: calc(var(--radius) + rem(4px));
   border-top-right-radius: calc(var(--radius) + rem(4px));
-  padding-top: rem(8px);
+  padding-block-start: rem(8px);
 }
 
 .spokenMiddle {
-  margin-top: -rem(24px);
+  margin-block-start: -rem(24px);
 }
 
 .spokenEnd {
-  margin-top: -rem(24px);
   border-bottom-left-radius: calc(var(--radius) + rem(4px));
   border-bottom-right-radius: calc(var(--radius) + rem(4px));
-  padding-bottom: rem(8px);
+  margin-block-start: -rem(24px);
+  padding-block-end: rem(8px);
 }
 
 .spokenExchangeHeader {
-  margin-bottom: rem(6px);
-  display: flex;
   align-items: center;
-  gap: rem(6px);
-  font-size: rem(12px);
   color: var(--muted-foreground);
+  display: flex;
+  font-size: rem(12px);
+  gap: rem(6px);
+  margin-block-end: rem(6px);
 }
 
 .spokenExchangeIcon {
-  width: rem(12px);
   height: rem(12px);
+  width: rem(12px);
 }
 
 .spokenMessageContent {
-  display: flex;
   align-items: flex-start;
-  gap: rem(8px);
-  font-size: rem(14px);
-  line-height: 1.625;
   color: var(--foreground);
+  display: flex;
+  font-size: rem(14px);
+  gap: rem(8px);
+  line-height: 1.625;
 }
 
 .spokenRoleIconWrap {
-  margin-top: rem(4px);
-  flex-shrink: 0;
   color: var(--muted-foreground);
+  flex-shrink: 0;
+  margin-block-start: rem(4px);
 }
 
 .spokenRoleIcon {
-  width: rem(14px);
   height: rem(14px);
+  width: rem(14px);
 }
 
 .spokenTextWrap {
-  min-width: 0;
   flex: 1;
+  min-width: 0;
   overflow-wrap: break-word;
 }
 
 .spokenIndicator {
-  margin-inline-start: rem(4px);
-  font-family: ui-sans-serif, system-ui, sans-serif;
-  color: var(--muted-foreground);
   animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+  color: var(--muted-foreground);
+  font-family: ui-sans-serif, system-ui, sans-serif;
+  margin-inline-start: rem(4px);
 }
 
 .spokenActionBar {
+  color: var(--muted-foreground);
   display: flex;
   flex-shrink: 0;
   gap: rem(4px);
-  color: var(--muted-foreground);
 }
 
 .spokenCopyButton {
-  width: rem(20px);
   height: rem(20px);
+  width: rem(20px);
 }
 
 .copyIconCheck {
-  animation: zoomIn50 200ms ease-out both;
+  animation: zoomIn50 var(--duration-normal) ease-out both;
 }
 
 .copyIconCopy {
-  animation: zoomIn75 150ms ease-out both;
+  animation: zoomIn75 var(--duration-fast) ease-out both;
 }
 
 .messageErrorRoot {
@@ -634,26 +634,26 @@
 }
 
 .messageErrorMessage {
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  display: -webkit-box;
   overflow: hidden;
 }
 
 .assistantMessageRoot {
-  position: relative;
-  margin-bottom: -rem(30px);
-  padding-bottom: rem(30px);
+  animation: enterFadeSlideUp4 var(--duration-fast) both;
   contain-intrinsic-size: auto rem(200px);
   content-visibility: auto;
-  animation: enterFadeSlideUp4 150ms both;
+  margin-block-end: -rem(30px);
+  padding-block-end: rem(30px);
+  position: relative;
 }
 
 .assistantMessageContent {
-  padding-inline: rem(8px);
-  line-height: 1.625;
   color: var(--foreground);
+  line-height: 1.625;
   overflow-wrap: break-word;
+  padding-inline: rem(8px);
 }
 
 .partPadding {
@@ -668,21 +668,21 @@
 }
 
 .assistantFooter {
-  display: flex;
   align-items: center;
+  display: flex;
   margin-inline-start: rem(8px);
   min-height: rem(30px);
-  padding-top: rem(10px);
+  padding-block-start: var(--mantine-spacing-xs);
 }
 
 .assistantActionBar {
+  animation: enterFade var(--duration-normal) both;
+  color: var(--muted-foreground);
   display: flex;
   gap: rem(4px);
-  margin-inline-start: -rem(4px);
   grid-column-start: 3;
   grid-row-start: 2;
-  color: var(--muted-foreground);
-  animation: enterFade 200ms both;
+  margin-inline-start: -rem(4px);
 }
 
 .assistantActionBar[data-floating="true"] {
@@ -698,35 +698,35 @@
 
 .actionBarMoreContent {
   backdrop-filter: blur(rem(24px));
-  box-shadow: var(--shadow-floating);
-  z-index: 50;
-  min-width: rem(128px);
-  overflow: hidden;
+  background: var(--popover);
   border-radius: calc(var(--radius) + rem(4px));
   border: rem(1px) solid var(--border);
-  background: var(--popover);
-  padding: rem(6px);
+  box-shadow: var(--shadow-floating);
   color: var(--popover-foreground);
+  min-width: rem(128px);
+  overflow: hidden;
+  padding: rem(6px);
+  z-index: var(--mantine-z-index-popover);
 }
 
 .actionBarMoreContent[data-state="open"] {
-  animation: morePopoverEnter 150ms ease-out;
+  animation: morePopoverEnter var(--duration-fast) ease-out;
 }
 
 .actionBarMoreContent[data-state="closed"] {
-  animation: morePopoverExit 150ms ease-in;
+  animation: morePopoverExit var(--duration-fast) ease-in;
 }
 
 .actionBarMoreItem {
-  display: flex;
-  cursor: pointer;
   align-items: center;
-  gap: rem(8px);
   border-radius: var(--radius);
-  padding-inline: rem(10px);
-  padding-block: rem(6px);
+  cursor: pointer;
+  display: flex;
   font-size: rem(14px);
+  gap: rem(8px);
   outline: none;
+  padding-inline: var(--mantine-spacing-xs);
+  padding-block: rem(6px);
   user-select: none;
 }
 
@@ -737,8 +737,8 @@
 }
 
 .iconSize4 {
-  width: rem(16px);
   height: rem(16px);
+  width: rem(16px);
 }
 
 .compactAction {
@@ -748,15 +748,15 @@
 }
 
 .userMessageRoot {
-  display: grid;
-  grid-template-columns: minmax(rem(72px), 1fr) auto;
-  grid-auto-rows: auto;
   align-content: start;
-  gap: rem(8px);
-  padding-inline: rem(8px);
+  animation: enterFadeSlideUp4 var(--duration-fast) both;
   contain-intrinsic-size: auto rem(200px);
   content-visibility: auto;
-  animation: enterFadeSlideUp4 150ms both;
+  display: grid;
+  gap: rem(8px);
+  grid-template-columns: minmax(rem(72px), 1fr) auto;
+  grid-auto-rows: auto;
+  padding-inline: rem(8px);
 }
 
 .userMessageRoot > * {
@@ -764,30 +764,30 @@
 }
 
 .userContentWrapper {
-  position: relative;
   grid-column-start: 2;
   min-width: 0;
+  position: relative;
 }
 
 .userMessageContent {
   backdrop-filter: blur(rem(12px));
+  background: color-mix(in oklab, var(--primary) 6%, var(--surface));
   border: rem(1px) solid color-mix(in oklab, var(--primary) 12%, transparent);
   border-radius: var(--composer-radius);
-  background: color-mix(in oklab, var(--primary) 6%, var(--surface));
   box-shadow:
     inset 0 rem(1px) 0 var(--sidebar-border),
     var(--shadow-soft);
-  padding-inline: rem(16px);
-  padding-block: rem(12px);
   color: var(--foreground);
   overflow-wrap: break-word;
+  padding-inline: var(--mantine-spacing-md);
+  padding-block: var(--mantine-spacing-sm);
 
   p {
     &:first-child {
-      margin-top: 0;
+      margin-block-start: 0;
     }
     &:last-child {
-      margin-bottom: 0;
+      margin-block-end: 0;
     }
   }
 }
@@ -809,10 +809,10 @@
 }
 
 .userActionBarWrapper {
-  position: absolute;
   inset-inline-start: 0;
-  top: 50%;
   padding-inline-end: rem(8px);
+  position: absolute;
+  top: 50%;
   transform: translate(-100%, -50%);
 }
 
@@ -825,38 +825,38 @@
 }
 
 .userActionBarRoot {
+  align-items: flex-end;
   display: flex;
   flex-direction: column;
-  align-items: flex-end;
 }
 
 .userBranchPicker {
   grid-column: 1 / -1;
-  margin-inline-end: -rem(4px);
   justify-content: flex-end;
+  margin-inline-end: -rem(4px);
 }
 
 .editComposerWrapper {
+  contain-intrinsic-size: auto rem(200px);
+  content-visibility: auto;
   display: flex;
   flex-direction: column;
   padding-inline: rem(8px);
-  contain-intrinsic-size: auto rem(200px);
-  content-visibility: auto;
 }
 
 .editComposerRoot {
   backdrop-filter: blur(rem(20px));
-  box-shadow: var(--shadow-soft);
-  margin-inline-start: auto;
-  display: flex;
-  width: 100%;
-  max-width: 85%;
-  cursor: text;
-  flex-direction: column;
+  background: var(--composer-bg);
   border-radius: var(--composer-radius);
   border: rem(1px) solid color-mix(in oklab, var(--foreground) 10%, transparent);
-  background: var(--composer-bg);
-  transition: border-color 150ms;
+  box-shadow: var(--shadow-soft);
+  cursor: text;
+  display: flex;
+  flex-direction: column;
+  margin-inline-start: auto;
+  max-width: 85%;
+  transition: border-color var(--duration-fast);
+  width: 100%;
 }
 
 .editComposerRoot:focus-within {
@@ -864,40 +864,40 @@
 }
 
 .editComposerInput {
-  min-height: rem(56px);
-  width: 100%;
-  resize: none;
-  border: none;
   background: transparent;
-  padding-inline: rem(16px);
-  padding-top: rem(12px);
-  padding-bottom: rem(4px);
-  font-size: rem(16px);
+  border: none;
   color: var(--foreground);
+  font-size: rem(16px);
+  min-height: rem(56px);
   outline: none;
+  padding-inline: var(--mantine-spacing-md);
+  padding-block-start: var(--mantine-spacing-sm);
+  padding-block-end: rem(4px);
+  resize: none;
+  width: 100%;
 }
 
 .editComposerFooter {
-  margin-inline: rem(10px);
-  margin-bottom: rem(10px);
-  display: flex;
   align-items: center;
-  gap: rem(6px);
   align-self: flex-end;
+  display: flex;
+  gap: rem(6px);
+  margin-inline: var(--mantine-spacing-xs);
+  margin-block-end: var(--mantine-spacing-xs);
 }
 
 .editComposerButton {
   height: rem(32px);
-  padding-inline: rem(12px);
+  padding-inline: var(--mantine-spacing-sm);
 }
 
 .branchPickerRoot {
-  display: inline-flex;
   align-items: center;
+  color: var(--muted-foreground);
+  display: inline-flex;
+  font-size: rem(12px);
   margin-inline-start: -rem(8px);
   margin-inline-end: rem(8px);
-  font-size: rem(12px);
-  color: var(--muted-foreground);
 }
 
 .branchPickerState {

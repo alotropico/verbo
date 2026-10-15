@@ -1,12 +1,12 @@
 .previewImage {
+  border-radius: var(--radius-sm, rem(2px));
   display: block;
   height: auto;
   max-height: 80vh;
-  width: auto;
   max-width: 100%;
-  border-radius: var(--radius-sm, rem(2px));
   object-fit: contain;
-  transition: opacity 300ms;
+  transition: opacity var(--duration-slow);
+  width: auto;
 }
 
 .previewImageLoaded {
@@ -28,22 +28,22 @@
 }
 
 .previewWrap {
-  position: relative;
-  margin-inline: auto;
-  display: flex;
-  max-height: 80dvh;
-  width: 100%;
   align-items: center;
-  justify-content: center;
-  overflow: hidden;
-  border-radius: var(--radius-sm, rem(2px));
   background: var(--background);
+  border-radius: var(--radius-sm, rem(2px));
+  display: flex;
+  justify-content: center;
+  margin-inline: auto;
+  max-height: 80dvh;
+  overflow: hidden;
+  position: relative;
+  width: 100%;
 }
 
 .avatar {
+  border-radius: 0;
   height: 100%;
   width: 100%;
-  border-radius: 0;
 }
 
 .avatar::after {
@@ -56,10 +56,10 @@
 }
 
 .fallbackIcon {
-  width: rem(24px);
-  height: rem(24px);
   color: color-mix(in oklab, var(--muted-foreground) 80%, transparent);
+  height: rem(24px);
   stroke-width: 1.5;
+  width: rem(24px);
 }
 
 .root {
@@ -67,7 +67,7 @@
 }
 
 .rootComposerEnter {
-  animation: attachmentEnter 200ms ease-out;
+  animation: attachmentEnter var(--duration-normal) ease-out;
 }
 
 @keyframes attachmentEnter {
@@ -88,31 +88,31 @@
 }
 
 .rootMessageOnly:only-child > :first-child {
-  width: rem(96px);
   height: rem(96px);
+  width: rem(96px);
 }
 
 .tile {
-  position: relative;
-  width: rem(56px);
-  height: rem(56px);
-  overflow: hidden;
+  background: var(--muted);
   border-radius: calc(
     var(--composer-radius, rem(16px)) - var(--composer-padding, rem(8px))
   );
-  background: var(--muted);
-  transition: transform 150ms;
+  height: rem(56px);
   outline: none;
+  overflow: hidden;
+  position: relative;
+  transition: transform var(--duration-fast);
+  width: rem(56px);
 }
 
 .tile::after {
-  pointer-events: none;
-  position: absolute;
-  inset: 0;
   border-radius: inherit;
   box-shadow: inset 0 0 0 rem(1px) var(--border);
-  transition: background-color 150ms;
-  content: '';
+  content: "";
+  inset: 0;
+  pointer-events: none;
+  position: absolute;
+  transition: background-color var(--duration-fast);
 }
 
 .tile:focus-visible {
@@ -132,7 +132,8 @@
 }
 
 .tileError::after {
-  box-shadow: inset 0 0 0 rem(1px) color-mix(in oklab, var(--destructive) 60%, transparent);
+  box-shadow: inset 0 0 0 rem(1px)
+    color-mix(in oklab, var(--destructive) 60%, transparent);
 }
 
 .tile:hover::after {
@@ -147,13 +148,13 @@
 
 .overlayUploading,
 .overlayError {
-  position: absolute;
-  inset: 0;
-  display: flex;
   align-items: center;
-  justify-content: center;
+  animation: fade-in var(--duration-normal) ease-out;
   backdrop-filter: blur(rem(2px));
-  animation: fade-in 200ms ease-out;
+  display: flex;
+  inset: 0;
+  justify-content: center;
+  position: absolute;
 }
 
 .overlayUploading {
@@ -165,28 +166,28 @@
 }
 
 .loaderIcon {
-  width: rem(16px);
-  height: rem(16px);
-  color: var(--muted-foreground);
   animation: spin 1s linear infinite;
+  color: var(--muted-foreground);
+  height: rem(16px);
+  width: rem(16px);
 }
 
 .errorIcon {
-  width: rem(16px);
-  height: rem(16px);
   color: var(--destructive);
+  height: rem(16px);
+  width: rem(16px);
 }
 
 .removeButton {
-  position: absolute;
   inset-inline-end: rem(4px);
+  position: absolute;
   top: rem(4px);
 }
 
 .removeButton::after {
-  position: absolute;
+  content: "";
   inset: -rem(6px);
-  content: '';
+  position: absolute;
 }
 
 .removeButton:active {
@@ -194,19 +195,19 @@
 }
 
 .removeIcon {
-  width: rem(12px);
   height: rem(12px);
   stroke-width: 2.5;
+  width: rem(12px);
 }
 
 .userAttachments {
+  display: flex;
+  flex-direction: row;
+  gap: rem(8px);
   grid-column: 1 / -1;
   grid-row-start: 1;
-  display: flex;
-  width: 100%;
-  flex-direction: row;
   justify-content: flex-end;
-  gap: rem(8px);
+  width: 100%;
 }
 
 .userAttachments:empty {
@@ -239,6 +240,6 @@
 }
 
 .addIcon {
-  width: rem(16px);
   height: rem(16px);
+  width: rem(16px);
 }

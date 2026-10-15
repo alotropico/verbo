@@ -4,8 +4,8 @@
   color: var(--foreground);
   display: grid;
   gap: rem(8px);
-  margin-bottom: rem(8px);
-  padding: rem(10px);
+  margin-block-end: rem(8px);
+  padding: var(--mantine-spacing-xs);
 }
 
 .diff {

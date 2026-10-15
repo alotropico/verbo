@@ -4,7 +4,7 @@
   gap: var(--mantine-spacing-xs);
   height: rem(88px);
   justify-content: space-between;
-  padding-inline: rem(20px) rem(14px);
+  padding-inline: var(--mantine-spacing-lg) rem(14px);
 }
 
 .identity {
