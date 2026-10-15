@@ -69,15 +69,33 @@
 }
 
 .commandsContent {
-  position: relative;
   min-height: 0;
   min-width: 0;
   overflow: auto;
   padding-inline-end: var(--mantine-spacing-xs);
+  position: relative;
 }
 
-.modulePanel[hidden] {
-  display: none;
+.moduleHeading {
+  border-block-end: rem(1px) solid var(--sidebar-border);
+  padding-block-end: var(--mantine-spacing-md);
+}
+
+.moduleIntroduction {
+  flex: 1;
+  min-width: 0;
+}
+
+.moduleIcon {
+  color: var(--primary);
+  flex-shrink: 0;
+}
+
+.moduleCount {
+  border: rem(1px) solid var(--sidebar-border);
+  border-radius: var(--radius-md);
+  padding: var(--mantine-spacing-xs) var(--mantine-spacing-sm);
+  white-space: nowrap;
 }
 
 .moduleLink {
@@ -110,11 +128,8 @@
     grid-template-rows: auto minmax(0, 1fr);
   }
   .commandsNav {
-    flex-direction: row;
-    overflow-x: auto;
-    padding-block-end: var(--mantine-spacing-xs);
-  }
-  .moduleLink {
-    width: auto;
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(rem(140px), 1fr));
+    overflow: visible;
   }
 }

@@ -8,8 +8,17 @@ import {
   Tabs,
   Text,
 } from "@mantine/core";
-import { ArrowLeftIcon, SlidersHorizontalIcon } from "lucide-react";
-import { useEffect, useRef, useState, type ReactElement } from "react";
+import {
+  ArrowLeftIcon,
+  BookmarkIcon,
+  BrainCircuitIcon,
+  FolderOpenIcon,
+  MicIcon,
+  SlidersHorizontalIcon,
+  TerminalIcon,
+  Volume2Icon,
+} from "lucide-react";
+import { useEffect, useState, type ReactElement } from "react";
 import type { ChatSettings } from "@shared/config";
 import {
   contextChoices,
@@ -22,7 +31,12 @@ import {
   VOICE_SETTINGS_EVENT,
   type VoiceSettings,
 } from "@shared/voice-settings";
-import { useAutosave } from "@/hooks/use-autosave";
+import {
+  useSettingsAutosave,
+  useSettingsDraft,
+  useSettingsRef,
+} from "@/hooks/use-settings-draft";
+import { SettingsSessionProvider } from "./SettingsSessionProvider";
 import { ChoiceInput } from "./ChoiceInput";
 import { SettingsLabel } from "./SettingsLabel";
 import { SettingsSection } from "./SettingsSection";
@@ -57,15 +71,15 @@ export function SettingsPanel(): ReactElement {
 }
 
 function ModelSettings({ report }: { report: SettingsRecovery }): ReactElement {
-  const [draft, setDraft] = useState(report.settings);
+  const [draft, setDraft] = useSettingsDraft("model/draft", report.settings);
   const [models, setModels] = useState<string[]>([]);
   const [error, setError] = useState("");
-  const baseline = useRef(report.settings);
+  const baselineRef = useSettingsRef("model/baseline", report.settings);
   useEffect(() => {
     const changed = (event: Event): void => {
       const incoming = (event as CustomEvent<ChatSettings>).detail;
       if (!incoming) return;
-      const previous = baseline.current;
+      const previous = baselineRef.current;
       setDraft((current) => ({
         model:
           current.model === previous.model ? incoming.model : current.model,
@@ -82,12 +96,21 @@ function ModelSettings({ report }: { report: SettingsRecovery }): ReactElement {
             ? incoming.keepAlive
             : current.keepAlive,
       }));
-      baseline.current = incoming;
+      baselineRef.current = incoming;
     };
     window.addEventListener("verbo:settings-changed", changed);
+    void window.verbo.settings
+      .get()
+      .then((next) =>
+        changed(
+          new CustomEvent("verbo:settings-changed", { detail: next.settings }),
+        ),
+      )
+      .catch(() => setError("Could not refresh model settings."));
     return () => window.removeEventListener("verbo:settings-changed", changed);
-  }, []);
-  const autosave = useAutosave<Partial<ChatSettings>>(
+  }, [baselineRef, setDraft]);
+  const autosave = useSettingsAutosave<Partial<ChatSettings>>(
+    "model/save",
     async (patch) => {
       const saved = await window.verbo.settings.patch(patch);
       window.dispatchEvent(
@@ -203,18 +226,29 @@ function ModelSettings({ report }: { report: SettingsRecovery }): ReactElement {
 }
 
 export function SettingsPage(): ReactElement {
+  return (
+    <SettingsSessionProvider>
+      <SettingsWorkspace />
+    </SettingsSessionProvider>
+  );
+}
+
+function SettingsWorkspace(): ReactElement {
   const navigation = useSettingsNavigation();
   const [report, setReport] = useState<SettingsRecovery | null>(null);
   const [voice, setVoice] = useState<VoiceSettings>(DEFAULT_VOICE_SETTINGS);
   const [error, setError] = useState("");
-  const [visited, setVisited] = useState(["model"]);
-  const voiceAutosave = useAutosave<VoiceSettings>(async (value) => {
-    const saved = await window.verbo.voice.setSettings(value);
-    window.dispatchEvent(
-      new CustomEvent(VOICE_SETTINGS_EVENT, { detail: saved }),
-    );
-  });
+  const voiceAutosave = useSettingsAutosave<VoiceSettings>(
+    "voice/save",
+    async (value) => {
+      const saved = await window.verbo.voice.setSettings(value);
+      window.dispatchEvent(
+        new CustomEvent(VOICE_SETTINGS_EVENT, { detail: saved }),
+      );
+    },
+  );
   useEffect(() => {
+    if (!navigation.opened || report) return;
     void Promise.all([
       window.verbo.settings.get(),
       window.verbo.voice.settings(),
@@ -224,9 +258,7 @@ export function SettingsPage(): ReactElement {
         setVoice(voiceSettings);
       })
       .catch(() => setError("Could not load Settings."));
-  }, []);
-  if (!visited.includes(navigation.tab))
-    setVisited([...visited, navigation.tab]);
+  }, [navigation.opened, report]);
   const changeVoice = (value: VoiceSettings): void => {
     setVoice(value);
     voiceAutosave.controller.schedule(value);
@@ -259,78 +291,130 @@ export function SettingsPage(): ReactElement {
           {error}
         </StatusMessage>
       ) : null}
-      <Tabs
-        value={navigation.tab}
-        onChange={(tab) => navigation.selectTab(tab ?? "model")}
-        variant="pills"
-        keepMounted
-        className={styles.tabs}
-        classNames={{ list: styles.tabList, tab: styles.tab }}
-      >
-        <Tabs.List>
-          <Tabs.Tab value="model">Model</Tabs.Tab>
-          <Tabs.Tab value="memory">Memory</Tabs.Tab>
-          <Tabs.Tab value="files">Files</Tabs.Tab>
-          <Tabs.Tab value="listening">Listening</Tabs.Tab>
-          <Tabs.Tab value="speech">Speech</Tabs.Tab>
-          <Tabs.Tab value="actions">Commands</Tabs.Tab>
-        </Tabs.List>
-        <Tabs.Panel value="model" className={styles.panel}>
-          {report ? (
-            <ModelSettings report={report} />
-          ) : (
-            <Text size="sm" c="dimmed">
-              Loading model settings…
-            </Text>
-          )}
-        </Tabs.Panel>
-        <Tabs.Panel value="memory" className={styles.panel}>
-          <Button
-            variant="default"
-            onClick={() => navigation.selectModule("memory")}
-          >
-            Open Memory in Commands
-          </Button>
-        </Tabs.Panel>
-        <Tabs.Panel value="files" className={styles.panel}>
-          <Button
-            variant="default"
-            onClick={() => navigation.selectModule("files")}
-          >
-            Open Files in Commands
-          </Button>
-        </Tabs.Panel>
-        <Tabs.Panel value="listening" className={styles.panel}>
-          {visited.includes("listening") ? (
-            <Stack>
-              <ListeningSettings value={voice} onChange={changeVoice} />
-              <AutosaveStatus
-                state={voiceAutosave.state}
-                retry={() => voiceAutosave.controller.retry()}
-              />
-            </Stack>
-          ) : null}
-        </Tabs.Panel>
-        <Tabs.Panel value="speech" className={styles.panel}>
-          {visited.includes("speech") ? (
-            <Stack>
-              <SpeechSettings value={voice} onChange={changeVoice} />
-              <AutosaveStatus
-                state={voiceAutosave.state}
-                retry={() => voiceAutosave.controller.retry()}
-              />
-            </Stack>
-          ) : null}
-        </Tabs.Panel>
-        <Tabs.Panel
-          value="actions"
-          className={`${styles.panel} ${styles.commandsPanel}`}
+      {navigation.opened ? (
+        <Tabs
+          value={navigation.tab}
+          onChange={(tab) => navigation.selectTab(tab ?? "model")}
+          variant="pills"
+          keepMounted={false}
+          className={styles.tabs}
+          classNames={{ list: styles.tabList, tab: styles.tab }}
         >
-          {visited.includes("actions") ? (
-            <ActionsSettings files={<FileSettings />} />
+          <Tabs.List>
+            <Tabs.Tab
+              value="model"
+              leftSection={<BrainCircuitIcon aria-hidden size={16} />}
+            >
+              Model
+            </Tabs.Tab>
+            <Tabs.Tab
+              value="memory"
+              leftSection={<BookmarkIcon aria-hidden size={16} />}
+            >
+              Memory
+            </Tabs.Tab>
+            <Tabs.Tab
+              value="files"
+              leftSection={<FolderOpenIcon aria-hidden size={16} />}
+            >
+              Files
+            </Tabs.Tab>
+            <Tabs.Tab
+              value="listening"
+              leftSection={<MicIcon aria-hidden size={16} />}
+            >
+              Listening
+            </Tabs.Tab>
+            <Tabs.Tab
+              value="speech"
+              leftSection={<Volume2Icon aria-hidden size={16} />}
+            >
+              Speech
+            </Tabs.Tab>
+            <Tabs.Tab
+              value="actions"
+              leftSection={<TerminalIcon aria-hidden size={16} />}
+            >
+              Commands
+            </Tabs.Tab>
+          </Tabs.List>
+          {navigation.tab === "model" ? (
+            <Tabs.Panel value="model" className={styles.panel}>
+              {report ? (
+                <ModelSettings report={report} />
+              ) : (
+                <Text size="sm" c="dimmed">
+                  Loading model settings…
+                </Text>
+              )}
+            </Tabs.Panel>
           ) : null}
-        </Tabs.Panel>
-      </Tabs>
+          {navigation.tab === "memory" ? (
+            <Tabs.Panel value="memory" className={styles.panel}>
+              <Button
+                variant="default"
+                leftSection={<BookmarkIcon aria-hidden size={16} />}
+                onClick={() => navigation.selectModule("memory")}
+              >
+                Open Memory in Commands
+              </Button>
+            </Tabs.Panel>
+          ) : null}
+          {navigation.tab === "files" ? (
+            <Tabs.Panel value="files" className={styles.panel}>
+              <Button
+                variant="default"
+                leftSection={<FolderOpenIcon aria-hidden size={16} />}
+                onClick={() => navigation.selectModule("files")}
+              >
+                Open Files in Commands
+              </Button>
+            </Tabs.Panel>
+          ) : null}
+          {navigation.tab === "listening" ? (
+            <Tabs.Panel value="listening" className={styles.panel}>
+              {report ? (
+                <Stack>
+                  <ListeningSettings value={voice} onChange={changeVoice} />
+                  <AutosaveStatus
+                    state={voiceAutosave.state}
+                    retry={() => voiceAutosave.controller.retry()}
+                  />
+                </Stack>
+              ) : (
+                <Text size="sm" c="dimmed">
+                  Loading voice settings…
+                </Text>
+              )}
+            </Tabs.Panel>
+          ) : null}
+          {navigation.tab === "speech" ? (
+            <Tabs.Panel value="speech" className={styles.panel}>
+              {report ? (
+                <Stack>
+                  <SpeechSettings value={voice} onChange={changeVoice} />
+                  <AutosaveStatus
+                    state={voiceAutosave.state}
+                    retry={() => voiceAutosave.controller.retry()}
+                  />
+                </Stack>
+              ) : (
+                <Text size="sm" c="dimmed">
+                  Loading voice settings…
+                </Text>
+              )}
+            </Tabs.Panel>
+          ) : null}
+          {navigation.tab === "actions" ? (
+            <Tabs.Panel
+              value="actions"
+              className={`${styles.panel} ${styles.commandsPanel}`}
+            >
+              <ActionsSettings files={<FileSettings />} />
+            </Tabs.Panel>
+          ) : null}
+        </Tabs>
+      ) : null}
     </section>
   );
 }

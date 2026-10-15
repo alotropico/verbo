@@ -1,4 +1,10 @@
 import {
+  FolderPlusIcon,
+  ScanSearchIcon,
+  ShieldPlusIcon,
+  Trash2Icon,
+} from "lucide-react";
+import {
   Button,
   Checkbox,
   Switch,
@@ -12,14 +18,7 @@ import {
   Textarea,
   TextInput,
 } from "@mantine/core";
-import { useForm } from "@mantine/form";
-import {
-  useCallback,
-  useEffect,
-  useRef,
-  useState,
-  type ReactElement,
-} from "react";
+import { useCallback, useEffect, useState, type ReactElement } from "react";
 import {
   applicationRegistrationSchema,
   projectPreferencesSchema,
@@ -34,7 +33,12 @@ import { StatusMessage, type StatusFeedback } from "./StatusMessage";
 import { SettingsDisclosure } from "./SettingsDisclosure";
 import { SettingsSection } from "./SettingsSection";
 import { SettingsLabel } from "./SettingsLabel";
-import { useAutosave } from "@/hooks/use-autosave";
+import {
+  useSettingsAutosave,
+  useSettingsDraft,
+  useSettingsRef,
+  useSettingsForm,
+} from "@/hooks/use-settings-draft";
 import { AutosaveStatus } from "./AutosaveStatus";
 import { useConfirmation } from "./confirmation-context";
 import { scopeAliasSchema } from "@shared/files";
@@ -47,15 +51,27 @@ function ApplicationEditor({
   application?: RegisteredApplication;
   reload: () => void;
 }): ReactElement {
-  const [notice, setNotice] = useState<StatusFeedback | null>(null);
-  const [busy, setBusy] = useState(false);
+  const key = `application/${application?.id ?? "new"}/`;
+  const [notice, setNotice] = useSettingsDraft<StatusFeedback | null>(
+    key + "notice",
+    null,
+  );
+  const [busy, setBusy] = useSettingsDraft(key + "busy", false);
+  const [opened, setOpened] = useSettingsDraft(key + "open", false);
+  const [aliasSearch, setAliasSearch] = useSettingsDraft(
+    key + "alias-search",
+    "",
+  );
   const confirm = useConfirmation();
-  const autosave = useAutosave<ApplicationRegistrationInput>(async (value) => {
-    const result = await window.verbo.commands.saveApplication(value);
-    if (!result.ok) throw new Error(result.summary);
-    reload();
-  });
-  const form = useForm({
+  const autosave = useSettingsAutosave<ApplicationRegistrationInput>(
+    key + "save",
+    async (value) => {
+      const result = await window.verbo.commands.saveApplication(value);
+      if (!result.ok) throw new Error(result.summary);
+      reload();
+    },
+  );
+  const form = useSettingsForm(key + "form", {
     mode: "uncontrolled",
     onValuesChange: () => {
       if (application) void save();
@@ -146,6 +162,8 @@ function ApplicationEditor({
             />
           }
           maxTags={12}
+          searchValue={aliasSearch}
+          onSearchChange={setAliasSearch}
           key={form.key("aliases")}
           {...form.getInputProps("aliases")}
         />
@@ -212,12 +230,18 @@ function ApplicationEditor({
       </Text>
       <Group gap="xs">
         {!application ? (
-          <Button size="xs" loading={busy} onClick={() => void save()}>
+          <Button
+            leftSection={<ShieldPlusIcon aria-hidden size={16} />}
+            size="xs"
+            loading={busy}
+            onClick={() => void save()}
+          >
             Add and trust application
           </Button>
         ) : null}
         {application ? (
           <Button
+            leftSection={<Trash2Icon aria-hidden size={16} />}
             size="xs"
             type="button"
             variant="default"
@@ -257,7 +281,13 @@ function ApplicationEditor({
     </Stack>
   );
   return application ? (
-    <SettingsDisclosure title={application.name}>{editor}</SettingsDisclosure>
+    <SettingsDisclosure
+      title={application.name}
+      open={opened}
+      onOpenChange={setOpened}
+    >
+      {editor}
+    </SettingsDisclosure>
   ) : (
     editor
   );
@@ -273,13 +303,22 @@ function ProjectEditor({
   reload: () => void;
 }): ReactElement {
   const confirm = useConfirmation();
-  const [error, setError] = useState("");
-  const autosave = useAutosave<ProjectPreferences>(async (value) => {
-    const result = await window.verbo.commands.saveProject(value);
-    if (!result.ok) throw new Error(result.summary);
-    reload();
-  });
-  const form = useForm({
+  const key = `project/${project.id}/`;
+  const [error, setError] = useSettingsDraft(key + "error", "");
+  const [opened, setOpened] = useSettingsDraft(key + "open", false);
+  const [aliasSearch, setAliasSearch] = useSettingsDraft(
+    key + "alias-search",
+    "",
+  );
+  const autosave = useSettingsAutosave<ProjectPreferences>(
+    key + "save",
+    async (value) => {
+      const result = await window.verbo.commands.saveProject(value);
+      if (!result.ok) throw new Error(result.summary);
+      reload();
+    },
+  );
+  const form = useSettingsForm(key + "form", {
     mode: "uncontrolled",
     initialValues: {
       id: project.id,
@@ -303,7 +342,11 @@ function ProjectEditor({
     .filter((app) => app.enabled && app.supportedTargets.includes("folder"))
     .map((app) => ({ value: app.id, label: app.name }));
   return (
-    <SettingsDisclosure title={project.name + " (" + project.alias + ")"}>
+    <SettingsDisclosure
+      title={project.name + " (" + project.alias + ")"}
+      open={opened}
+      onOpenChange={setOpened}
+    >
       <Text size="xs">{project.path}</Text>
       <SimpleGrid type="container" cols={{ base: 1, "640px": 2 }} spacing="sm">
         <TextInput
@@ -324,6 +367,8 @@ function ProjectEditor({
             />
           }
           maxTags={12}
+          searchValue={aliasSearch}
+          onSearchChange={setAliasSearch}
           description={"Original alias: " + project.alias}
           key={form.key("aliases")}
           {...form.getInputProps("aliases")}
@@ -367,6 +412,7 @@ function ProjectEditor({
       />
       <Group>
         <Button
+          leftSection={<Trash2Icon aria-hidden size={16} />}
           size="xs"
           variant="subtle"
           color="red"
@@ -411,36 +457,50 @@ function ApplicationDiscovery({
   data: EntitySettings;
   reload: () => void;
 }): ReactElement {
-  const [candidates, setCandidates] = useState<
+  const [candidates, setCandidates] = useSettingsDraft<
     Array<{ name: string; aliases: string[]; executable: string }>
-  >([]);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState("");
-  const [detectionNotice, setDetectionNotice] = useState("");
-  const [importSettings, setImportSettings] = useState<ProjectImportSettings>(
-    data.projectImport ?? { enabled: false, applicationIds: [] },
+  >("application-discovery/candidates", []);
+  const [busy, setBusy] = useSettingsDraft("application-discovery/busy", false);
+  const [error, setError] = useSettingsDraft("application-discovery/error", "");
+  const [detectionNotice, setDetectionNotice] = useSettingsDraft(
+    "application-discovery/notice",
+    "",
   );
-  const current = useRef(importSettings);
-  const baseline = useRef(JSON.stringify(importSettings));
+  const [importSettings, setImportSettings] =
+    useSettingsDraft<ProjectImportSettings>(
+      "application-discovery/import-settings",
+      data.projectImport ?? { enabled: false, applicationIds: [] },
+    );
+  const currentRef = useSettingsRef(
+    "application-discovery/current",
+    importSettings,
+  );
+  const baselineRef = useSettingsRef(
+    "application-discovery/baseline",
+    JSON.stringify(importSettings),
+  );
   const confirm = useConfirmation();
-  const autosave = useAutosave<ProjectImportSettings>(async (value) => {
-    const result = await window.verbo.commands.saveProjectImport(value);
-    if (!result.ok) throw new Error(result.summary);
-    baseline.current = JSON.stringify(value);
-    reload();
-  });
+  const autosave = useSettingsAutosave<ProjectImportSettings>(
+    "application-discovery/save",
+    async (value) => {
+      const result = await window.verbo.commands.saveProjectImport(value);
+      if (!result.ok) throw new Error(result.summary);
+      baselineRef.current = JSON.stringify(value);
+      reload();
+    },
+  );
   useEffect(() => {
-    if (JSON.stringify(current.current) === baseline.current) {
+    if (JSON.stringify(currentRef.current) === baselineRef.current) {
       const next = data.projectImport ?? { enabled: false, applicationIds: [] };
-      current.current = next;
+      currentRef.current = next;
       setImportSettings(next);
-      baseline.current = JSON.stringify(next);
+      baselineRef.current = JSON.stringify(next);
     }
-  }, [data.projectImport]);
+  }, [data.projectImport, currentRef, baselineRef, setImportSettings]);
   const chooseFavorites = (applicationIds: string[]): void => {
-    const next = { ...current.current, applicationIds };
+    const next = { ...currentRef.current, applicationIds };
     setImportSettings(next);
-    current.current = next;
+    currentRef.current = next;
     autosave.controller.schedule(next);
   };
   const toggle = async (
@@ -464,7 +524,9 @@ function ApplicationDiscovery({
           );
           if (!result.ok) throw new Error(result.summary);
           chooseFavorites(
-            current.current.applicationIds.filter((id) => id !== existing.id),
+            currentRef.current.applicationIds.filter(
+              (id) => id !== existing.id,
+            ),
           );
           reload();
         },
@@ -499,9 +561,9 @@ function ApplicationDiscovery({
         (app) =>
           app.executable.toLowerCase() === candidate.executable.toLowerCase(),
       );
-      if (added && current.current.applicationIds.length < 16)
+      if (added && currentRef.current.applicationIds.length < 16)
         chooseFavorites([
-          ...new Set([...current.current.applicationIds, added.id]),
+          ...new Set([...currentRef.current.applicationIds, added.id]),
         ]);
       reload();
     } catch (cause) {
@@ -518,6 +580,7 @@ function ApplicationDiscovery({
     <Stack gap="sm">
       <Group>
         <Button
+          leftSection={<ScanSearchIcon aria-hidden size={16} />}
           loading={busy}
           onClick={() => {
             setBusy(true);
@@ -576,12 +639,12 @@ function ApplicationDiscovery({
         checked={importSettings.enabled}
         onChange={(event) => {
           const next = {
-            ...current.current,
+            ...currentRef.current,
             enabled: event.currentTarget.checked,
             applicationIds: event.currentTarget.checked
               ? [
                   ...new Set([
-                    ...current.current.applicationIds,
+                    ...currentRef.current.applicationIds,
                     ...data.applications
                       .filter(
                         (app) =>
@@ -596,7 +659,7 @@ function ApplicationDiscovery({
                       .map((app) => app.id),
                   ]),
                 ]
-              : current.current.applicationIds,
+              : currentRef.current.applicationIds,
           };
           if (next.applicationIds.length > 16) {
             setError(
@@ -604,7 +667,7 @@ function ApplicationDiscovery({
             );
             return;
           }
-          current.current = next;
+          currentRef.current = next;
           setImportSettings(next);
           autosave.controller.schedule(next);
         }}
@@ -645,9 +708,13 @@ export function EntityCommandSettings({
   module: "projects" | "software";
 }): ReactElement {
   const [data, setData] = useState<EntitySettings | null>(null);
-  const [error, setError] = useState("");
-  const [alias, setAlias] = useState("");
-  const [busy, setBusy] = useState(false);
+  const [error, setError] = useSettingsDraft(`${module}/error`, "");
+  const [alias, setAlias] = useSettingsDraft(`${module}/alias`, "");
+  const [busy, setBusy] = useSettingsDraft(`${module}/busy`, false);
+  const [manualOpen, setManualOpen] = useSettingsDraft(
+    "software/manual-open",
+    false,
+  );
   const load = useCallback((): void => {
     void window.verbo.commands
       .entities()
@@ -656,7 +723,7 @@ export function EntityCommandSettings({
         setError("");
       })
       .catch(() => setError("Registrations could not be loaded."));
-  }, []);
+  }, [setData, setError]);
   const changed = useCallback((): void => {
     window.dispatchEvent(new Event("verbo:entities-changed"));
   }, []);
@@ -687,7 +754,11 @@ export function EntityCommandSettings({
       {module === "software" ? (
         <>
           {data ? <ApplicationDiscovery data={data} reload={changed} /> : null}
-          <SettingsDisclosure title="Add an application manually">
+          <SettingsDisclosure
+            title="Add an application manually"
+            open={manualOpen}
+            onOpenChange={setManualOpen}
+          >
             <ApplicationEditor reload={changed} />
           </SettingsDisclosure>
           {data?.applications.map((app) => (
@@ -712,6 +783,7 @@ export function EntityCommandSettings({
               onChange={(event) => setAlias(event.currentTarget.value)}
             />
             <Button
+              leftSection={<FolderPlusIcon aria-hidden size={16} />}
               loading={busy}
               onClick={() => {
                 const parsed = scopeAliasSchema.safeParse(alias);

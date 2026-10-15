@@ -25,5 +25,5 @@
 .wrap {
   display: grid;
   gap: var(--mantine-spacing-xs);
-  margin-bottom: var(--mantine-spacing-xs);
+  margin-block-end: var(--mantine-spacing-xs);
 }

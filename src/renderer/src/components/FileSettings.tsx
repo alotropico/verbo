@@ -1,8 +1,9 @@
+import { FolderCheckIcon, FolderPlusIcon, Trash2Icon } from "lucide-react";
 import { Button, Group, Select, Switch, Text, TextInput } from "@mantine/core";
 import {
   useCallback,
   useEffect,
-  useRef,
+  useEffectEvent,
   useState,
   type ReactElement,
 } from "react";
@@ -14,7 +15,11 @@ import {
   type ScopePatch,
   type FolderKind,
 } from "@shared/files";
-import { useAutosave } from "@/hooks/use-autosave";
+import {
+  useSettingsAutosave,
+  useSettingsDraft,
+  useSettingsRef,
+} from "@/hooks/use-settings-draft";
 import { SettingsLabel } from "./SettingsLabel";
 import { SettingsSection } from "./SettingsSection";
 import { AutosaveStatus } from "./AutosaveStatus";
@@ -29,23 +34,25 @@ function FolderRow({
   scope: FileScopeRecord;
   reload: () => void;
 }): ReactElement {
-  const [draft, setDraft] = useState({
+  const key = `folder/${scope.id}/`;
+  const [draft, setDraft] = useSettingsDraft(key + "draft", {
     alias: scope.aliases.join(", "),
     write: scope.write,
     defaultSave: scope.defaultSave,
     kind: scope.kind ?? "none",
   });
-  const [aliasError, setAliasError] = useState("");
+  const [aliasError, setAliasError] = useSettingsDraft(key + "error", "");
   const confirm = useConfirmation();
-  const baseline = useRef(JSON.stringify(draft));
-  const draftRef = useRef(draft);
-  const autosave = useAutosave<ScopePatch>(
+  const baselineRef = useSettingsRef(key + "baseline", JSON.stringify(draft));
+  const draftRef = useSettingsRef(key + "current", draft);
+  const autosave = useSettingsAutosave<ScopePatch>(
+    key + "save",
     async (patch) => {
       const result = await window.verbo.files.update(patch);
       if (!result.ok) throw new Error(result.summary);
       const saved = result.scopes.find((item) => item.id === scope.id);
       if (saved)
-        baseline.current = JSON.stringify({
+        baselineRef.current = JSON.stringify({
           alias: saved.aliases.join(", "),
           write: saved.write,
           defaultSave: saved.defaultSave,
@@ -56,18 +63,23 @@ function FolderRow({
     },
     (previous, next) => ({ ...previous, ...next }),
   );
-  useEffect(() => {
+  const synchronize = useEffectEvent(() => {
+    if (autosave.state.status === "saving" || autosave.state.status === "error")
+      return;
     const next = {
       alias: scope.aliases.join(", "),
       write: scope.write,
       defaultSave: scope.defaultSave,
       kind: scope.kind ?? "none",
     };
-    if (JSON.stringify(draftRef.current) === baseline.current) {
+    if (JSON.stringify(draftRef.current) === baselineRef.current) {
       draftRef.current = next;
       setDraft(next);
-      baseline.current = JSON.stringify(next);
+      baselineRef.current = JSON.stringify(next);
     }
+  });
+  useEffect(() => {
+    synchronize();
   }, [scope]);
   const patch = (value: Partial<typeof draft>): void => {
     const next = { ...draftRef.current, ...value };
@@ -163,6 +175,7 @@ function FolderRow({
           }
         />
         <Button
+          leftSection={<Trash2Icon aria-hidden size={16} />}
           variant="subtle"
           color="red"
           size="xs"
@@ -199,10 +212,13 @@ function FolderRow({
 
 export function FileSettings(): ReactElement {
   const [scopes, setScopes] = useState<FileScopeRecord[]>([]);
-  const [proposal, setProposal] = useState<FileScopeProposal | null>(null);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState("");
-  const [notice, setNotice] = useState("");
+  const [proposal, setProposal] = useSettingsDraft<FileScopeProposal | null>(
+    "files/proposal",
+    null,
+  );
+  const [busy, setBusy] = useSettingsDraft("files/busy", false);
+  const [error, setError] = useSettingsDraft("files/error", "");
+  const [notice, setNotice] = useSettingsDraft("files/notice", "");
   const load = useCallback((): void => {
     void window.verbo.files
       .list()
@@ -211,7 +227,7 @@ export function FileSettings(): ReactElement {
         setProposal(result.proposal);
       })
       .catch(() => setError("Could not load folders."));
-  }, []);
+  }, [setScopes, setProposal, setError]);
   useEffect(load, [load]);
   const add = async (): Promise<void> => {
     setBusy(true);
@@ -270,11 +286,16 @@ export function FileSettings(): ReactElement {
         </StatusMessage>
       ) : null}
       <Group>
-        <Button loading={busy} onClick={() => void add()}>
+        <Button
+          leftSection={<FolderPlusIcon aria-hidden size={16} />}
+          loading={busy}
+          onClick={() => void add()}
+        >
           Add folder
         </Button>
         {proposal && !proposal.saved ? (
           <Button
+            leftSection={<FolderCheckIcon aria-hidden size={16} />}
             variant="default"
             disabled={busy}
             onClick={() => {

@@ -3,7 +3,7 @@
   flex-direction: column;
   gap: rem(4px);
   inline-size: 100%;
-  padding: rem(4px) rem(16px);
+  padding: rem(4px) var(--mantine-spacing-md);
 }
 
 .row {
@@ -37,7 +37,7 @@
 
 .actions .action {
   color: var(--muted-foreground);
-  transition: color 150ms;
+  transition: color var(--duration-fast);
 }
 
 @media (hover: hover) {

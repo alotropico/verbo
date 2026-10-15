@@ -1,7 +1,13 @@
+import {
+  FolderPlusIcon,
+  TerminalIcon,
+  Trash2Icon,
+  XCircleIcon,
+} from "lucide-react";
 import { useConfirmation } from "./confirmation-context";
 import type { ActionsOverview } from "@shared/actions-overview";
 import { scopeAliasSchema } from "@shared/files";
-import { Button, Stack, Text, TextInput } from "@mantine/core";
+import { Button, Text, TextInput } from "@mantine/core";
 import {
   useCallback,
   useEffect,
@@ -15,6 +21,7 @@ import { StatusMessage } from "./StatusMessage";
 import { SettingsDisclosure } from "./SettingsDisclosure";
 import { SettingsSection } from "./SettingsSection";
 import styles from "./ActionsSettings.module.css";
+import { useSettingsDraft } from "@/hooks/use-settings-draft";
 
 function aliasOrError(value: string): string | null {
   const parsed = scopeAliasSchema.safeParse(value);
@@ -27,16 +34,20 @@ export function ActionsSettings({
   files?: ReactNode;
 }): ReactElement {
   return (
-    <CommandSettings general={<GeneralCommandsSettings />} files={files} />
+    <CommandSettings
+      ags={<AgsSettings />}
+      history={<RecentActions />}
+      files={files}
+    />
   );
 }
 
-function GeneralCommandsSettings(): ReactElement {
+function AgsSettings(): ReactElement {
   const confirm = useConfirmation();
   const [overview, setOverview] = useState<ActionsOverview | null>(null);
-  const [error, setError] = useState("");
-  const [hostAlias, setHostAlias] = useState("");
-  const [busy, setBusy] = useState(false);
+  const [error, setError] = useSettingsDraft("ags/error", "");
+  const [hostAlias, setHostAlias] = useSettingsDraft("ags/host-alias", "");
+  const [busy, setBusy] = useSettingsDraft("ags/busy", false);
 
   const load = useCallback((): void => {
     void window.verbo.actions
@@ -50,7 +61,7 @@ function GeneralCommandsSettings(): ReactElement {
           caught instanceof Error ? caught.message : "Could not load actions.",
         );
       });
-  }, []);
+  }, [setOverview, setError]);
 
   useEffect(() => {
     load();
@@ -91,14 +102,10 @@ function GeneralCommandsSettings(): ReactElement {
       .finally(() => setBusy(false));
   };
 
-  const categories =
-    overview?.catalog.filter((entry) => entry.kind === "category") ?? [];
-  const history = overview?.history.slice(0, 12) ?? [];
-
   return (
     <SettingsSection
-      title="General"
-      description="Review commands and action history. Register project folders in Projects and manage folder access in Files."
+      title="AGS repositories"
+      description="Configure the AGS executable and register repository roots."
     >
       {error ? (
         <StatusMessage display="plain" size="sm" tone="error">
@@ -110,157 +117,160 @@ function GeneralCommandsSettings(): ReactElement {
           Loading registrations…
         </StatusMessage>
       ) : null}
-      <SettingsDisclosure title="Available commands">
-        <Text size="sm" c="dimmed">
-          Commands keep their confirmation rules. Registration does not grant
-          write access.
-        </Text>
-        {categories.map((category) => (
-          <Stack gap={4} key={category.id}>
-            <Text size="sm">{category.description}</Text>
-            <ul className={styles.catalog}>
-              {overview?.catalog
-                .filter((entry) => entry.id.startsWith(`${category.id}.`))
-                .map((entry) => (
-                  <li className={styles.entry} key={entry.id}>
-                    <Text size="sm">
-                      {entry.id}
-                      {entry.approval === "required"
-                        ? " · approval required"
-                        : ""}
-                    </Text>
-                    <Text className={styles.path} size="xs">
-                      {entry.description}
-                    </Text>
-                  </li>
-                ))}
-            </ul>
-          </Stack>
+      <Text size="sm">
+        {overview?.agsCheckConfigured
+          ? `Check command: ${overview.agsCheckPath}`
+          : "No allowlisted ags executable is configured. ags.check stays unavailable."}
+      </Text>
+      <div className={styles.row}>
+        <Button
+          leftSection={<TerminalIcon aria-hidden size={16} />}
+          type="button"
+          size="xs"
+          variant="default"
+          onClick={() => {
+            void window.verbo.ags.chooseCheck().then((result) => {
+              if (!result.ok) setError(result.summary);
+              else load();
+            });
+          }}
+        >
+          Choose ags executable
+        </Button>
+        <Button
+          leftSection={<XCircleIcon aria-hidden size={16} />}
+          type="button"
+          size="xs"
+          variant="default"
+          onClick={() => {
+            void confirm({
+              title: "Clear AGS check command?",
+              message: "Remove the configured AGS executable?",
+              confirmLabel: "Clear command",
+              onConfirm: async () => {
+                await window.verbo.ags.clearCheck();
+                load();
+              },
+            });
+          }}
+        >
+          Clear check command
+        </Button>
+      </div>
+      <div className={styles.row}>
+        <TextInput
+          className={styles.aliasField}
+          label={
+            <SettingsLabel
+              label="Host alias"
+              tip="Name for an AGS repository root."
+            />
+          }
+          value={hostAlias}
+          onChange={(event) => setHostAlias(event.currentTarget.value)}
+        />
+        <Button
+          leftSection={<FolderPlusIcon aria-hidden size={16} />}
+          type="button"
+          size="xs"
+          variant="default"
+          loading={busy}
+          onClick={() =>
+            addRoot(hostAlias, window.verbo.ags.addHost, () => setHostAlias(""))
+          }
+        >
+          Add AGS host
+        </Button>
+      </div>
+      <ul className={styles.roots}>
+        {overview?.agsHosts.map((host) => (
+          <li className={styles.row} key={host.id}>
+            <Text size="sm">{host.alias}</Text>
+            <Text className={styles.path} size="xs">
+              {host.path}
+            </Text>
+            <Button
+              leftSection={<Trash2Icon aria-hidden size={16} />}
+              type="button"
+              size="xs"
+              variant="default"
+              onClick={() => {
+                void confirm({
+                  title: "Remove AGS host?",
+                  message: `Remove ${host.alias} from registered repositories?`,
+                  confirmLabel: "Remove host",
+                  destructive: true,
+                  onConfirm: async () => {
+                    const result = await window.verbo.ags.removeHost(host.id);
+                    if (!result.ok) throw new Error(result.summary);
+                    load();
+                  },
+                });
+              }}
+            >
+              Remove
+            </Button>
+          </li>
         ))}
-      </SettingsDisclosure>
-      <SettingsDisclosure title="AGS repositories">
-        <Text size="sm">
-          {overview?.agsCheckConfigured
-            ? `Check command: ${overview.agsCheckPath}`
-            : "No allowlisted ags executable is configured. ags.check stays unavailable."}
-        </Text>
-        <div className={styles.row}>
-          <Button
-            type="button"
-            size="xs"
-            variant="default"
-            onClick={() => {
-              void window.verbo.ags.chooseCheck().then((result) => {
-                if (!result.ok) setError(result.summary);
-                else load();
-              });
-            }}
-          >
-            Choose ags executable
-          </Button>
-          <Button
-            type="button"
-            size="xs"
-            variant="default"
-            onClick={() => {
-              void confirm({
-                title: "Clear AGS check command?",
-                message: "Remove the configured AGS executable?",
-                confirmLabel: "Clear command",
-                onConfirm: async () => {
-                  await window.verbo.ags.clearCheck();
-                  load();
-                },
-              });
-            }}
-          >
-            Clear check command
-          </Button>
-        </div>
-        <div className={styles.row}>
-          <TextInput
-            className={styles.aliasField}
-            label={
-              <SettingsLabel
-                label="Host alias"
-                tip="Name for an AGS repository root."
-              />
-            }
-            value={hostAlias}
-            onChange={(event) => setHostAlias(event.currentTarget.value)}
-          />
-          <Button
-            type="button"
-            size="xs"
-            variant="default"
-            loading={busy}
-            onClick={() =>
-              addRoot(hostAlias, window.verbo.ags.addHost, () =>
-                setHostAlias(""),
-              )
-            }
-          >
-            Add AGS host
-          </Button>
-        </div>
-        <ul className={styles.roots}>
-          {overview?.agsHosts.map((host) => (
-            <li className={styles.row} key={host.id}>
-              <Text size="sm">{host.alias}</Text>
-              <Text className={styles.path} size="xs">
-                {host.path}
-              </Text>
-              <Button
-                type="button"
-                size="xs"
-                variant="default"
-                onClick={() => {
-                  void confirm({
-                    title: "Remove AGS host?",
-                    message: `Remove ${host.alias} from registered repositories?`,
-                    confirmLabel: "Remove host",
-                    destructive: true,
-                    onConfirm: async () => {
-                      const result = await window.verbo.ags.removeHost(host.id);
-                      if (!result.ok) throw new Error(result.summary);
-                      load();
-                    },
-                  });
-                }}
-              >
-                Remove
-              </Button>
-            </li>
-          ))}
-        </ul>
-      </SettingsDisclosure>
-      <SettingsDisclosure title="Recent actions">
-        {history.length === 0 ? (
-          <Text size="sm">No recent actions.</Text>
-        ) : (
-          <ul className={styles.history}>
-            {history.map((entry) => (
-              <li
-                className={styles.entry}
-                key={`${entry.createdAt}-${entry.actionId}`}
-              >
-                <Text
-                  className={
-                    entry.status === "error" || entry.status === "partial"
-                      ? styles.error
-                      : undefined
-                  }
-                  size="sm"
-                >
-                  {entry.actionId}
-                  {entry.code ? ` (${entry.code})` : ""} · {entry.status}
-                </Text>
-                <Text size="xs">{entry.summary}</Text>
-              </li>
-            ))}
-          </ul>
-        )}
-      </SettingsDisclosure>
+      </ul>
     </SettingsSection>
+  );
+}
+
+function RecentActions(): ReactElement {
+  const [opened, setOpened] = useSettingsDraft("commands/history-open", false);
+  const [overview, setOverview] = useState<ActionsOverview | null>(null);
+  const [error, setError] = useState("");
+  useEffect(() => {
+    void window.verbo.actions
+      .overview()
+      .then(setOverview)
+      .catch(() => setError("Could not load recent actions."));
+  }, []);
+  const history = overview?.history.slice(0, 12) ?? [];
+  return (
+    <SettingsDisclosure
+      title="Recent actions"
+      open={opened}
+      onOpenChange={setOpened}
+    >
+      {error ? (
+        <StatusMessage display="plain" tone="error">
+          {error}
+        </StatusMessage>
+      ) : !overview ? (
+        <Text size="sm" c="dimmed">
+          Loading recent actions…
+        </Text>
+      ) : (
+        <>
+          {history.length === 0 ? (
+            <Text size="sm">No recent actions.</Text>
+          ) : (
+            <ul className={styles.history}>
+              {history.map((entry) => (
+                <li
+                  className={styles.entry}
+                  key={`${entry.createdAt}-${entry.actionId}`}
+                >
+                  <Text
+                    className={
+                      entry.status === "error" || entry.status === "partial"
+                        ? styles.error
+                        : undefined
+                    }
+                    size="sm"
+                  >
+                    {entry.actionId}
+                    {entry.code ? ` (${entry.code})` : ""} · {entry.status}
+                  </Text>
+                  <Text size="xs">{entry.summary}</Text>
+                </li>
+              ))}
+            </ul>
+          )}
+        </>
+      )}
+    </SettingsDisclosure>
   );
 }

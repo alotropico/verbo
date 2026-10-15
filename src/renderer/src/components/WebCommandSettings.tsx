@@ -10,9 +10,8 @@ import {
   Text,
   TextInput,
 } from "@mantine/core";
-import { useForm } from "@mantine/form";
 import { ArrowDownIcon, ArrowUpIcon } from "lucide-react";
-import { useEffect, useState, type ReactElement } from "react";
+import { type ReactElement } from "react";
 import {
   webSettingsSchema,
   type SearchEngineId,
@@ -20,8 +19,11 @@ import {
 } from "@shared/web-contracts";
 import { StatusMessage } from "./StatusMessage";
 import { AutosaveStatus } from "./AutosaveStatus";
-import { useAutosave } from "@/hooks/use-autosave";
-import type { AutosaveController } from "@/runtime/autosave";
+import {
+  useSettingsAutosave,
+  useSettingsDraft,
+  useSettingsForm,
+} from "@/hooks/use-settings-draft";
 import { SettingsDisclosure } from "./SettingsDisclosure";
 import { SettingsSection } from "./SettingsSection";
 import { SettingsLabel } from "./SettingsLabel";
@@ -36,23 +38,24 @@ const ENGINE_NAMES: Record<SearchEngineId, string> = {
 export function WebCommandSettings({
   settings,
   reload,
-  register,
 }: {
   settings: WebSettings;
   reload: () => void;
-  register: (controller: AutosaveController<WebSettings> | null) => void;
 }): ReactElement {
-  const [validation, setValidation] = useState("");
-  const autosave = useAutosave<WebSettings>(async (value) => {
-    const result = await window.verbo.commands.saveWeb(value);
-    if (!result.ok) throw new Error(result.summary);
-    reload();
-  });
-  useEffect(() => {
-    register(autosave.controller);
-    return () => register(null);
-  }, [register, autosave.controller]);
-  const form = useForm({
+  const [validation, setValidation] = useSettingsDraft("web/validation", "");
+  const [limitsOpen, setLimitsOpen] = useSettingsDraft(
+    "web/limits-open",
+    false,
+  );
+  const autosave = useSettingsAutosave<WebSettings>(
+    "web/save",
+    async (value) => {
+      const result = await window.verbo.commands.saveWeb(value);
+      if (!result.ok) throw new Error(result.summary);
+      reload();
+    },
+  );
+  const form = useSettingsForm("web/form", {
     mode: "uncontrolled",
     onValuesChange: (values) => {
       const parsed = webSettingsSchema.safeParse({
@@ -75,7 +78,10 @@ export function WebCommandSettings({
       idleMs: settings.idleMs / 1000,
     },
   });
-  const [engines, setEngines] = useState(settings.engines);
+  const [engines, setEngines] = useSettingsDraft(
+    "web/engines",
+    settings.engines,
+  );
   const changeEngines = (next: SearchEngineId[]): void => {
     setEngines(next);
     form.setFieldValue("engines", next);
@@ -199,7 +205,11 @@ export function WebCommandSettings({
           {...form.getInputProps("maxChars")}
         />
       </SimpleGrid>
-      <SettingsDisclosure title="Browser and request limits">
+      <SettingsDisclosure
+        title="Browser and request limits"
+        open={limitsOpen}
+        onOpenChange={setLimitsOpen}
+      >
         <TextInput
           label={
             <SettingsLabel

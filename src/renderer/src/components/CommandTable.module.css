@@ -1,0 +1,71 @@
+.commandCell {
+  vertical-align: middle;
+  width: 1%;
+}
+
+.copyCommand {
+  align-items: center;
+  background: var(--surface);
+  border-radius: var(--radius-sm);
+  display: inline-flex;
+  gap: var(--mantine-spacing-xs);
+  padding: var(--mantine-spacing-xs);
+  white-space: nowrap;
+}
+
+.copyCommand:hover,
+.copyCommand[data-copied] {
+  background: var(--sidebar-accent);
+  color: var(--primary);
+}
+
+.copyIndicator {
+  color: var(--muted-foreground);
+  flex-shrink: 0;
+  opacity: 0;
+}
+
+.copyCommand:hover .copyIndicator,
+.copyCommand:focus-visible .copyIndicator,
+.copyCommand[data-copied] .copyIndicator {
+  color: currentColor;
+  opacity: 1;
+}
+
+.copyCommand:focus-visible {
+  outline: rem(2px) solid var(--primary);
+  outline-offset: rem(2px);
+}
+
+.aliases {
+  flex: 1;
+  min-width: 0;
+}
+
+.detailsCell {
+  vertical-align: middle;
+  width: 1%;
+}
+
+.columnHeading {
+  color: var(--muted-foreground);
+  font-size: var(--mantine-font-size-xs);
+  font-weight: 500;
+}
+
+.rowAction {
+  color: var(--muted-foreground);
+}
+
+.rowAction:hover,
+.rowAction:focus-visible {
+  color: var(--primary);
+}
+
+.commandRow:focus-within {
+  background: var(--accent);
+}
+
+.tableViewport {
+  scrollbar-width: none;
+}

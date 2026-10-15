@@ -7,19 +7,27 @@ import styles from "./SettingsDisclosure.module.css";
 export function SettingsDisclosure({
   title,
   children,
+  open,
+  onOpenChange,
 }: {
   title: ReactNode;
   children: ReactNode;
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
 }): ReactElement {
   return (
-    <Collapsible.Root className={styles.root}>
+    <Collapsible.Root
+      className={styles.root}
+      open={open}
+      onOpenChange={onOpenChange}
+    >
       <Collapsible.Trigger
         render={<UnstyledButton className={styles.trigger} />}
       >
         <span className={styles.title}>{title}</span>
         <ChevronDownIcon aria-hidden size={16} className={styles.chevron} />
       </Collapsible.Trigger>
-      <Collapsible.Panel keepMounted className={styles.panel}>
+      <Collapsible.Panel className={styles.panel}>
         <Stack gap="sm" p="md" pt={0}>
           {children}
         </Stack>

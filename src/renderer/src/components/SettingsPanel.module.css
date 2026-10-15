@@ -2,6 +2,8 @@
   display: flex;
   flex-direction: column;
   flex: 1;
+  margin-inline: auto;
+  max-inline-size: 1200px;
   min-height: 0;
   min-width: 0;
   padding: var(--mantine-spacing-lg);
@@ -13,7 +15,7 @@
 }
 .workspaceHeader {
   flex-shrink: 0;
-  margin-bottom: var(--mantine-spacing-lg);
+  margin-block-end: var(--mantine-spacing-lg);
 }
 
 .header {
@@ -30,7 +32,7 @@
 }
 
 .footer {
-  border-top: rem(1px) solid var(--sidebar-border);
+  border-block-start: rem(1px) solid var(--sidebar-border);
   flex-shrink: 0;
   gap: var(--mantine-spacing-md);
   margin: auto rem(-24px) 0;
@@ -55,13 +57,13 @@
 }
 
 .panel {
-  position: relative;
   flex: 1;
   margin-inline: auto;
   min-height: 0;
   overflow-x: hidden;
   overflow-y: auto;
   padding: var(--mantine-spacing-lg) var(--mantine-spacing-xs);
+  position: relative;
   width: 100%;
 }
 
@@ -87,8 +89,8 @@
   font-weight: 500;
   padding: var(--mantine-spacing-xs) var(--mantine-spacing-md);
   transition:
-    background-color 150ms,
-    color 150ms;
+    background-color var(--duration-fast),
+    color var(--duration-fast);
 }
 
 .tab[data-active] {
@@ -125,7 +127,7 @@
 .divider {
   border: 0;
   border-block-start: rem(1px) solid var(--sidebar-border);
-  margin: rem(8px) rem(8px);
+  margin: rem(8px);
 }
 
 .trigger {
@@ -153,7 +155,7 @@
   }
 
   .tab {
-    padding-inline: var(--mantine-spacing-sm);
+    padding-inline: var(--mantine-spacing-xs);
   }
 
   .tabList {

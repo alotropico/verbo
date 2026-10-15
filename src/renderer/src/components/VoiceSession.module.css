@@ -15,8 +15,8 @@
 
 .orb {
   transition:
-    filter 200ms ease,
-    transform 200ms ease;
+    filter var(--duration-normal) ease,
+    transform var(--duration-normal) ease;
 }
 
 .orbDock[data-state="listening"] .orb {
@@ -95,7 +95,7 @@
   display: flex;
   flex-direction: column;
   gap: rem(8px);
-  padding-top: rem(8px);
+  padding-block-start: rem(8px);
 }
 
 .statusIcon {

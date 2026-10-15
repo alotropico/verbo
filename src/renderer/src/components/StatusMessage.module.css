@@ -10,7 +10,7 @@
 
 .icon {
   flex: none;
-  margin-block-start: .25em;
+  margin-block-start: 0.25em;
 }
 
 .info {
@@ -27,7 +27,7 @@
     color-mix(in oklab, var(--status-color) 40%, transparent);
   border-radius: var(--radius-sm);
   padding-block: rem(8px);
-  padding-inline: rem(10px);
+  padding-inline: var(--mantine-spacing-xs);
 }
 
 .plain {

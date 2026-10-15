@@ -18,10 +18,10 @@
   align-items: center;
   display: flex;
   font-size: rem(10px);
-  gap: rem(12px);
+  gap: var(--mantine-spacing-sm);
   line-height: 1;
-  padding-inline: rem(8px);
   min-height: 1em;
+  padding-inline: rem(8px);
 }
 
 .ok {

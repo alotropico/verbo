@@ -1,20 +1,22 @@
 .sources {
+  font-size: rem(12px);
+  list-style: none;
   margin: rem(8px) 0;
   padding: 0;
-  list-style: none;
-  font-size: rem(12px);
+}
 
-  li {
-    display: flex;
-    gap: rem(8px);
-    padding-block: rem(3px);
-  }
-  a {
-    color: var(--primary);
-    overflow-wrap: anywhere;
-  }
-  span {
-    flex: 0 0 auto;
-    color: var(--muted-foreground);
-  }
+.source {
+  display: flex;
+  gap: rem(8px);
+  padding-block: rem(3px);
+}
+
+.link {
+  color: var(--primary);
+  overflow-wrap: anywhere;
+}
+
+.kind {
+  color: var(--muted-foreground);
+  flex: 0 0 auto;
 }

@@ -6,7 +6,7 @@
       transparent 60%
     ),
     var(--card);
-  border-bottom: rem(1px) solid var(--sidebar-border);
+  border-block-end: rem(1px) solid var(--sidebar-border);
   flex-shrink: 0;
   padding: var(--mantine-spacing-sm) var(--mantine-spacing-lg);
 }

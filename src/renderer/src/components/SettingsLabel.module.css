@@ -6,12 +6,12 @@
 }
 
 .tip {
-  position: relative;
   color: var(--muted-foreground);
   cursor: default;
   display: inline-flex;
   flex-shrink: 0;
   line-height: 0;
+  position: relative;
 }
 
 .tip:focus-visible {

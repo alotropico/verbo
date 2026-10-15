@@ -2,86 +2,129 @@ import {
   ActionIcon,
   Code,
   Group,
-  Modal,
   Stack,
   Table,
   TagsInput,
   Text,
   Tooltip,
+  UnstyledButton,
 } from "@mantine/core";
-import { CopyIcon, InfoIcon, RotateCcwIcon } from "lucide-react";
-import {
-  useCallback,
-  useEffect,
-  useRef,
-  useState,
-  type ReactElement,
-} from "react";
+import { CheckIcon, CopyIcon, InfoIcon, RotateCcwIcon } from "lucide-react";
+import { useEffect, useEffectEvent, useState, type ReactElement } from "react";
 import {
   commandAliasesSchema,
   type CommandNode,
   type CommandSettings,
 } from "@shared/commands";
-import { useAutosave } from "@/hooks/use-autosave";
-import type { AutosaveController } from "@/runtime/autosave";
+import {
+  useSettingsAutosave,
+  useSettingsDraft,
+  useSettingsRef,
+} from "@/hooks/use-settings-draft";
 import { AutosaveStatus } from "./AutosaveStatus";
 import { useConfirmation } from "./confirmation-context";
+import { CommandDetailsModal } from "./CommandDetailsModal";
+import styles from "./CommandTable.module.css";
 
 function AliasRow({
   node,
-  register,
   restore,
   details,
   reload,
 }: {
   node: CommandNode;
-  register: (
-    id: string,
-    controller: AutosaveController<string[]> | null,
-  ) => void;
   restore: (node: CommandNode) => void;
   details: (id: string) => void;
   reload: () => void;
 }): ReactElement {
-  const [aliases, setAliases] = useState(node.aliases);
-  const [error, setError] = useState("");
+  const key = `command-alias/${node.id}/`;
+  const [aliases, setAliases] = useSettingsDraft(key + "aliases", node.aliases);
+  const [error, setError] = useSettingsDraft(key + "error", "");
+  const [search, setSearch] = useSettingsDraft(key + "search", "");
   const [copied, setCopied] = useState(false);
-  const current = useRef(aliases);
-  const baseline = useRef(JSON.stringify(node.aliases));
-  const autosave = useAutosave<string[]>(async (value) => {
-    const result = await window.verbo.commands.save({
-      nodeId: node.id,
-      version: 1,
-      aliases: value,
-    });
-    if (!result.ok) throw new Error(result.summary);
-    baseline.current = JSON.stringify(value);
-    reload();
+  const currentRef = useSettingsRef(key + "current", aliases);
+  const baselineRef = useSettingsRef(
+    key + "baseline",
+    JSON.stringify(node.aliases),
+  );
+  const autosave = useSettingsAutosave<string[]>(
+    key + "save",
+    async (value) => {
+      const result = await window.verbo.commands.save({
+        nodeId: node.id,
+        version: 1,
+        aliases: value,
+      });
+      if (!result.ok) throw new Error(result.summary);
+      baselineRef.current = JSON.stringify(value);
+      reload();
+    },
+  );
+  const synchronize = useEffectEvent(() => {
+    if (autosave.state.status === "saving" || autosave.state.status === "error")
+      return;
+    if (JSON.stringify(currentRef.current) === baselineRef.current) {
+      currentRef.current = node.aliases;
+      setAliases(node.aliases);
+      baselineRef.current = JSON.stringify(node.aliases);
+    }
   });
   useEffect(() => {
-    register(node.id, autosave.controller);
-    return () => register(node.id, null);
-  }, [node.id, register, autosave.controller]);
-  useEffect(() => {
-    if (JSON.stringify(current.current) === baseline.current) {
-      current.current = node.aliases;
-      setAliases(node.aliases);
-      baseline.current = JSON.stringify(node.aliases);
-    }
+    synchronize();
   }, [node.aliases]);
   return (
     <Table.Tr>
+      <Table.Td className={styles.commandCell}>
+        <Tooltip
+          label={copied ? "Copied" : `Copy /${node.id}`}
+          events={{ hover: true, focus: true, touch: false }}
+        >
+          <UnstyledButton
+            className={styles.copyCommand}
+            data-copied={copied || undefined}
+            aria-label={`Copy /${node.id}`}
+            onClick={() => {
+              try {
+                window.verbo.clipboard.writeText(`/${node.id}`);
+                setCopied(true);
+              } catch {
+                setError("Could not copy the command.");
+              }
+            }}
+            onBlur={() => setCopied(false)}
+          >
+            <Code color="transparent" c="inherit" p={0} fw={500}>
+              {node.id}
+            </Code>
+            {copied ? (
+              <CheckIcon
+                aria-hidden
+                size={14}
+                className={styles.copyIndicator}
+              />
+            ) : (
+              <CopyIcon
+                aria-hidden
+                size={14}
+                className={styles.copyIndicator}
+              />
+            )}
+          </UnstyledButton>
+        </Tooltip>
+      </Table.Td>
       <Table.Td>
-        <Code>{node.id}</Code>
-        <Group mt="xs" gap={4} align="flex-start" wrap="nowrap">
+        <Group gap="xs" align="center" wrap="nowrap">
           <TagsInput
             aria-label={`Aliases for ${node.id}`}
-            style={{ flex: 1, minWidth: 0 }}
+            className={styles.aliases}
             value={aliases}
+            searchValue={search}
+            onSearchChange={setSearch}
             maxTags={12}
+            placeholder={aliases.length ? undefined : "Add an alias…"}
             error={error}
             onChange={(value) => {
-              current.current = value;
+              currentRef.current = value;
               setAliases(value);
               const parsed = commandAliasesSchema.safeParse(value);
               setError(
@@ -93,9 +136,13 @@ function AliasRow({
             }}
             onBlur={() => void autosave.controller.flush()}
           />
-          <Tooltip label={`Restore defaults for ${node.id}`}>
+          <Tooltip
+            label={`Restore defaults for ${node.id}`}
+            events={{ hover: true, focus: true, touch: false }}
+          >
             <ActionIcon
               variant="subtle"
+              className={styles.rowAction}
               aria-label={`Restore defaults for ${node.id}`}
               onClick={() => restore(node)}
             >
@@ -103,40 +150,28 @@ function AliasRow({
             </ActionIcon>
           </Tooltip>
         </Group>
-        <AutosaveStatus
-          state={autosave.state}
-          retry={() => autosave.controller.retry()}
-        />
+        {autosave.state.status === "saving" ||
+        autosave.state.status === "error" ? (
+          <AutosaveStatus
+            state={autosave.state}
+            retry={() => autosave.controller.retry()}
+          />
+        ) : null}
       </Table.Td>
-      <Table.Td style={{ width: 80, verticalAlign: "top" }}>
-        <Group gap={4} wrap="nowrap">
-          <Tooltip label={copied ? "Copied" : `Copy /${node.id}`}>
-            <ActionIcon
-              variant="subtle"
-              aria-label={`Copy /${node.id}`}
-              onClick={() => {
-                try {
-                  window.verbo.clipboard.writeText(`/${node.id}`);
-                  setCopied(true);
-                } catch {
-                  setError("Could not copy the command.");
-                }
-              }}
-              onBlur={() => setCopied(false)}
-            >
-              <CopyIcon size={15} />
-            </ActionIcon>
-          </Tooltip>
-          <Tooltip label={`Details for ${node.id}`}>
-            <ActionIcon
-              variant="subtle"
-              aria-label={`Details for ${node.id}`}
-              onClick={() => details(node.id)}
-            >
-              <InfoIcon size={15} />
-            </ActionIcon>
-          </Tooltip>
-        </Group>
+      <Table.Td className={styles.detailsCell}>
+        <Tooltip
+          label={`Details for ${node.id}`}
+          events={{ hover: true, focus: true, touch: false }}
+        >
+          <ActionIcon
+            variant="subtle"
+            className={styles.rowAction}
+            aria-label={`Details for ${node.id}`}
+            onClick={() => details(node.id)}
+          >
+            <InfoIcon size={15} />
+          </ActionIcon>
+        </Tooltip>
       </Table.Td>
     </Table.Tr>
   );
@@ -147,153 +182,106 @@ export function CommandTable({
   data,
   reload,
   resetWeb,
+  resetAliases,
+  epochs,
   onRestored,
 }: {
-  moduleId: string;
+  moduleId?: string;
   data: CommandSettings;
   reload: () => Promise<void>;
   resetWeb?: () => Promise<void>;
-  onRestored: () => void;
+  resetAliases: (ids: string[]) => Promise<void>;
+  epochs: Record<string, number>;
+  onRestored: (id: string) => void;
 }): ReactElement {
   const confirm = useConfirmation();
-  const controllers = useRef(new Map<string, AutosaveController<string[]>>());
-  const register = useCallback(
-    (id: string, controller: AutosaveController<string[]> | null): void => {
-      if (controller) controllers.current.set(id, controller);
-      else controllers.current.delete(id);
-    },
-    [],
-  );
-  const [epochs, setEpochs] = useState<Record<string, number>>({});
-  const [detail, setDetail] = useState<string | null>(null);
-  const node = data.nodes.find((item) => item.id === detail);
-  const entry = data.entries.find((item) => item.id === detail);
-  const metadata = data.metadata.find((item) => item.id === detail);
+  const [detail, setDetail] = useState<{
+    opened: boolean;
+    node: CommandNode;
+    data: CommandSettings;
+  } | null>(null);
+  const showDetails = (id: string): void => {
+    const node = data.nodes.find((item) => item.id === id);
+    if (node) setDetail({ opened: true, node, data });
+  };
   const restore = (target: CommandNode): void => {
+    const affected = data.nodes.filter(
+      (item) => item.id === target.id || item.id.startsWith(`${target.id}.`),
+    );
     void confirm({
       title: "Restore command defaults?",
-      message: `Restore aliases for ${target.id}${target.id === moduleId ? " and its child commands" : ""}?${target.id === "web" ? " Web search settings will also return to their defaults." : ""}`,
+      message: `Restore aliases for ${target.id}${affected.length > 1 ? " and its child commands" : ""}?${target.id === "web" ? " Web search settings will also return to their defaults." : ""}`,
       confirmLabel: "Restore defaults",
       onConfirm: async () => {
-        const affected = data.nodes.filter(
-          (item) =>
-            item.id === target.id || item.id.startsWith(`${target.id}.`),
-        );
-        for (const item of affected)
-          await controllers.current.get(item.id)?.reset();
+        await resetAliases(affected.map((item) => item.id));
         if (target.id === "web") await resetWeb?.();
         await window.verbo.commands.reset(target.id);
         // Fetch before remounting rows so no old alias snapshot is accepted as the new baseline.
         await reload();
-        if (target.id === "web") onRestored();
-        setEpochs((previous) => ({
-          ...previous,
-          ...Object.fromEntries(
-            affected.map((item) => [item.id, (previous[item.id] ?? 0) + 1]),
-          ),
-        }));
+        onRestored(target.id);
       },
     });
   };
   return (
-    <Stack gap="xs" component="section" aria-label="Command aliases">
-      <Text size="sm" fw={500}>
-        Commands
-      </Text>
+    <Stack gap="sm" component="section" aria-label="Command aliases">
       <Text size="xs" c="dimmed">
-        Edit aliases directly; press Enter or comma to add a name. Changes save
-        automatically.
+        Click a command to copy it. Add aliases with Enter or comma.
       </Text>
-      <Table.ScrollContainer minWidth={360}>
-        <Table verticalSpacing="sm" striped>
+      <Table.ScrollContainer
+        minWidth={560}
+        scrollAreaProps={{
+          type: "auto",
+          scrollbars: "x",
+          classNames: { viewport: styles.tableViewport },
+        }}
+      >
+        <Table
+          verticalSpacing="sm"
+          horizontalSpacing="sm"
+          borderColor="var(--sidebar-border)"
+          highlightOnHover
+          highlightOnHoverColor="var(--accent)"
+          classNames={{ th: styles.columnHeading, tr: styles.commandRow }}
+        >
           <Table.Thead>
             <Table.Tr>
-              <Table.Th>Command and aliases</Table.Th>
-              <Table.Th>Actions</Table.Th>
+              <Table.Th>Command</Table.Th>
+              <Table.Th>Aliases</Table.Th>
+              <Table.Th>Details</Table.Th>
             </Table.Tr>
           </Table.Thead>
           <Table.Tbody>
             {data.nodes
               .filter(
                 (item) =>
-                  item.id === moduleId || item.id.startsWith(`${moduleId}.`),
+                  !moduleId ||
+                  item.id === moduleId ||
+                  item.id.startsWith(`${moduleId}.`),
               )
               .map((item) => (
                 <AliasRow
                   key={`${item.id}-${epochs[item.id] ?? 0}`}
                   node={item}
-                  register={register}
                   restore={restore}
-                  details={setDetail}
+                  details={showDetails}
                   reload={reload}
                 />
               ))}
           </Table.Tbody>
         </Table>
       </Table.ScrollContainer>
-      <Modal
-        opened={!!node}
-        onClose={() => setDetail(null)}
-        title={node?.id ?? "Command details"}
-        size="lg"
-        centered
-      >
-        {node ? (
-          <Stack gap="sm">
-            <Text size="sm">{node.description}</Text>
-            {entry?.syntax ? (
-              <Code block>{`/${node.id} ${entry.syntax}`}</Code>
-            ) : null}
-            {entry?.example ? (
-              <Code block>{JSON.stringify(entry.example, null, 2)}</Code>
-            ) : null}
-            {entry?.kind !== "category" ? (
-              <Text size="xs">
-                {entry?.kind} ·{" "}
-                {entry?.approval === "required"
-                  ? "Confirmation required"
-                  : "Native command policy applies"}
-              </Text>
-            ) : null}
-            {metadata ? (
-              <>
-                <Text size="xs">
-                  Effect: {metadata.effect} · Files:{" "}
-                  {metadata.attachments === "handler_verified"
-                    ? "Verified surviving references"
-                    : "No file attachments"}
-                </Text>
-                {Object.entries(metadata.parameterHelp).map(([name, help]) => (
-                  <Text size="xs" key={name}>
-                    {name}: {help}
-                  </Text>
-                ))}
-                {metadata.requirements.map((requirement) => (
-                  <Text size="xs" key={requirement}>
-                    {requirement}
-                  </Text>
-                ))}
-                <Text size="xs">
-                  Aliases are editable. Canonical identity, execution, effect,
-                  output and hard limits are protected.
-                </Text>
-                <Code block>
-                  {JSON.stringify(
-                    {
-                      args: metadata.args,
-                      execution: metadata.execution,
-                      output: metadata.output,
-                      messages: metadata.messages,
-                    },
-                    null,
-                    2,
-                  )}
-                </Code>
-              </>
-            ) : null}
-          </Stack>
-        ) : null}
-      </Modal>
+      <CommandDetailsModal
+        opened={detail?.opened ?? false}
+        node={detail?.node}
+        data={detail?.data ?? data}
+        onClose={() =>
+          setDetail((current) => current && { ...current, opened: false })
+        }
+        onExitTransitionEnd={() =>
+          setDetail((current) => (current?.opened ? current : null))
+        }
+        onSelect={showDetails}
+      />
     </Stack>
   );
 }

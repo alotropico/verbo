@@ -1,3 +1,14 @@
+import {
+  FileSearchIcon,
+  FileTextIcon,
+  FingerprintIcon,
+  FolderOpenIcon,
+  GitCompareArrowsIcon,
+  ImageIcon,
+  InfoIcon,
+  ListChecksIcon,
+  SearchIcon,
+} from "lucide-react";
 import { readFilePage, type FilePageView } from "@shared/file-page";
 import type { FileUiAction } from "@shared/file-query";
 import { isPersistedThreadId } from "@shared/thread-identity";
@@ -107,6 +118,7 @@ export function FileQueryPanel(): ReactElement {
       />
       <Group gap="xs">
         <Button
+          leftSection={<FolderOpenIcon aria-hidden size={16} />}
           type="button"
           size="xs"
           variant="default"
@@ -116,6 +128,7 @@ export function FileQueryPanel(): ReactElement {
           List
         </Button>
         <Button
+          leftSection={<FileSearchIcon aria-hidden size={16} />}
           type="button"
           size="xs"
           variant="default"
@@ -125,6 +138,7 @@ export function FileQueryPanel(): ReactElement {
           Search names
         </Button>
         <Button
+          leftSection={<SearchIcon aria-hidden size={16} />}
           type="button"
           size="xs"
           variant="default"
@@ -134,6 +148,7 @@ export function FileQueryPanel(): ReactElement {
           Search text
         </Button>
         <Button
+          leftSection={<ListChecksIcon aria-hidden size={16} />}
           type="button"
           size="xs"
           variant="default"
@@ -167,6 +182,7 @@ export function FileQueryPanel(): ReactElement {
       />
       <Group gap="xs">
         <Button
+          leftSection={<FileTextIcon aria-hidden size={16} />}
           type="button"
           size="xs"
           variant="default"
@@ -183,6 +199,7 @@ export function FileQueryPanel(): ReactElement {
           Read
         </Button>
         <Button
+          leftSection={<InfoIcon aria-hidden size={16} />}
           type="button"
           size="xs"
           variant="default"
@@ -192,6 +209,7 @@ export function FileQueryPanel(): ReactElement {
           File details
         </Button>
         <Button
+          leftSection={<FingerprintIcon aria-hidden size={16} />}
           type="button"
           size="xs"
           variant="default"
@@ -201,6 +219,7 @@ export function FileQueryPanel(): ReactElement {
           Checksum
         </Button>
         <Button
+          leftSection={<ImageIcon aria-hidden size={16} />}
           type="button"
           size="xs"
           variant="default"
@@ -210,6 +229,7 @@ export function FileQueryPanel(): ReactElement {
           Inspect image
         </Button>
         <Button
+          leftSection={<GitCompareArrowsIcon aria-hidden size={16} />}
           type="button"
           size="xs"
           variant="default"

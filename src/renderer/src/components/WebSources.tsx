@@ -1,4 +1,5 @@
 import { useAuiState } from "@assistant-ui/react";
+import { Anchor } from "@mantine/core";
 import type { ReactElement } from "react";
 import {
   webSourcesFromResult,
@@ -17,11 +18,20 @@ export function WebSources(): ReactElement | null {
   return (
     <ul className={styles.sources} aria-label="Web sources">
       {[...sources.values()].map((source) => (
-        <li key={source.sourceId}>
-          <a href={source.url} target="_blank" rel="noreferrer">
+        <li key={source.sourceId} className={styles.source}>
+          <Anchor
+            inherit
+            underline="never"
+            className={styles.link}
+            href={source.url}
+            target="_blank"
+            rel="noreferrer"
+          >
             {source.title || source.url}
-          </a>
-          <span>{source.kind === "page" ? "Read page" : "Search lead"}</span>
+          </Anchor>
+          <span className={styles.kind}>
+            {source.kind === "page" ? "Read page" : "Search lead"}
+          </span>
         </li>
       ))}
     </ul>

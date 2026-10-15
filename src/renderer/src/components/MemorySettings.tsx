@@ -1,3 +1,4 @@
+import { BookmarkPlusIcon, Trash2Icon } from "lucide-react";
 import {
   memoryInclusions,
   memoryScopes,
@@ -12,12 +13,12 @@ import { chatPlaceholderTitle } from "@shared/thread-title";
 import { estimateTokens } from "@shared/token-estimate";
 import { Button, Text, Textarea } from "@mantine/core";
 import { ChoiceInput } from "./ChoiceInput";
-import { schemaResolver, useForm } from "@mantine/form";
+import { schemaResolver } from "@mantine/form";
 import { useAuiState } from "@assistant-ui/react";
 import {
   useCallback,
   useEffect,
-  useRef,
+  useEffectEvent,
   useState,
   type ReactElement,
 } from "react";
@@ -25,7 +26,12 @@ import { z } from "zod";
 import { SettingsLabel } from "./SettingsLabel";
 import { StatusMessage } from "./StatusMessage";
 import { SettingsSection } from "./SettingsSection";
-import { useAutosave } from "@/hooks/use-autosave";
+import {
+  useSettingsAutosave,
+  useSettingsDraft,
+  useSettingsRef,
+  useSettingsForm,
+} from "@/hooks/use-settings-draft";
 import { AutosaveStatus } from "./AutosaveStatus";
 import { useConfirmation } from "./confirmation-context";
 import styles from "./MemorySettings.module.css";
@@ -49,33 +55,43 @@ function MemoryRow({
   entry: MemoryRecord;
   onChanged: () => void;
 }): ReactElement {
-  const [text, setText] = useState(entry.text);
-  const [error, setError] = useState("");
-  const [inclusion, setInclusion] = useState(entry.inclusion);
-  const current = useRef(text);
-  const baseline = useRef(entry.text);
+  const key = `memory-row/${entry.id}/`;
+  const [text, setText] = useSettingsDraft(key + "text", entry.text);
+  const [error, setError] = useSettingsDraft(key + "error", "");
+  const [inclusion, setInclusion] = useSettingsDraft(
+    key + "inclusion",
+    entry.inclusion,
+  );
+  const currentRef = useSettingsRef(key + "current", text);
+  const baselineRef = useSettingsRef(key + "baseline", entry.text);
   const confirm = useConfirmation();
-  const autosave = useAutosave<{
+  const autosave = useSettingsAutosave<{
     id: string;
     text?: string;
     inclusion?: MemoryInclusion;
   }>(
+    key + "save",
     async (value) => {
       const result = await window.verbo.memory.update(value);
       if (!result.ok) throw new Error(result.summary);
-      if (value.text !== undefined) baseline.current = value.text;
+      if (value.text !== undefined) baselineRef.current = value.text;
       window.dispatchEvent(new Event("verbo:memory-changed"));
       onChanged();
     },
     (previous, next) => ({ ...previous, ...next }),
   );
-  useEffect(() => {
-    if (current.current === baseline.current) {
-      current.current = entry.text;
+  const synchronize = useEffectEvent(() => {
+    if (autosave.state.status === "saving" || autosave.state.status === "error")
+      return;
+    if (currentRef.current === baselineRef.current) {
+      currentRef.current = entry.text;
       setText(entry.text);
-      baseline.current = entry.text;
+      baselineRef.current = entry.text;
       setInclusion(entry.inclusion);
     }
+  });
+  useEffect(() => {
+    synchronize();
   }, [entry.text, entry.inclusion]);
 
   return (
@@ -92,7 +108,7 @@ function MemoryRow({
         value={text}
         onChange={(event) => {
           const next = event.currentTarget.value;
-          current.current = next;
+          currentRef.current = next;
           setText(next);
           const parsed = memoryTextSchema.safeParse(next);
           setError(
@@ -131,6 +147,7 @@ function MemoryRow({
           }}
         />
         <Button
+          leftSection={<Trash2Icon aria-hidden size={16} />}
           type="button"
           size="xs"
           variant="subtle"
@@ -178,8 +195,8 @@ export function MemorySettings(): ReactElement {
   const thisChat = `This chat (${chatName})`;
   const persisted = isPersistedThreadId(threadId) ? threadId : undefined;
   const [browser, setBrowser] = useState<Browser | null>(null);
-  const [error, setError] = useState("");
-  const form = useForm({
+  const [error, setError] = useSettingsDraft("memory/error", "");
+  const form = useSettingsForm("memory/form", {
     mode: "uncontrolled",
     initialValues: {
       text: "",
@@ -194,7 +211,7 @@ export function MemorySettings(): ReactElement {
     void window.verbo.memory.list().then((next) => {
       setBrowser(next);
     });
-  }, []);
+  }, [setBrowser]);
 
   useEffect(() => {
     load();
@@ -268,6 +285,7 @@ export function MemorySettings(): ReactElement {
             {...form.getInputProps("inclusion")}
           />
           <Button
+            leftSection={<BookmarkPlusIcon aria-hidden size={16} />}
             type="button"
             size="xs"
             onClick={() => {
