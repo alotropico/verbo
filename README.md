@@ -8,7 +8,7 @@ Verbo is a local AI chat app for exploring ideas, making things, and questioning
 
 ### Conversations
 
-- **Streamed answers:** replies appear as they arrive. While the microphone is live, the composer square stops listening and leaves a turn already sent to Ollama running. **Stop generating** cancels that turn, including one waiting on approval.
+- **Local answers:** Ollama handles inference; the backend releases answer text after a tool-free response completes. While the microphone is live, the composer square stops listening and leaves a turn already sent to Ollama running. **Stop generating** cancels that turn, including one waiting on approval.
 - **Editable starting points:** “Explore an idea,” “Create something,” and “Challenge a belief” fill the composer with a prompt you can change before sending.
 - **Iteration:** edit a user message, regenerate an assistant response, and navigate alternative message branches using assistant-ui controls.
 - **Markdown:** answers support headings, lists, tables, links, blockquotes, and fenced code blocks through GitHub-flavored Markdown.
@@ -21,17 +21,19 @@ Each turn freezes its instructions, settings, and always-on memory, then keeps a
 
 The model can call four tools: `capabilities.list`, `capabilities.search`, `capabilities.describe`, and `actions.invoke`. They discover and run the same registered commands as human routes. The backend withholds model text until a tool-free response completes and all commands or approvals settle. Tool receipts are stored with the turn.
 
+Every chat inference request includes core instructions to avoid consecutive requests for the same command and arguments, use the returned result, and explain the outcome even after failure or denial. Those instructions remain present with memory and later tool rounds. They guide the model; the runtime separately blocks repeated requests and reports an empty final reply. See [turn instructions and command results](docs/turn-runtime.md).
+
 ### Conversation history
 
 Create, switch, search by title, rename, archive, and delete conversations from the sidebar. Threads, messages, memory, file scopes, mutation plans, the turn queue, and voice drafts are stored in SQLite and loaded when you return.
 
 ### Memory
 
-`/remember <text>` saves one global memory that later turns can see, and it does so without calling Ollama. Other memories are on demand: they enter a turn only when the model lists or reads them. The always-on global set is capped at about 512 estimated tokens. Settings → Memory lists, edits, and removes entries. `/memories` opens that tab. `/forget <id>` removes one entry.
+`/remember <text>` saves one global memory that later turns can see, and it does so without calling Ollama. Other memories are on demand: they enter a turn only when the model lists or reads them. The always-on global set is capped at about 512 estimated tokens. Settings → Commands → Memory lists, edits, and removes entries; the top-level Memory tab links there. `/memories` opens memory settings. `/forget <id>` removes one entry.
 
 ### Files and changes
 
-Registered folders are the write boundary. Reads go through the same path checks, including Windows junctions and protected locations. Settings → Files can list, search, read, stat, hash, inspect, and compare. The same actions are available to the model and to `/files` and `/action`. A list or summary reports an observed count and an exact total. The exact total is absent when the scan stops early. Hidden names and folders that are not entered, such as `.git` and `node_modules`, stay out of an exact total and are named in the scan.
+Registered folders are the write boundary. Reads go through the same path checks, including Windows junctions and protected locations. Settings → Commands → Files can list, search, read, stat, hash, inspect, and compare; the top-level Files tab links there. The same actions are available to the model and to `/files` and `/action`. A list or summary reports an observed count and an exact total. The exact total is absent when the scan stops early. Hidden names and folders that are not entered, such as `.git` and `node_modules`, stay out of an exact total and are named in the scan.
 
 Uploaded attachments are copies kept with the app data. Messages store ids, not the file bytes. Chat images are sent only when the selected model reports vision support, and only up to 1 MB. The same attachment subsystem stores live references to verified command files without copying their contents. Receipts retain complete file sets and child outcomes; the UI initially shows four files, with a disclosure for the rest. Open, Reveal and Copy recheck current access and file availability.
 
@@ -55,16 +57,20 @@ Typed chat keeps working when the voice service or the microphone is unavailable
 
 Settings → Commands shows the registered catalog and recent history. `/capabilities` lists the same actions. `/action <id> <JSON>` runs one. `/help` lists the local commands. A leading slash is always handled locally, including a malformed command. Approval is the operation card, not a command.
 
-| Command | Effect |
-| --- | --- |
-| `/help` | List local commands. |
-| `/capabilities` | List registered actions. |
-| `/remember <text>` | Save a global always-on memory. |
-| `/memories` | Open memory settings. |
-| `/forget <id>` | Remove a memory. |
-| `/files …` | Query or read through the file actions. |
-| `/action <id> <JSON>` | Run a registered action. |
-| `/new` | Open a blank conversation. Stored chats stay in the list. |
+**All commands** shows the complete catalog in a three-column table: click a command's code label to copy it, edit aliases as tags, or open its details. Rows use a plain background, with feedback while saving or on errors. Details show usage, examples, parameters, and execution policy; the full definition is under **Technical details**.
+
+Each module has **Other settings** and **Commands** disclosures. Other settings starts open and Commands starts closed. Each disclosure's open state is shared across modules and saved locally across app launches.
+
+| Command               | Effect                                                    |
+| --------------------- | --------------------------------------------------------- |
+| `/help`               | List local commands.                                      |
+| `/capabilities`       | List registered actions.                                  |
+| `/remember <text>`    | Save a global always-on memory.                           |
+| `/memories`           | Open memory settings.                                     |
+| `/forget <id>`        | Remove a memory.                                          |
+| `/files …`            | Query or read through the file actions.                   |
+| `/action <id> <JSON>` | Run a registered action.                                  |
+| `/new`                | Open a blank conversation. Stored chats stay in the list. |
 
 ### Model settings and status
 
@@ -72,15 +78,15 @@ Settings → Commands contains module aliases and protected descriptor details. 
 
 `web.search` uses a lazy, hidden Puppeteer-core worker and the installed Chrome or Edge, trying Google, DuckDuckGo and Bing in the configured order without a key. `web.read` uses bounded HTTP extraction first and can request rendered content. Sources are links rather than file attachments. The worker uses disposable profiles and a DNS-pinned public-network proxy, with private destinations and browser side effects blocked. Live engine coverage remains incomplete: the 2026-10-13 Windows smoke check found Google/DDG blocked and Bing's results unparseable. Offline fallback tests alone do not establish operational search support.
 
-Settings has Model, Memory, Files, Voice, and Actions tabs. Generation and voice preferences wait for Save. Cancelling the dialog leaves completed memory, file, and action changes as they are.
+Settings is a centered workspace, capped at 1200 px, with Model, Memory, Files, Listening, Speech, and Commands tabs. Changes save automatically. Only the active tab and command module render; draft edits and save feedback survive navigation within the current window. No chat appears active while Settings is open. The arrow beside its title returns to the previously selected chat.
 
-| Setting | Default | Behavior |
-| --- | --- | --- |
-| Model | `qwen3.5:4b-q4_K_M` | Installed Ollama tags only. The control lists models that are already present. |
-| Thinking mode | On | Sends the `think` option to Ollama. Support depends on the model. |
-| Temperature | `0.4` | Slider from `0` to `1` in steps of `0.1`. A saved value above `1` is kept until you save the slider. |
-| Context window | `8192` | Presets from `2048` to `131072`. Larger windows need more memory. |
-| Keep alive | `5m` | Sent to Ollama as `keep_alive`. The form keeps the stored value. |
+| Setting        | Default             | Behavior                                                                                             |
+| -------------- | ------------------- | ---------------------------------------------------------------------------------------------------- |
+| Model          | `qwen3.5:4b-q4_K_M` | Installed Ollama tags only. The control lists models that are already present.                       |
+| Thinking mode  | On                  | Sends the `think` option to Ollama. Support depends on the model.                                    |
+| Temperature    | `0.4`               | Slider from `0` to `1` in steps of `0.1`. A saved value above `1` is kept until you save the slider. |
+| Context window | `8192`              | Presets from `2048` to `131072`. Larger windows need more memory.                                    |
+| Keep alive     | `5m`                | Sent to Ollama as `keep_alive`. The form keeps the stored value.                                     |
 
 The header has one Ollama and model control, then a Voice control, to the left of Settings. Each popover separates daemon state from model load, and speech-service readiness from the microphone session. Stop asks for confirmation and names the service. Quitting the app stops only processes this launch started. A reused Ollama or voice service stays up. A confirmed Stop also pauses new sends until you start that service again in this session.
 
@@ -90,12 +96,12 @@ The interface uses a dark, textured canvas with glass-like panels, fine borders,
 
 The sidebar can fold away, the layout adapts to smaller windows, and surface transitions include reduced-motion handling.
 
-| Shortcut | Action |
-| --- | --- |
-| `Enter` | Send a message. |
-| `Shift + Enter` | Insert a line break. |
-| `Ctrl + B` / `Cmd + B` | Toggle the sidebar. |
-| `Escape` | Close the settings modal. |
+| Shortcut               | Action                                       |
+| ---------------------- | -------------------------------------------- |
+| `Enter`                | Send a message.                              |
+| `Shift + Enter`        | Insert a line break.                         |
+| `Ctrl + B` / `Cmd + B` | Toggle the sidebar.                          |
+| `Escape`               | Close an open details or confirmation modal. |
 
 ## How a turn moves
 
@@ -103,16 +109,16 @@ Typed text and speech meet in one queue. The main process owns the turn, the too
 
 ![How a turn moves. Typed text and speech meet in one queue, then one Ollama turn. A voice session speaks the reply and pauses the microphone.](docs/system-flow.svg)
 
-| Piece | Where it lives | Role |
-| --- | --- | --- |
-| Microphone and capture clock | Renderer | Records speech, watches level, and marks a quiet end. |
-| Voice draft | SQLite, one row per conversation | Holds text until it can send. Stop listening leaves this text in place. |
-| Main voice client | Electron main | Uploads audio and reply text. Holds the bearer token. Cancels recognition and synthesis on separate lanes. |
-| STT | Voice service, faster-whisper small | Returns English or Spanish text. |
-| TTS | Voice service, Piper | Returns wav for the installed voice, by default `en_US-ljspeech-medium`. |
-| Speaker | Renderer | Plays the wav. Capture stays paused until playback ends. |
-| Queue and turn | Electron main | One Ollama turn at a time. Speech and typing share this line. |
-| Stop voice | Composer square while listening | Releases the microphone. A turn already with Ollama, its spoken reply, and the queue continue. |
+| Piece                        | Where it lives                      | Role                                                                                                       |
+| ---------------------------- | ----------------------------------- | ---------------------------------------------------------------------------------------------------------- |
+| Microphone and capture clock | Renderer                            | Records speech, watches level, and marks a quiet end.                                                      |
+| Voice draft                  | SQLite, one row per conversation    | Holds text until it can send. Stop listening leaves this text in place.                                    |
+| Main voice client            | Electron main                       | Uploads audio and reply text. Holds the bearer token. Cancels recognition and synthesis on separate lanes. |
+| STT                          | Voice service, faster-whisper small | Returns English or Spanish text.                                                                           |
+| TTS                          | Voice service, Piper                | Returns wav for the installed voice, by default `en_US-ljspeech-medium`.                                   |
+| Speaker                      | Renderer                            | Plays the wav. Capture stays paused until playback ends.                                                   |
+| Queue and turn               | Electron main                       | One Ollama turn at a time. Speech and typing share this line.                                              |
+| Stop voice                   | Composer square while listening     | Releases the microphone. A turn already with Ollama, its spoken reply, and the queue continue.             |
 
 The voice service binds to `127.0.0.1:8765` only. Callers send `Authorization: Bearer <token>` and no `Origin` header. Setup and the HTTP API are documented in [voice-service/README.md](voice-service/README.md).
 
@@ -179,31 +185,31 @@ VERBO_MODEL='your-installed-model:tag' pnpm start
 
 Verbo stores application data in Electron's platform-specific `app.getPath('userData')` directory:
 
-| Path | Contents |
-| --- | --- |
-| `verbo.sqlite` | Conversations, messages, memory, file scopes, mutation plans and audit, the turn queue, and voice drafts. |
-| `settings.json` | Validated model and generation settings. |
-| `attachments/` | Managed copies of attached files. |
+| Path            | Contents                                                                                                  |
+| --------------- | --------------------------------------------------------------------------------------------------------- |
+| `verbo.sqlite`  | Conversations, messages, memory, file scopes, mutation plans and audit, the turn queue, and voice drafts. |
+| `settings.json` | Validated model and generation settings.                                                                  |
+| `attachments/`  | Managed copies of attached files.                                                                         |
 
 The voice bearer token lives in `%LOCALAPPDATA%\Verbo\voice-token`. Model inference, titles, speech recognition, and speech synthesis stay on this machine. Downloading dependencies, Ollama models, and speech assets requires network access. After those files are in place, chat and voice do not fetch models at launch.
 
 ## Stack
 
-| Layer | Technology | Role |
-| --- | --- | --- |
-| Desktop | Electron 39 | Window lifecycle, isolated preload bridge, and main-process services. |
-| UI | React 19 and TypeScript 5 | Application shell and typed components. |
-| Chat | assistant-ui | Thread state, streaming runtime, message actions, branches, and history adapters. |
-| Components and forms | Mantine 9 | Layout, controls, dialogs, tooltips, and uncontrolled forms. |
-| Styling | CSS modules and PostCSS | Component styles and shared semantic tokens. |
-| Icons | Lucide React | Interface icons alongside Verbo's SVG mark. |
-| Markdown | `@assistant-ui/react-markdown` and `remark-gfm` | Message rendering and GitHub-flavored Markdown. |
-| Inference | Ollama HTTP API | Local chat streaming, tool rounds, title generation, and model status. |
-| Speech | FastAPI, faster-whisper, and Piper | Local transcription and wav synthesis on `127.0.0.1`. |
-| Persistence | SQLite via `node:sqlite` | Conversation and capability storage in Electron's main process. |
-| Validation | Zod | Settings, action, and IPC payload schemas. |
-| Development and packaging | electron-vite, Vite, and electron-builder | Development builds, renderer updates, and packaging scripts. |
-| Verification | Vitest, pytest, TypeScript, ESLint, and Prettier | App tests, voice-service tests, type checks, linting, and formatting. |
+| Layer                     | Technology                                       | Role                                                                              |
+| ------------------------- | ------------------------------------------------ | --------------------------------------------------------------------------------- |
+| Desktop                   | Electron 39                                      | Window lifecycle, isolated preload bridge, and main-process services.             |
+| UI                        | React 19 and TypeScript 5                        | Application shell and typed components.                                           |
+| Chat                      | assistant-ui                                     | Thread state, streaming runtime, message actions, branches, and history adapters. |
+| Components and forms      | Mantine 9                                        | Layout, controls, dialogs, tooltips, and uncontrolled forms.                      |
+| Styling                   | CSS modules and PostCSS                          | Component styles and shared semantic tokens.                                      |
+| Icons                     | Lucide React                                     | Interface icons alongside Verbo's SVG mark.                                       |
+| Markdown                  | `@assistant-ui/react-markdown` and `remark-gfm`  | Message rendering and GitHub-flavored Markdown.                                   |
+| Inference                 | Ollama HTTP API                                  | Local chat streaming, tool rounds, title generation, and model status.            |
+| Speech                    | FastAPI, faster-whisper, and Piper               | Local transcription and wav synthesis on `127.0.0.1`.                             |
+| Persistence               | SQLite via `node:sqlite`                         | Conversation and capability storage in Electron's main process.                   |
+| Validation                | Zod                                              | Settings, action, and IPC payload schemas.                                        |
+| Development and packaging | electron-vite, Vite, and electron-builder        | Development builds, renderer updates, and packaging scripts.                      |
+| Verification              | Vitest, pytest, TypeScript, ESLint, and Prettier | App tests, voice-service tests, type checks, linting, and formatting.             |
 
 Dependency versions and scripts are defined in [package.json](package.json), with resolved versions in [pnpm-lock.yaml](pnpm-lock.yaml). Speech pins and licenses are in [voice-service/README.md](voice-service/README.md).
 
@@ -242,11 +248,11 @@ To add a command, define its canonical ID, strict argument schema and valid exam
 
 ### One semantic theme
 
-[globals.css](src/renderer/src/assets/globals.css) is the source of truth for semantic colors, radii, surfaces, shadows, and glows. [theme/mantine.ts](src/renderer/src/theme/mantine.ts) maps these tokens into Mantine's CSS variables and component styles. The [ThemeProvider](src/renderer/src/theme/ThemeProvider.tsx) currently forces the dark scheme.
+[globals.css](src/renderer/src/assets/globals.css) is the source of truth for semantic colors, radii, surfaces, shadows, glows, and shared motion durations. [theme/mantine.ts](src/renderer/src/theme/mantine.ts) maps these tokens into Mantine's CSS variables and component styles. The [ThemeProvider](src/renderer/src/theme/ThemeProvider.tsx) currently forces the dark scheme.
 
-Renderer components use adjacent CSS modules and the shared `cx` helper for class composition. New styles should consume the semantic tokens, and global Mantine changes should go through the existing theme. Keep one palette and do not introduce Tailwind.
+Renderer components use adjacent CSS modules and the shared `cx` helper for class composition. Styles consume semantic tokens and Mantine's spacing scale; shared Mantine changes go through the existing theme. Keep one palette and do not introduce Tailwind. [UI styling](docs/ui-styling.md) documents ownership, declaration conventions, motion, and layering.
 
-The settings form uses Mantine's uncontrolled mode, `form.key(...)`, `getInputProps(...)`, and the shared Zod settings schema. Validation is repeated in the main process before persistence.
+Settings views use a shared session store so inactive views can unmount without losing drafts or pending saves. Mantine forms use uncontrolled mode, `form.key(...)`, and `getInputProps(...)` where applicable. Main-process handlers validate changes before persistence. Closing a modal retains its content until the exit transition ends, avoiding a layout jump during dismissal.
 
 ### Project layout
 
@@ -267,21 +273,21 @@ src/renderer/src/
 
 ## Development and builds
 
-| Command | Purpose |
-| --- | --- |
-| `pnpm start` | Check/start Ollama and voice, verify a model, and launch development. |
-| `pnpm dev` | Launch development without those preflight checks. |
-| `pnpm voice:start` | Start the voice service, or leave a compatible one running. |
-| `pnpm voice:test` | Run the voice-service pytest suite. |
-| `pnpm typecheck` | Check the main/preload and renderer TypeScript projects. |
-| `pnpm test` | Run Vitest tests. |
-| `pnpm lint` | Run repository-wide ESLint. |
-| `pnpm format` | Format the repository with Prettier. This writes files. |
-| `pnpm build` | Type-check and produce application bundles in `out/`. |
-| `pnpm build:unpack` | Build and create an unpacked application. |
-| `pnpm build:win` | Build and package for Windows. |
-| `pnpm build:mac` | Build and package for macOS. |
-| `pnpm build:linux` | Build and package for Linux. |
+| Command             | Purpose                                                                                         |
+| ------------------- | ----------------------------------------------------------------------------------------------- |
+| `pnpm start`        | Verify a model and launch development; the app starts or reuses Ollama. Voice starts on demand. |
+| `pnpm dev`          | Launch development without those preflight checks.                                              |
+| `pnpm voice:start`  | Start the voice service, or leave a compatible one running.                                     |
+| `pnpm voice:test`   | Run the voice-service pytest suite.                                                             |
+| `pnpm typecheck`    | Check the main/preload and renderer TypeScript projects.                                        |
+| `pnpm test`         | Run Vitest tests.                                                                               |
+| `pnpm lint`         | Run repository-wide ESLint.                                                                     |
+| `pnpm format`       | Format the repository with Prettier. This writes files.                                         |
+| `pnpm build`        | Type-check and produce application bundles in `out/`.                                           |
+| `pnpm build:unpack` | Build and create an unpacked application.                                                       |
+| `pnpm build:win`    | Build and package for Windows.                                                                  |
+| `pnpm build:mac`    | Build and package for macOS.                                                                    |
+| `pnpm build:linux`  | Build and package for Linux.                                                                    |
 
 Vitest covers the app contracts: history, queue, files, voice policy, and the Ollama wire. Pytest covers the voice service. UI behavior still needs a pass in the Electron window, because a browser tab has no preload bridge.
 
