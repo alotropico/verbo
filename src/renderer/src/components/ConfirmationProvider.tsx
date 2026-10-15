@@ -4,6 +4,7 @@ import {
   type Request,
 } from "./confirmation-context";
 import { Button, Group, Modal, Text } from "@mantine/core";
+import { CheckIcon, Trash2Icon, XIcon } from "lucide-react";
 import {
   useCallback,
   useEffect,
@@ -20,6 +21,7 @@ export function ConfirmationProvider({
   children: ReactNode;
 }): ReactElement {
   const [active, setActive] = useState<Request | null>(null);
+  const [opened, setOpened] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const requests = useRef<Request[]>([]);
@@ -32,16 +34,24 @@ export function ConfirmationProvider({
         else {
           activeRef.current = request;
           setActive(request);
+          setError("");
+          setOpened(true);
         }
       }),
     [],
   );
   const finish = (accepted: boolean): void => {
-    activeRef.current?.resolve(accepted);
+    if (!activeRef.current) return;
+    activeRef.current.resolve(accepted);
     const next = requests.current.shift() ?? null;
     activeRef.current = next;
-    setActive(next);
-    setError("");
+    if (next) {
+      setActive(next);
+      setError("");
+    } else {
+      // Keep the title, message and error in place throughout the exit animation.
+      setOpened(false);
+    }
   };
   useEffect(
     () => () => {
@@ -54,9 +64,15 @@ export function ConfirmationProvider({
     <ConfirmationContext value={confirm}>
       {children}
       <Modal
-        opened={active !== null}
+        opened={opened}
         onClose={() => {
           if (!busy) finish(false);
+        }}
+        onExitTransitionEnd={() => {
+          if (!activeRef.current) {
+            setActive(null);
+            setError("");
+          }
         }}
         title={active?.title}
         centered
@@ -75,6 +91,7 @@ export function ConfirmationProvider({
         <Group justify="flex-end" mt="lg">
           <Button
             variant="default"
+            leftSection={<XIcon aria-hidden size={16} />}
             disabled={busy}
             onClick={() => finish(false)}
           >
@@ -82,9 +99,16 @@ export function ConfirmationProvider({
           </Button>
           <Button
             color={active?.destructive ? "red" : undefined}
+            leftSection={
+              active?.destructive ? (
+                <Trash2Icon aria-hidden size={16} />
+              ) : (
+                <CheckIcon aria-hidden size={16} />
+              )
+            }
             loading={busy}
             onClick={() => {
-              if (!active) return;
+              if (!opened || busy || !active) return;
               setBusy(true);
               setError("");
               void Promise.resolve()

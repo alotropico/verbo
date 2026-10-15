@@ -22,7 +22,7 @@ export function AutosaveStatus({
             ? "Saving…"
             : state.status === "saved"
               ? "Saved automatically"
-              : "Changes save automatically"}
+              : ""}
       </Text>
       {state.status === "error" ? (
         <Tooltip
