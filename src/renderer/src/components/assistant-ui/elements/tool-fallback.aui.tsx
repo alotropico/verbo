@@ -44,6 +44,10 @@ import { readFilePage, type FilePageView } from "@shared/file-page";
 import { isPersistedThreadId } from "@shared/thread-identity";
 import { OperationReviewCard } from "./operation-review";
 import { Button, Textarea } from "@mantine/core";
+import {
+  toolResultLabel,
+  isPendingApprovalResult,
+} from "@shared/tool-result-label";
 
 const ANIMATION_DURATION = 200;
 
@@ -140,10 +144,12 @@ function ToolFallbackTrigger({
   toolName,
   status,
   className,
+  result,
   ...props
 }: React.ComponentProps<typeof CollapsibleTrigger> & {
   toolName: string;
   status?: ToolCallMessagePartStatus;
+  result?: unknown;
 }) {
   const statusType = status?.type ?? "complete";
   const isRunning = statusType === "running";
@@ -152,7 +158,8 @@ function ToolFallbackTrigger({
 
   const Icon = statusIconMap[statusType];
   const label =
-    statusType === "running"
+    toolResultLabel(result) ??
+    (statusType === "running"
       ? "Running"
       : statusType === "requires-action"
         ? "Awaiting input"
@@ -160,7 +167,7 @@ function ToolFallbackTrigger({
           ? isCancelled
             ? "Cancelled"
             : "Failed"
-          : "Used";
+          : "No verified result");
 
   return (
     <CollapsibleTrigger
@@ -1265,7 +1272,8 @@ const ToolFallbackImpl: ToolCallMessagePartComponent = ({
 }) => {
   const isCancelled =
     status?.type === "incomplete" && status.reason === "cancelled";
-  const isRequiresAction = status?.type === "requires-action";
+  const isRequiresAction =
+    status?.type === "requires-action" || isPendingApprovalResult(result);
   const shouldRenderApproval =
     approval != null ||
     (isRequiresAction && offersInterruptAction(status, approval, interrupt));
@@ -1305,7 +1313,11 @@ const ToolFallbackImpl: ToolCallMessagePartComponent = ({
 
   return (
     <ToolFallbackRoot open={open} onOpenChange={setOpen}>
-      <ToolFallbackTrigger toolName={toolName} status={status} />
+      <ToolFallbackTrigger
+        toolName={toolName}
+        status={status}
+        result={result}
+      />
       <ToolFallbackContent>
         <ToolFallbackError status={status} />
         <ToolFallbackArgs

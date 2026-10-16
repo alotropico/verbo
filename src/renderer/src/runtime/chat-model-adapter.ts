@@ -13,6 +13,11 @@ import {
   visibleProjection,
 } from "../../../shared/chat-projection";
 import { rememberLatestExchange } from "./latest-exchange";
+import {
+  canonicalMessageId,
+  rememberMessageIdentity,
+  takeTurnObservation,
+} from "./message-identity";
 
 export function createChatModelAdapter(
   getSettings: () => Promise<{
@@ -64,21 +69,28 @@ export function createChatModelAdapter(
         if (message.role !== "user" && message.role !== "assistant") continue;
         if (message.role === "user") attachmentIds = ids;
         serializedMessages.push({
-          id: message.id,
+          id: canonicalMessageId(message.id),
           role: message.role,
           content: text || (ids.length > 0 ? "Attached files." : ""),
         });
       }
 
       const queueItemId = takeQueueLease();
+      const observedAssistantId = takeTurnObservation(
+        unstable_threadId,
+        serializedMessages.findLast((message) => message.role === "user")?.id,
+      );
       const settings = await getSettings();
       const queue: ChatEvent[] = [];
       let wake: (() => void) | undefined;
       const stop = window.assistantAI.streamChat(
         {
           threadId: unstable_threadId,
-          assistantMessageId: unstable_assistantMessageId,
-          ...(unstable_parentId ? { parentId: unstable_parentId } : {}),
+          assistantMessageId:
+            observedAssistantId ?? unstable_assistantMessageId,
+          ...(unstable_parentId
+            ? { parentId: canonicalMessageId(unstable_parentId) }
+            : {}),
           messages: serializedMessages,
           settings,
           ...(queueItemId ? { queueItemId } : {}),
@@ -128,6 +140,18 @@ export function createChatModelAdapter(
           }
           const event = queue.shift();
           if (!event) continue;
+          if (event.type === "turn_identity") {
+            const localUserId = messages.findLast(
+              (message) => message.role === "user",
+            )?.id;
+            if (localUserId)
+              rememberMessageIdentity(localUserId, event.userMessageId);
+            rememberMessageIdentity(
+              unstable_assistantMessageId,
+              event.assistantMessageId,
+            );
+            continue;
+          }
           if (event.type === "exchange") {
             rememberLatestExchange(event.interaction);
             continue;

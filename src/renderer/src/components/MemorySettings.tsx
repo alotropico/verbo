@@ -3,6 +3,7 @@ import {
   memoryInclusions,
   memoryScopes,
   memoryTextSchema,
+  contextAudiencesSchema,
   type MemoryChange,
   type MemoryInclusion,
   type MemoryRecord,
@@ -11,7 +12,9 @@ import {
 import { isPersistedThreadId } from "@shared/thread-identity";
 import { chatPlaceholderTitle } from "@shared/thread-title";
 import { estimateTokens } from "@shared/token-estimate";
-import { Button, Text, Textarea } from "@mantine/core";
+import { Button, MultiSelect, Text, Textarea } from "@mantine/core";
+import type { AgentId } from "@shared/workflows";
+import { ContextMeters } from "./ContextMeters";
 import { ChoiceInput } from "./ChoiceInput";
 import { schemaResolver } from "@mantine/form";
 import { useAuiState } from "@assistant-ui/react";
@@ -38,6 +41,7 @@ import styles from "./MemorySettings.module.css";
 
 type Browser = {
   entries: MemoryRecord[];
+  more: boolean;
   usage: MemoryUsage;
   changes: MemoryChange[];
 };
@@ -46,7 +50,14 @@ const addSchema = z.object({
   text: memoryTextSchema,
   scope: z.enum(memoryScopes),
   inclusion: z.enum(memoryInclusions),
+  audiences: contextAudiencesSchema,
 });
+const recipients = [
+  { value: "conversational", label: "Conversational" },
+  { value: "decision", label: "Decision" },
+  { value: "writer", label: "Writer" },
+  { value: "commander", label: "Commander" },
+];
 
 function MemoryRow({
   entry,
@@ -62,6 +73,10 @@ function MemoryRow({
     key + "inclusion",
     entry.inclusion,
   );
+  const [audiences, setAudiences] = useSettingsDraft<AgentId[]>(
+    key + "audiences",
+    entry.audiences,
+  );
   const currentRef = useSettingsRef(key + "current", text);
   const baselineRef = useSettingsRef(key + "baseline", entry.text);
   const confirm = useConfirmation();
@@ -69,6 +84,7 @@ function MemoryRow({
     id: string;
     text?: string;
     inclusion?: MemoryInclusion;
+    audiences?: AgentId[];
   }>(
     key + "save",
     async (value) => {
@@ -88,11 +104,12 @@ function MemoryRow({
       setText(entry.text);
       baselineRef.current = entry.text;
       setInclusion(entry.inclusion);
+      setAudiences(entry.audiences);
     }
   });
   useEffect(() => {
     synchronize();
-  }, [entry.text, entry.inclusion]);
+  }, [entry.text, entry.inclusion, entry.audiences]);
 
   return (
     <li className={styles.entry}>
@@ -124,12 +141,28 @@ function MemoryRow({
       <Text size="xs" c="dimmed">
         Estimated tokens: {estimateTokens(text.trim())}
       </Text>
+      <MultiSelect
+        label="Recipients"
+        description={
+          audiences.length
+            ? "Only these agents can receive this note."
+            : "Unassigned: this note is preserved and is not injected into any agent."
+        }
+        data={recipients}
+        value={audiences}
+        onChange={(values) => {
+          const next = contextAudiencesSchema.parse(values);
+          setAudiences(next);
+          autosave.controller.schedule({ id: entry.id, audiences: next });
+        }}
+        onBlur={() => void autosave.controller.flush()}
+      />
       <div className={styles.entryActions}>
         <ChoiceInput
           label={
             <SettingsLabel
               label="When to use"
-              tip="Always includes the note in every message. On demand keeps it out until it is retrieved."
+              tip="Always includes the note for its selected recipients. On demand keeps it out until an assigned agent retrieves it."
             />
           }
           className={styles.inclusion}
@@ -196,22 +229,32 @@ export function MemorySettings(): ReactElement {
   const persisted = isPersistedThreadId(threadId) ? threadId : undefined;
   const [browser, setBrowser] = useState<Browser | null>(null);
   const [error, setError] = useSettingsDraft("memory/error", "");
+  const [groupAudiences, setGroupAudiences] = useState<AgentId[]>([
+    "conversational",
+  ]);
+  const [assigning, setAssigning] = useState(false);
+  const [page, setPage] = useState(0);
+  const [meterAudience, setMeterAudience] = useState<AgentId>("conversational");
   const form = useSettingsForm("memory/form", {
     mode: "uncontrolled",
     initialValues: {
       text: "",
       scope: "global" as "global" | "thread",
       inclusion: "on_demand" as MemoryInclusion,
+      audiences: ["conversational"] as AgentId[],
     },
     validate: schemaResolver(addSchema, { sync: true }),
   });
   const memoryText = form.useWatchValue("text");
 
   const load = useCallback((): void => {
-    void window.verbo.memory.list().then((next) => {
-      setBrowser(next);
-    });
-  }, [setBrowser]);
+    void window.verbo.memory
+      .list({ offset: page * 100 })
+      .then((next) => {
+        setBrowser(next);
+      })
+      .catch(() => setError("Notes could not be loaded. Try again."));
+  }, [page, setBrowser, setError]);
 
   useEffect(() => {
     load();
@@ -220,17 +263,101 @@ export function MemorySettings(): ReactElement {
   }, [load]);
 
   const globalEntries =
-    browser?.entries.filter((entry) => entry.scope === "global") ?? [];
+    browser?.entries.filter(
+      (entry) => entry.scope === "global" && entry.audiences.length,
+    ) ?? [];
   const threadEntries =
     browser?.entries.filter(
-      (entry) => entry.scope === "thread" && entry.threadId === persisted,
+      (entry) =>
+        entry.scope === "thread" &&
+        entry.threadId === persisted &&
+        entry.audiences.length,
     ) ?? [];
+  const unassigned =
+    browser?.entries.filter((entry) => !entry.audiences.length) ?? [];
 
   return (
     <SettingsSection
       title="Memory"
       description="Keep notes for future conversations. Valid edits save automatically."
     >
+      {unassigned.length > 0 ? (
+        <section>
+          <Text fw={500} size="sm">
+            Unassigned notes ({unassigned.length})
+          </Text>
+          <Text size="sm">
+            These preserved notes are not sent to any agent. Edit each note or
+            assign the group below.
+          </Text>
+          <MultiSelect
+            label="Group recipients"
+            data={recipients}
+            value={groupAudiences}
+            onChange={(values) =>
+              setGroupAudiences(contextAudiencesSchema.parse(values))
+            }
+          />
+          <Button
+            size="xs"
+            variant="subtle"
+            loading={assigning}
+            disabled={!groupAudiences.length}
+            onClick={() => {
+              setAssigning(true);
+              setError("");
+              void Promise.all(
+                unassigned.map((entry) =>
+                  window.verbo.memory.update({
+                    id: entry.id,
+                    audiences: groupAudiences,
+                  }),
+                ),
+              )
+                .then((results) => {
+                  const failed = results.find((result) => !result.ok);
+                  if (failed) setError(failed.summary);
+                  window.dispatchEvent(new Event("verbo:memory-changed"));
+                  load();
+                })
+                .catch(() =>
+                  setError(
+                    "Recipient assignment could not be saved. Completed assignments are retained.",
+                  ),
+                )
+                .finally(() => setAssigning(false));
+            }}
+          >
+            Assign displayed unassigned notes
+          </Button>
+          <ul className={styles.list}>
+            {unassigned.map((entry) => (
+              <MemoryRow key={entry.id} entry={entry} onChanged={load} />
+            ))}
+          </ul>
+        </section>
+      ) : null}
+      <div>
+        <Button
+          size="xs"
+          variant="subtle"
+          disabled={page === 0}
+          onClick={() => setPage((value) => value - 1)}
+        >
+          Previous notes
+        </Button>
+        <Text size="xs" component="span">
+          Page {page + 1}
+        </Text>
+        <Button
+          size="xs"
+          variant="subtle"
+          disabled={!browser?.more}
+          onClick={() => setPage((value) => value + 1)}
+        >
+          Next notes
+        </Button>
+      </div>
       <div className={styles.addForm}>
         <Textarea
           label={
@@ -247,6 +374,12 @@ export function MemorySettings(): ReactElement {
         <Text size="xs" c="dimmed">
           Estimated tokens: {estimateTokens(memoryText.trim())}
         </Text>
+        <MultiSelect
+          label="Recipients for new note"
+          data={recipients}
+          key={form.key("audiences")}
+          {...form.getInputProps("audiences")}
+        />
         <div className={styles.addActions}>
           <ChoiceInput
             className={styles.addField}
@@ -299,6 +432,7 @@ export function MemorySettings(): ReactElement {
                   text: values.text,
                   scope: values.scope,
                   inclusion: values.inclusion,
+                  audiences: values.audiences,
                   ...(values.scope === "thread" && persisted
                     ? { threadId: persisted }
                     : {}),
@@ -317,6 +451,17 @@ export function MemorySettings(): ReactElement {
           </Button>
         </div>
       </div>
+      <ChoiceInput
+        label="Context meter audience"
+        data={recipients}
+        value={meterAudience}
+        allowDeselect={false}
+        onChange={(value) => {
+          const parsed = contextAudiencesSchema.safeParse([value]);
+          if (parsed.success) setMeterAudience(parsed.data[0]!);
+        }}
+      />
+      <ContextMeters audience={meterAudience} />
       {error ? (
         <StatusMessage display="plain" size="sm" tone="error">
           {error}

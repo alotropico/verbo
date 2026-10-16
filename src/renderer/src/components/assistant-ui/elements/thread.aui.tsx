@@ -24,7 +24,12 @@ import {
 } from "@/components/assistant-ui/elements/tool-group.aui";
 import { TouchedFiles } from "./touched-files";
 import { TooltipIconButton } from "./tooltip-icon-button";
-import { BackendNotice } from "@/components/BackendNotice";
+import { BackendNotice, FinalizationNotice } from "@/components/BackendNotice";
+import {
+  WorkflowStageNotice,
+  WorkflowExecutionNotice,
+  WorkflowRoutingNotice,
+} from "@/components/WorkflowProgress";
 import { CommandNotice } from "@/components/CommandNotice";
 import { StatusMessage } from "@/components/StatusMessage";
 import { WebSources } from "@/components/WebSources";
@@ -45,6 +50,7 @@ import {
 } from "@/runtime/latest-exchange";
 import { useLocalCommandGuard } from "@/runtime/use-local-command";
 import { USER_ABORT_NOTICE } from "@shared/chat-ipc";
+import { isPendingApprovalResult } from "@shared/tool-result-label";
 import { ActionIcon, Button, Skeleton, Text, Tooltip } from "@mantine/core";
 import { cx } from "@/lib/cx";
 import a11y from "@/lib/a11y.module.css";
@@ -974,6 +980,29 @@ const MessageError: FC = () => {
   );
 };
 
+const DefaultToolGroup: FC<
+  PropsWithChildren<{ count: number; active: boolean }>
+> = ({ count, active, children }) => {
+  const pending = useAuiState((state) =>
+    state.message.content.some(
+      (part) =>
+        part.type === "tool-call" && isPendingApprovalResult(part.result),
+    ),
+  );
+  const [open, setOpen] = useState(pending);
+  const [previousPending, setPreviousPending] = useState(pending);
+  if (pending !== previousPending) {
+    setPreviousPending(pending);
+    if (pending) setOpen(true);
+  }
+  return (
+    <ToolGroupRoot variant="ghost" open={open} onOpenChange={setOpen}>
+      <ToolGroupTrigger count={count} active={active} />
+      <ToolGroupContent>{children}</ToolGroupContent>
+    </ToolGroupRoot>
+  );
+};
+
 const AssistantMessage: FC = () => {
   const {
     ToolFallback: ToolFallbackComponent = ToolFallback,
@@ -1007,13 +1036,12 @@ const AssistantMessage: FC = () => {
                   return <ToolGroup group={part}>{children}</ToolGroup>;
                 }
                 return (
-                  <ToolGroupRoot variant="ghost">
-                    <ToolGroupTrigger
-                      count={part.indices.length}
-                      active={part.status.type === "running"}
-                    />
-                    <ToolGroupContent>{children}</ToolGroupContent>
-                  </ToolGroupRoot>
+                  <DefaultToolGroup
+                    count={part.indices.length}
+                    active={part.status.type === "running"}
+                  >
+                    {children}
+                  </DefaultToolGroup>
                 );
               case "group-reasoning": {
                 if (ReasoningGroup) {
@@ -1047,6 +1075,14 @@ const AssistantMessage: FC = () => {
               case "tool-call":
                 return part.toolUI ?? <ToolFallbackComponent {...part} />;
               case "data":
+                if (part.name === "workflow-stage")
+                  return <WorkflowStageNotice data={part.data} />;
+                if (part.name === "workflow-execution")
+                  return <WorkflowExecutionNotice data={part.data} />;
+                if (part.name === "routing-stage")
+                  return <WorkflowRoutingNotice data={part.data} />;
+                if (part.name === "finalization")
+                  return <FinalizationNotice data={part.data} />;
                 return part.name === "backend-notice" ? (
                   <BackendNotice data={part.data} />
                 ) : (
@@ -1072,13 +1108,22 @@ const AssistantMessage: FC = () => {
                 );
               case "indicator":
                 return (
-                  <span
-                    data-slot="aui_assistant-message-indicator"
-                    className={styles.workingIndicator}
-                    aria-label="Assistant is working"
+                  <AuiIf
+                    condition={(state) =>
+                      !state.message.content.some(
+                        (part) =>
+                          part.type === "data" && part.name === "finalization",
+                      )
+                    }
                   >
-                    <TypingDots />
-                  </span>
+                    <span
+                      data-slot="aui_assistant-message-indicator"
+                      className={styles.workingIndicator}
+                      aria-label="Assistant is working"
+                    >
+                      <TypingDots />
+                    </span>
+                  </AuiIf>
                 );
               default:
                 return null;

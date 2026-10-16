@@ -9,13 +9,14 @@ import { isPersistedThreadId } from "@shared/thread-identity";
 import { BrainIcon, GaugeIcon } from "lucide-react";
 import { useEffect, useState, type ReactElement } from "react";
 import styles from "./ContextMeters.module.css";
+import type { AgentId } from "@shared/workflows";
 
 const EMPTY: MeterSnapshot = {
   memoryTokens: 0,
   memoryBudget: 512,
   contextTokens: 0,
   contextWindow: 8192,
-  lastPromptEval: null,
+  lastInference: null,
 };
 
 function levelClass(used: number, total: number): string {
@@ -25,17 +26,35 @@ function levelClass(used: number, total: number): string {
   return styles.ok;
 }
 
-export function ContextMeters(): ReactElement {
+export function ContextMeters({
+  audience = "conversational",
+}: {
+  audience?: AgentId;
+}): ReactElement {
   const threadId = useAuiState((state) => state.threads.mainThreadId);
-  const [meters, setMeters] = useState<MeterSnapshot>(EMPTY);
+  const [snapshot, setSnapshot] = useState<{
+    threadId: typeof threadId;
+    audience: AgentId;
+    meters: MeterSnapshot;
+  }>();
+  const meters =
+    snapshot?.threadId === threadId && snapshot.audience === audience
+      ? snapshot.meters
+      : EMPTY;
 
   useEffect(() => {
     let cancelled = false;
+    let latestLoad = 0;
     const load = (): void => {
+      const loadId = ++latestLoad;
       void window.verbo.context
-        .estimate(isPersistedThreadId(threadId) ? { threadId } : {})
+        .estimate({
+          audience,
+          ...(isPersistedThreadId(threadId) ? { threadId } : {}),
+        })
         .then((next) => {
-          if (!cancelled) setMeters(next);
+          if (!cancelled && loadId === latestLoad)
+            setSnapshot({ threadId, audience, meters: next });
         })
         .catch(() => undefined);
     };
@@ -48,7 +67,7 @@ export function ContextMeters(): ReactElement {
       window.removeEventListener("verbo:memory-changed", onChange);
       window.clearInterval(timer);
     };
-  }, [threadId]);
+  }, [threadId, audience]);
 
   const memoryPercent =
     meters.memoryBudget > 0
@@ -59,9 +78,9 @@ export function ContextMeters(): ReactElement {
       ? Math.round((meters.contextTokens / meters.contextWindow) * 100)
       : 0;
   const memoryLabel = [
-    `The brain is Verbo's shared sticky-note pile, about ${memoryPercent}% full (${meters.memoryTokens} of ${meters.memoryBudget} guessed tokens).`,
-    "It counts only facts saved as always-on for every chat. Those facts ride along on every reply.",
-    "On-demand facts, and notes that belong only to this chat, wait on the shelf until Verbo looks them up.",
+    `${audience} context notes: about ${memoryPercent}% of the global always-on budget (${meters.memoryTokens} of ${meters.memoryBudget} estimated tokens).`,
+    "Only notes explicitly assigned to this recipient are counted. Unassigned and other recipients' notes are excluded.",
+    "Thread notes apply only within their chat; on-demand notes require authorized retrieval.",
     "Size is a guess: about four letters make one token.",
     `The pile stops at ${meters.memoryBudget}. Near the top, shorten a fact or save it as on-demand so another always-on fact can still fit.`,
     "Color stays calm under 70% full, turns cautious from 70% to 90%, and turns urgent past 90%.",
@@ -74,9 +93,9 @@ export function ContextMeters(): ReactElement {
     "About a quarter of the window stays spare on purpose, so a long chat usually levels off near 75% and may already look cautious.",
     "The gauge climbs toward the whole window only when the instructions and required pieces alone are crowded.",
     "Each message is guessed at about four letters per token, plus a little extra for the message itself.",
-    meters.lastPromptEval === null
-      ? "Ollama has not reported a real prompt count in this session yet, so this number stays a guess."
-      : `Last time Ollama counted a real prompt, it used ${meters.lastPromptEval} tokens. That real count can sit above or below this guess.`,
+    meters.lastInference === null
+      ? `No ${audience} request has been measured for this chat in this session.`
+      : `Latest ${audience} request: ${meters.lastInference.status}. Model: ${meters.lastInference.model}. Turn: ${meters.lastInference.turnId ?? "unavailable"}. Invocation: ${meters.lastInference.invocationId}. Request: ${meters.lastInference.requestId}. ${meters.lastInference.promptTokens === undefined ? "Prompt count unavailable." : `Ollama processed ${meters.lastInference.promptTokens} prompt tokens in this single request; this is not a sum across calls.`} That count can differ from the next-reply estimate.`,
   ].join(" ");
 
   return (

@@ -27,18 +27,24 @@ import {
   type QueueEditLock,
 } from "@/runtime/queue-edit";
 import { publishCommandStatus } from "@/runtime/command-status";
+import {
+  canonicalMessageId,
+  holdTurnObservation,
+} from "@/runtime/message-identity";
 import styles from "./QueueSidebar.module.css";
 
 type QueueSnapshot = {
   threadId: string;
   items: QueuedTurn[];
   outgoingId: string | null;
+  serviceHold: string | null;
 };
 const EMPTY_QUEUE: QueuedTurn[] = [];
 const QueueContext = createContext<QueueSnapshot>({
   threadId: "",
   items: EMPTY_QUEUE,
   outgoingId: null,
+  serviceHold: null,
 });
 function statusLabel(item: QueuedTurn): string {
   if (item.status === "editing") return "Editing";
@@ -53,11 +59,50 @@ export function QueueLifecycleProvider({
 }: PropsWithChildren): ReactElement {
   const aui = useAui();
   const threadId = useAuiState((state) => state.threads.mainThreadId);
+  const isLoading = useAuiState((state) => state.thread.isLoading);
   const [snapshot, setSnapshot] = useState<QueueSnapshot>({
     threadId: "",
     items: EMPTY_QUEUE,
     outgoingId: null,
+    serviceHold: null,
   });
+  useEffect(() => {
+    if (!isPersistedThreadId(threadId) || isLoading) return;
+    let cancelled = false;
+    void window.verbo.turns
+      .snapshot(threadId)
+      .then((live) => {
+        const state = aui.thread().getState();
+        if (
+          cancelled ||
+          !live?.userMessageId ||
+          state.isRunning ||
+          state.isLoading
+        )
+          return;
+        const tail = state.messages.at(-1);
+        if (
+          tail?.role !== "user" ||
+          canonicalMessageId(tail.id) !== live.userMessageId
+        )
+          return;
+        holdTurnObservation(threadId, {
+          userMessageId: live.userMessageId,
+          assistantMessageId: live.assistantMessageId,
+        });
+        aui.thread().startRun({ parentId: tail.id });
+      })
+      .catch(() =>
+        publishCommandStatus({
+          status: "error",
+          summary:
+            "The active response could not be reattached. Reopen this chat to retry.",
+        }),
+      );
+    return () => {
+      cancelled = true;
+    };
+  }, [aui, threadId, isLoading]);
   useEffect(() => {
     if (!isPersistedThreadId(threadId)) return undefined;
     let cancelled = false;
@@ -72,6 +117,7 @@ export function QueueLifecycleProvider({
               threadId,
               items: next.items,
               outgoingId: next.outgoingId,
+              serviceHold: next.serviceHold,
             });
         })
         .catch(() => {
@@ -132,7 +178,7 @@ export function QueueLifecycleProvider({
   const visible =
     snapshot.threadId === threadId
       ? snapshot
-      : { threadId, items: EMPTY_QUEUE, outgoingId: null };
+      : { threadId, items: EMPTY_QUEUE, outgoingId: null, serviceHold: null };
   return (
     <QueueContext.Provider value={visible}>{children}</QueueContext.Provider>
   );
@@ -140,7 +186,7 @@ export function QueueLifecycleProvider({
 
 export function QueueRows(): ReactElement | null {
   const aui = useAui();
-  const { threadId, items, outgoingId } = useContext(QueueContext);
+  const { threadId, items, outgoingId, serviceHold } = useContext(QueueContext);
   const waiting = items.filter((item) => item.id !== outgoingId);
   const report = (summary: string): void =>
     publishCommandStatus({ status: "error", summary });
@@ -226,9 +272,14 @@ export function QueueRows(): ReactElement | null {
       })
       .catch(() => report("The queued message could not be moved."));
   };
-  if (!waiting.length) return null;
+  if (!waiting.length && !serviceHold) return null;
   return (
     <section aria-label="Queued messages" className={styles.queue}>
+      {serviceHold ? (
+        <Text size="sm" role="status">
+          {serviceHold}
+        </Text>
+      ) : null}
       {waiting.map((item, index) => (
         <article
           key={item.id}

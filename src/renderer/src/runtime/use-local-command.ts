@@ -24,6 +24,7 @@ import {
   type QueueEditLock,
 } from "@/runtime/queue-edit";
 import { holdQueueLease, takeQueueLease } from "@/runtime/queue-lease";
+import { canonicalMessageId } from "@/runtime/message-identity";
 
 export function useLocalCommandGuard(): {
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
@@ -103,7 +104,12 @@ export function useLocalCommandGuard(): {
   };
 
   const runIfCommand = (): boolean => {
-    if (!parseLocalCommand(input.value).handled) return false;
+    const parsed = parseLocalCommand(input.value);
+    if (
+      !parsed.handled ||
+      (parsed.name !== "new" && parsed.name !== "memories")
+    )
+      return false;
     const text = input.value;
     input.setText("");
     void window.verbo.commands
@@ -208,7 +214,8 @@ export function useLocalCommandGuard(): {
           return;
         }
         const queuedText = text || stored.map((ref) => ref.name).join(", ");
-        const anchor = aui.thread().getState().messages.at(-1)?.id ?? null;
+        const tail = aui.thread().getState().messages.at(-1)?.id;
+        const anchor = tail ? canonicalMessageId(tail) : null;
         const saved = await window.verbo.queue.enqueue({
           threadId: remoteId,
           text: queuedText,

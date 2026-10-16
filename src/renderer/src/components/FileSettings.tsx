@@ -40,6 +40,7 @@ function FolderRow({
     write: scope.write,
     defaultSave: scope.defaultSave,
     kind: scope.kind ?? "none",
+    routingDescription: scope.routingDescription ?? "",
   });
   const [aliasError, setAliasError] = useSettingsDraft(key + "error", "");
   const confirm = useConfirmation();
@@ -57,6 +58,7 @@ function FolderRow({
           write: saved.write,
           defaultSave: saved.defaultSave,
           kind: saved.kind ?? "none",
+          routingDescription: saved.routingDescription ?? "",
         });
       window.dispatchEvent(new Event("verbo:entities-changed"));
       reload();
@@ -71,6 +73,7 @@ function FolderRow({
       write: scope.write,
       defaultSave: scope.defaultSave,
       kind: scope.kind ?? "none",
+      routingDescription: scope.routingDescription ?? "",
     };
     if (JSON.stringify(draftRef.current) === baselineRef.current) {
       draftRef.current = next;
@@ -142,6 +145,16 @@ function FolderRow({
           }}
         />
       </Group>
+      <TextInput
+        label="Routing description"
+        description="Help Verbo recognize what belongs here. Up to 1,000 characters."
+        maxLength={1000}
+        value={draft.routingDescription}
+        onChange={(event) =>
+          patch({ routingDescription: event.currentTarget.value })
+        }
+        onBlur={() => void autosave.controller.flush()}
+      />
       <Text className={styles.path} size="xs">
         {displayFinalPath(scope.path)}
       </Text>
@@ -286,6 +299,23 @@ export function FileSettings(): ReactElement {
         </StatusMessage>
       ) : null}
       <Group>
+        <Button
+          variant="subtle"
+          size="xs"
+          disabled={busy}
+          onClick={() => {
+            setBusy(true);
+            void window.verbo.files
+              .refreshRouting()
+              .then(() => setNotice("Folder routing inventory refreshed."))
+              .catch(() =>
+                setError("Routing inventory could not be refreshed."),
+              )
+              .finally(() => setBusy(false));
+          }}
+        >
+          Refresh routing inventory
+        </Button>
         <Button
           leftSection={<FolderPlusIcon aria-hidden size={16} />}
           loading={busy}
