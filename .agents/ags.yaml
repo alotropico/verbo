@@ -3,7 +3,7 @@ host: verbo
 agsVersion: 6.0.1
 reporting: true
 skills:
-  enabled: [css-authoring-conventions, css-cleanup, typescript-react, write-commit-diff]
+  enabled: [css-authoring-conventions, css-cleanup, typescript-react, write-commit-diff, ags-graphify]
   disabled: []
 rules:
   enabled: []
