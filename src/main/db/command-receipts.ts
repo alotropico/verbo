@@ -13,6 +13,7 @@ import { createScopeStore } from "./scopes";
 import { resolveFileReference } from "../files/path-policy";
 import { lstatSync } from "node:fs";
 import { readLiveReferences, saveLiveReferences } from "../files/asset-store";
+import { activeInvocation } from "../agents/policy";
 
 export function persistCommandReceipt(
   database: DatabaseSync,
@@ -77,8 +78,8 @@ export function persistCommandReceipt(
     database
       .prepare(
         `INSERT INTO command_receipts
-    (id, action_id, thread_id, turn_id, actor, result_json, children_json, started_at, finished_at, parent_receipt_id)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    (id, action_id, thread_id, turn_id, actor, result_json, children_json, started_at, finished_at, parent_receipt_id, attribution_json)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(id) DO UPDATE SET result_json=excluded.result_json, children_json=excluded.children_json,
       finished_at=excluded.finished_at`,
       )
@@ -93,8 +94,29 @@ export function persistCommandReceipt(
         input.startedAt,
         Date.now(),
         context.parentReceiptId ?? null,
+        (context.attribution ?? activeInvocation()?.attribution)
+          ? JSON.stringify(
+              context.attribution ?? activeInvocation()?.attribution,
+            )
+          : null,
       );
     saveLiveReferences(database, id, context.threadId, finalized);
+    database
+      .prepare(
+        `UPDATE workflow_action_attempts SET state=CASE
+      WHEN ?='requires_confirmation' THEN 'dispatched'
+      WHEN ? IN ('effect_uncertain','receipt_failed') THEN 'uncertain'
+      WHEN ? IN ('error','denied','not_supported','cancelled') THEN 'blocked'
+      ELSE 'completed' END,operation_id=coalesce(?,operation_id),updated_at=? WHERE receipt_id=? AND state IN ('claimed','dispatched')`,
+      )
+      .run(
+        result.status,
+        result.code ?? null,
+        result.status,
+        result.operationId ?? null,
+        Date.now(),
+        id,
+      );
     database.exec("RELEASE command_receipt");
   } catch (error) {
     database.exec("ROLLBACK TO command_receipt; RELEASE command_receipt");

@@ -50,7 +50,7 @@ describe("migration protection", () => {
           1,
           2,
         );
-      expect(migrateDatabase(database, VERBO_MIGRATIONS)).toBe(21);
+      expect(migrateDatabase(database, VERBO_MIGRATIONS)).toBe(23);
       expect(readLiveReferences(database, "receipt", "thread")).toEqual(
         resources,
       );
@@ -74,7 +74,7 @@ describe("migration protection", () => {
     const database = new DatabaseSync(file);
     const backup = join(directory, "backup.sqlite");
     const version = migrateDatabase(database, VERBO_MIGRATIONS, () => backup);
-    expect(version).toBe(21);
+    expect(version).toBe(23);
     const stored = readV1Messages(database);
     expect(
       stored.find((message) => message.rowId === "row-notes-user-1b")?.text,
@@ -100,7 +100,7 @@ describe("migration protection", () => {
       migrateDatabase(database, VERBO_MIGRATIONS, () =>
         join(directory, "again.sqlite"),
       ),
-    ).toBe(21);
+    ).toBe(23);
     expect(
       database
         .prepare(

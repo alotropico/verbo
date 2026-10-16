@@ -455,6 +455,63 @@ export const VERBO_MIGRATIONS: readonly MigrationStep[] = [
       );
     `),
   },
+  {
+    version: 22,
+    up: (database) =>
+      database.exec(`
+      CREATE TABLE workflow_executions (
+        id TEXT PRIMARY KEY, workflow_id TEXT NOT NULL, definition_version INTEGER NOT NULL CHECK(definition_version>0),
+        state_schema_version INTEGER NOT NULL DEFAULT 1 CHECK(state_schema_version>0),
+        thread_id TEXT NOT NULL REFERENCES threads(id) ON DELETE CASCADE, branch_anchor_id TEXT,
+        request_message_id TEXT NOT NULL, parameters_json TEXT NOT NULL, targets_json TEXT NOT NULL DEFAULT '{}',
+        current_step_id TEXT, current_step_run_id TEXT, checkpoint_json TEXT NOT NULL, outcome_json TEXT,
+        status TEXT NOT NULL CHECK(status IN ('running','awaiting_input','suspended','completed','failed','cancelled')),
+        revision INTEGER NOT NULL DEFAULT 0 CHECK(revision>=0), reason TEXT, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
+      );
+      CREATE INDEX workflow_executions_branch ON workflow_executions(thread_id,branch_anchor_id,status);
+      CREATE UNIQUE INDEX workflow_one_foreground_pending ON workflow_executions(thread_id,ifnull(branch_anchor_id,'')) WHERE status='awaiting_input';
+      CREATE TABLE workflow_step_results (
+        id TEXT PRIMARY KEY, execution_id TEXT NOT NULL REFERENCES workflow_executions(id) ON DELETE CASCADE,
+        step_id TEXT NOT NULL, ordinal INTEGER NOT NULL CHECK(ordinal>=0), turn_id TEXT NOT NULL,
+        schema_id TEXT NOT NULL, schema_version INTEGER NOT NULL DEFAULT 1,
+        status TEXT NOT NULL CHECK(status IN ('running','succeeded','awaiting_input','failed','cancelled','blocked','not_supported')),
+        result_json TEXT, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL,
+        UNIQUE(execution_id,step_id,ordinal)
+      );
+      CREATE TABLE workflow_action_attempts (
+        id TEXT PRIMARY KEY, execution_id TEXT NOT NULL REFERENCES workflow_executions(id) ON DELETE CASCADE,
+        step_run_id TEXT NOT NULL REFERENCES workflow_step_results(id) ON DELETE CASCADE,
+        ordinal INTEGER NOT NULL CHECK(ordinal>=0), action_id TEXT NOT NULL, args_digest TEXT NOT NULL,
+        preconditions_json TEXT NOT NULL, state TEXT NOT NULL CHECK(state IN ('claimed','dispatched','completed','blocked','uncertain')),
+        receipt_id TEXT NOT NULL, operation_id TEXT, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL,
+        UNIQUE(execution_id,step_run_id,ordinal)
+      );
+      CREATE TABLE workflow_execution_turns (
+        execution_id TEXT NOT NULL REFERENCES workflow_executions(id) ON DELETE CASCADE,
+        turn_id TEXT NOT NULL, user_message_id TEXT NOT NULL, assistant_message_id TEXT NOT NULL,
+        relation TEXT NOT NULL CHECK(relation IN ('start','resume','clarify','cancel')), created_at INTEGER NOT NULL,
+        PRIMARY KEY(execution_id,turn_id)
+      );
+      CREATE TABLE workflow_content_refs (
+        execution_id TEXT NOT NULL REFERENCES workflow_executions(id) ON DELETE CASCADE,
+        attachment_id TEXT NOT NULL, PRIMARY KEY(execution_id,attachment_id)
+      );
+      ALTER TABLE turn_events ADD COLUMN attribution_json TEXT;
+      ALTER TABLE command_receipts ADD COLUMN attribution_json TEXT;
+    `),
+  },
+  {
+    version: 23,
+    up: (database) =>
+      database.exec(`
+      CREATE TABLE context_note_audiences (
+        entry_id TEXT NOT NULL REFERENCES memory_entries(id) ON DELETE CASCADE,
+        audience TEXT NOT NULL CHECK(audience IN ('decision','writer','conversational','commander')),
+        PRIMARY KEY(entry_id,audience)
+      );
+      ALTER TABLE file_scopes ADD COLUMN routing_description TEXT NOT NULL DEFAULT '' CHECK(length(routing_description)<=1000);
+    `),
+  },
 ];
 
 export function backupDatabase(
