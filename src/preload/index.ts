@@ -144,8 +144,10 @@ const verbo = {
     list: (query?: {
       scope?: MemoryScope;
       threadId?: string;
+      offset?: number;
     }): Promise<{
       entries: MemoryRecord[];
+      more: boolean;
       usage: MemoryUsage;
       changes: MemoryChange[];
     }> => ipcRenderer.invoke(IPC_CHANNELS.memoryList, query ?? {}),
@@ -154,6 +156,7 @@ const verbo = {
       scope: MemoryScope;
       inclusion: MemoryInclusion;
       threadId?: string;
+      audiences?: import("../shared/workflows").AgentId[];
     }): Promise<
       (
         | { ok: true; summary: string; entry?: MemoryRecord }
@@ -164,6 +167,7 @@ const verbo = {
       id: string;
       text?: string;
       inclusion?: MemoryInclusion;
+      audiences?: import("../shared/workflows").AgentId[];
     }): Promise<
       (
         | { ok: true; summary: string; entry?: MemoryRecord }
@@ -227,10 +231,15 @@ const verbo = {
       ipcRenderer.invoke(IPC_CHANNELS.commandsRun, input),
   },
   context: {
-    estimate: (input?: { threadId?: string }): Promise<ContextMeters> =>
+    estimate: (input?: {
+      threadId?: string;
+      audience?: import("../shared/workflows").AgentId;
+    }): Promise<ContextMeters> =>
       ipcRenderer.invoke(IPC_CHANNELS.contextEstimate, input ?? {}),
   },
   files: {
+    refreshRouting: (): Promise<unknown> =>
+      ipcRenderer.invoke(IPC_CHANNELS.filesRoutingRefresh),
     update: (
       input: import("../shared/files").ScopePatch,
     ): Promise<import("../shared/files").ScopeMutationResult> =>
@@ -379,6 +388,12 @@ const verbo = {
     },
   },
   turns: {
+    retrySaving: (identity: {
+      turnId: string;
+      threadId: string;
+      assistantMessageId: string;
+    }): Promise<boolean> =>
+      ipcRenderer.invoke(IPC_CHANNELS.turnRetrySaving, identity),
     cancel: (): Promise<{ ok: boolean }> =>
       ipcRenderer.invoke(IPC_CHANNELS.turnCancel),
     snapshot: (threadId: string) =>

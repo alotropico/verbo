@@ -27,8 +27,9 @@ export type ContextToolMessage = {
   content: string;
 };
 
-export type ContextMessage =
-  ContextTextMessage | ContextAssistantMessage | ContextToolMessage;
+export type ContextMessage = (
+  ContextTextMessage | ContextAssistantMessage | ContextToolMessage
+) & { messageId?: string };
 
 export type TurnContextInput = {
   rendererSystem?: string;
@@ -40,6 +41,10 @@ export type TurnContextInput = {
   memory?: MemorySnapshot;
   /** Meter preview omits the pending user message. Turns include it. */
   includeUser?: boolean;
+  /** Trusted main-owned role instructions; rendererSystem is never used. */
+  instructions?: string;
+  /** Render automatic references against the history actually retained. */
+  renderUserText?: (history: readonly ContextMessage[]) => string;
 };
 
 export function composeSystemPrompt(memory?: MemorySnapshot): string {
@@ -102,10 +107,31 @@ function historyGroups(history: readonly ContextMessage[]): ContextMessage[][] {
 }
 
 export function buildTurnContext(input: TurnContextInput): TurnContext {
+  if (input.renderUserText && input.includeUser !== false) {
+    // Start with the smallest request (all redundant excerpts omitted), then
+    // restore excerpts for trimmed messages and trim again until stable.
+    let history = input.history;
+    for (;;) {
+      const built = buildTurnContext({
+        ...input,
+        history,
+        userText: input.renderUserText(history),
+        renderUserText: undefined,
+      });
+      if (!built.ok) return built;
+      const kept = built.messages.slice(
+        1,
+        1 + history.length - built.removedCount,
+      );
+      if (built.removedCount === 0)
+        return { ...built, removedCount: input.history.length - kept.length };
+      history = kept;
+    }
+  }
   const budget = Math.floor(input.numCtx * 0.75);
   const core: ContextTextMessage = {
     role: "system",
-    content: composeSystemPrompt(input.memory),
+    content: input.instructions ?? composeSystemPrompt(input.memory),
   };
   const latest: ContextTextMessage[] =
     input.includeUser === false

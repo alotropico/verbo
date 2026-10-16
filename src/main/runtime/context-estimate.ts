@@ -4,6 +4,12 @@ import type { ContextMeters } from "../../shared/memory";
 import { expandHistoryWithTurnEvents } from "../db/turn-events";
 import { createMemoryStore } from "../db/memory";
 import { buildTurnContext, contextTokens } from "./context-builder";
+import {
+  AGENT_PROFILES,
+  IMMUTABLE_AGENT_INSTRUCTIONS,
+} from "../agents/profiles";
+import type { AgentId } from "../../shared/workflows";
+import type { InferenceMeasurement } from "../../shared/inference-metrics";
 
 function textFromStored(contentJson: string): string {
   try {
@@ -59,11 +65,13 @@ export function estimateContextMeters(input: {
   database: DatabaseSync;
   threadId?: string;
   numCtx: number;
-  lastPromptEval?: number | null;
+  lastInference?: InferenceMeasurement | null;
+  audience?: AgentId;
 }): ContextMeters {
   const store = createMemoryStore(input.database);
-  const usage = store.usage();
-  const snapshot = store.snapshot(input.threadId);
+  const audience = input.audience ?? "conversational";
+  const usage = store.usage(audience);
+  const snapshot = store.snapshot(input.threadId, audience);
   const history = expandHistoryWithTurnEvents(
     input.database,
     historyForThread(input.database, input.threadId),
@@ -75,6 +83,12 @@ export function estimateContextMeters(input: {
     numCtx: input.numCtx,
     memory: snapshot,
     includeUser: false,
+    instructions: [
+      IMMUTABLE_AGENT_INSTRUCTIONS,
+      AGENT_PROFILES[audience].instructions,
+      ...snapshot.alwaysGlobal,
+      ...snapshot.alwaysThread,
+    ].join("\n\n"),
   });
   const contextTokensUsed = built.ok
     ? contextTokens(built.messages)
@@ -84,6 +98,6 @@ export function estimateContextMeters(input: {
     memoryBudget: usage.budget,
     contextTokens: contextTokensUsed,
     contextWindow: input.numCtx,
-    lastPromptEval: input.lastPromptEval ?? null,
+    lastInference: input.lastInference ?? null,
   };
 }

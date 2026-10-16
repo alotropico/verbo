@@ -121,8 +121,13 @@ type VerboApi = {
     set: (settings: ChatSettings) => Promise<ChatSettings>;
   };
   memory: {
-    list: (query?: { scope?: MemoryScope; threadId?: string }) => Promise<{
+    list: (query?: {
+      scope?: MemoryScope;
+      threadId?: string;
+      offset?: number;
+    }) => Promise<{
       entries: MemoryRecord[];
+      more: boolean;
       usage: MemoryUsage;
       changes: MemoryChange[];
     }>;
@@ -131,11 +136,13 @@ type VerboApi = {
       scope: MemoryScope;
       inclusion: MemoryInclusion;
       threadId?: string;
+      audiences?: import("../shared/workflows").AgentId[];
     }) => Promise<MemoryMutation>;
     update: (input: {
       id: string;
       text?: string;
       inclusion?: MemoryInclusion;
+      audiences?: import("../shared/workflows").AgentId[];
     }) => Promise<MemoryMutation>;
     remove: (id: string) => Promise<MemoryMutation>;
   };
@@ -177,9 +184,13 @@ type VerboApi = {
     }) => Promise<LocalCommandResult>;
   };
   context: {
-    estimate: (input?: { threadId?: string }) => Promise<ContextMeters>;
+    estimate: (input?: {
+      threadId?: string;
+      audience?: import("../shared/workflows").AgentId;
+    }) => Promise<ContextMeters>;
   };
   files: {
+    refreshRouting(): Promise<unknown>;
     update: (
       input: import("../shared/files").ScopePatch,
     ) => Promise<
@@ -311,12 +322,19 @@ type VerboApi = {
     subscribe: (listener: () => void) => () => void;
   };
   turns: {
+    retrySaving(identity: {
+      turnId: string;
+      threadId: string;
+      assistantMessageId: string;
+    }): Promise<boolean>;
     cancel: () => Promise<{ ok: boolean }>;
     snapshot: (threadId: string) => Promise<{
       turnId: string;
       threadId: string;
       queueItemId: string | null;
       userText: string;
+      userMessageId: string | null;
+      assistantMessageId: string;
       events: unknown[];
     } | null>;
     onStarted: (

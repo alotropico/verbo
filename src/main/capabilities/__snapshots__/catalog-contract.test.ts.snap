@@ -1230,6 +1230,22 @@ exports[`production command compatibility > preserves the shipped IDs, schemas, 
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "additionalProperties": false,
       "properties": {
+        "audiences": {
+          "default": [
+            "conversational",
+          ],
+          "items": {
+            "enum": [
+              "decision",
+              "conversational",
+              "writer",
+              "commander",
+            ],
+            "type": "string",
+          },
+          "maxItems": 4,
+          "type": "array",
+        },
         "inclusion": {
           "default": "on_demand",
           "enum": [
@@ -1261,6 +1277,7 @@ exports[`production command compatibility > preserves the shipped IDs, schemas, 
         "text",
         "scope",
         "inclusion",
+        "audiences",
       ],
       "type": "object",
     },
@@ -1272,7 +1289,7 @@ exports[`production command compatibility > preserves the shipped IDs, schemas, 
     },
     "id": "memory.add",
     "kind": "mutation",
-    "syntax": "{text, scope?:"global"|"thread"="global", inclusion?:"always"|"on_demand"="on_demand", threadId?}",
+    "syntax": "{text, scope?:"global"|"thread"="global", inclusion?:"always"|"on_demand"="on_demand", threadId?, audiences?:["decision"|"conversational"|"writer"|"commander"]}",
   },
   {
     "approval": "none",
@@ -1385,6 +1402,19 @@ exports[`production command compatibility > preserves the shipped IDs, schemas, 
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "additionalProperties": false,
       "properties": {
+        "audiences": {
+          "items": {
+            "enum": [
+              "decision",
+              "conversational",
+              "writer",
+              "commander",
+            ],
+            "type": "string",
+          },
+          "maxItems": 4,
+          "type": "array",
+        },
         "id": {
           "maxLength": 128,
           "minLength": 1,

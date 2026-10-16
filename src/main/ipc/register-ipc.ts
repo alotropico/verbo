@@ -105,8 +105,15 @@ import { consumePick, rememberPick } from "../files/picked-folders";
 import { describeExistingPath } from "../files/windows-containment";
 import { estimateContextMeters } from "../runtime/context-estimate";
 import { executeLocalCommand } from "../runtime/local-command";
+import { routeUtterance, parseLocalCommand } from "../../shared/local-commands";
+import { turnController } from "../runtime/controller-service";
+import { turnDispatcher } from "../runtime/queue-service";
+import { randomUUID } from "node:crypto";
+import { liveTurnForThread } from "../runtime/turn-session";
+import { routingInventoryForDatabase } from "../files/routing-inventory";
+import { configureObsidianDataDirectory } from "../obsidian/config";
 import { executeMemorySettingsAction } from "../runtime/memory-settings";
-import { readPromptEval } from "../runtime/prompt-eval";
+import { inferenceMeasurements } from "../runtime/prompt-eval";
 import { registerAssistantStreamIpc } from "./chat-stream";
 import { registerAttachmentIpc } from "./attachment-ipc";
 import { registerQueueIpc } from "./queue-ipc";
@@ -126,6 +133,7 @@ function assertTrustedWindow(
 }
 
 export function registerIpc(mainWindow: BrowserWindow): void {
+  configureObsidianDataDirectory(app.getPath("userData"));
   registerWindowIpc(mainWindow);
   registerQueueIpc(mainWindow);
   registerVoiceIpc(mainWindow);
@@ -196,7 +204,23 @@ export function registerIpc(mainWindow: BrowserWindow): void {
   ipcMain.handle(IPC_CHANNELS.messagesAppend, (event, payload: unknown) => {
     assertTrustedWindow(event, mainWindow);
     const data = messageAppendSchema.parse(payload);
+    if (
+      typeof data.message === "object" &&
+      data.message !== null &&
+      "role" in data.message &&
+      data.message.role === "assistant" &&
+      "id" in data.message
+    ) {
+      const live = liveTurnForThread(data.threadId);
+      const managed = getDatabase()
+        .prepare(
+          "SELECT 1 FROM turn_events WHERE thread_id=? AND message_id=? LIMIT 1",
+        )
+        .get(data.threadId, String(data.message.id));
+      if (managed || live?.assistantMessageId === data.message.id) return;
+    }
     appendMessage(data.threadId, data.parentId, data.message);
+    turnDispatcher().reconcileBranches();
   });
 
   ipcMain.handle(
@@ -243,7 +267,7 @@ export function registerIpc(mainWindow: BrowserWindow): void {
     const query = memoryBrowserSchema.parse(payload ?? {});
     const store = createMemoryStore(getDatabase());
     return {
-      entries: store.list({ ...query, limit: 100 }).entries,
+      ...store.list({ ...query, limit: 100, unassignedFirst: true }),
       usage: store.usage(),
       changes: store.recentChanges(),
     };
@@ -271,6 +295,59 @@ export function registerIpc(mainWindow: BrowserWindow): void {
     assertTrustedWindow(event, mainWindow);
     const data = memoryCommandSchema.parse(payload);
     const database = getDatabase();
+    const parsed = parseLocalCommand(data.text);
+    if (!(
+      routeUtterance(data.text, data.source).kind === "new-chat" ||
+      (parsed.handled && parsed.name === "memories")
+    )) {
+      if (!data.threadId)
+        return {
+          status: "error",
+          summary: "That command needs an open conversation.",
+        };
+      const threadId = data.threadId;
+      const head = loadHistory(threadId).headId;
+      const queued = turnDispatcher().enqueue({
+        threadId,
+        text: data.text,
+        source: data.source ?? "typed",
+        branchAnchor: head,
+      });
+      if (!queued.ok) return { status: "error", summary: queued.summary };
+      if (queued.start) {
+        const turnId = randomUUID();
+        const send = (
+          chatEvent?: import("../../shared/chat-ipc").ChatEvent,
+        ): void => {
+          if (!mainWindow.isDestroyed())
+            mainWindow.webContents.send(IPC_CHANNELS.turnStarted, {
+              turnId,
+              threadId,
+              queueItemId: queued.item.id,
+              text: data.text,
+              attachmentRefs: [],
+              ...(chatEvent ? { event: chatEvent } : {}),
+            });
+        };
+        send();
+        turnController().admitTurn(
+          {
+            turnId,
+            threadId,
+            userMessageId: queued.item.id,
+            assistantMessageId: randomUUID(),
+            queueItemId: queued.item.id,
+            source: data.source ?? "typed",
+            admission: "immediate",
+            text: data.text,
+            ...(head ? { branchAnchor: head } : {}),
+            attachmentIds: [],
+          },
+          send,
+        );
+      }
+      return { status: "success", summary: "Command queued." };
+    }
     return executeLocalCommand({
       text: data.text,
       ...(data.threadId ? { threadId: data.threadId } : {}),
@@ -363,9 +440,13 @@ export function registerIpc(mainWindow: BrowserWindow): void {
     const data = contextEstimateSchema.parse(payload ?? {});
     return estimateContextMeters({
       database: getDatabase(),
+      audience: data.audience,
       ...(data.threadId ? { threadId: data.threadId } : {}),
       numCtx: loadSettings().numCtx,
-      lastPromptEval: readPromptEval(),
+      lastInference: inferenceMeasurements.latest(
+        data.threadId,
+        data.audience ?? "conversational",
+      ),
     });
   });
 
@@ -522,6 +603,10 @@ export function registerIpc(mainWindow: BrowserWindow): void {
   ipcMain.handle(IPC_CHANNELS.filesUpdate, (event, payload: unknown) => {
     assertTrustedWindow(event, mainWindow);
     return updateFolderSettings(getDatabase(), payload);
+  });
+  ipcMain.handle(IPC_CHANNELS.filesRoutingRefresh, (event) => {
+    assertTrustedWindow(event, mainWindow);
+    return routingInventoryForDatabase(getDatabase()).refresh();
   });
 
   ipcMain.handle(IPC_CHANNELS.operationsReview, (event, payload: unknown) => {

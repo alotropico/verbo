@@ -54,6 +54,7 @@ export function appendStoredMessage(
   parentId: string | undefined,
   message: unknown,
   status = "complete",
+  expectedHead?: string | null,
 ): string {
   assertTurnThread(database, threadId, parentId);
   if (parentId) {
@@ -71,7 +72,7 @@ export function appendStoredMessage(
       ? (message as { role: string }).role
       : "assistant";
   const ts = Date.now();
-  database
+  const inserted = database
     .prepare(
       `INSERT INTO messages (id, thread_id, parent_id, role, content_json, status, created_at)
        VALUES (?, ?, ?, ?, ?, ?, ?)
@@ -86,9 +87,25 @@ export function appendStoredMessage(
       status,
       ts,
     );
+  if (inserted.changes === 0) {
+    const existing = database
+      .prepare("SELECT thread_id FROM messages WHERE id=?")
+      .get(id);
+    if (existing?.thread_id !== threadId)
+      throw new Error("Message belongs to another thread.");
+    return id;
+  }
   database
-    .prepare(`UPDATE threads SET updated_at = ?, head_id = ? WHERE id = ?`)
-    .run(ts, id, threadId);
+    .prepare(
+      `UPDATE threads SET updated_at = ?, head_id = ? WHERE id = ? AND (? = 1 OR head_id IS ?)`,
+    )
+    .run(
+      ts,
+      id,
+      threadId,
+      expectedHead === undefined ? 1 : 0,
+      expectedHead ?? null,
+    );
   return id;
 }
 

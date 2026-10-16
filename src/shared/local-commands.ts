@@ -254,7 +254,7 @@ export function routeUtterance(
   text: string,
   source: "typed" | "voice" = "typed",
 ): { kind: "model" } | { kind: "new-chat" } | { kind: "local" } {
-  if (source === "voice") {
+  if (source === "voice" && !parseLocalCommand(text).handled) {
     return parseVoiceCommand(text).handled
       ? { kind: "new-chat" }
       : { kind: "model" };

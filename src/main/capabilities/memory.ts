@@ -16,6 +16,7 @@ import {
   type MemoryRecord,
 } from "../../shared/memory";
 import type { MemoryStore } from "../db/memory";
+import { activeInvocation } from "../agents/policy";
 
 function packEntries(entries: readonly MemoryRecord[]): {
   detail: string;
@@ -53,7 +54,10 @@ export function memoryBindings(
   return {
     "memory.list": (args): ActionResult => {
       const parsed = memoryListArgsSchema.parse(args);
-      const listed = resolve().list(parsed);
+      const listed = resolve().list({
+        ...parsed,
+        audience: activeInvocation()?.agentId,
+      });
       const packed = packEntries(listed.entries);
       return {
         action: "memory.list",
@@ -68,7 +72,10 @@ export function memoryBindings(
     },
     "memory.get": (args): ActionResult => {
       const parsed = memoryGetArgsSchema.parse(args);
-      const entries = resolve().get(parsed.ids);
+      const audience = activeInvocation()?.agentId;
+      const entries = resolve()
+        .get(parsed.ids)
+        .filter((entry) => !audience || entry.audiences.includes(audience));
       const packed = packEntries(entries);
       const missing = parsed.ids.length - entries.length;
       return {
@@ -93,6 +100,7 @@ export function memoryBindings(
         text: parsed.text,
         scope: parsed.scope,
         inclusion: parsed.inclusion,
+        audiences: parsed.audiences,
         ...(threadId ? { threadId } : {}),
         actor: context.actor,
         originThreadId: context.threadId,
@@ -121,6 +129,9 @@ export function memoryBindings(
       const parsed = memoryUpdateArgsSchema.parse(args);
       const result = resolve().update({
         id: parsed.id,
+        ...(parsed.audiences !== undefined
+          ? { audiences: parsed.audiences }
+          : {}),
         ...(parsed.text !== undefined ? { text: parsed.text } : {}),
         ...(parsed.inclusion !== undefined
           ? { inclusion: parsed.inclusion }

@@ -4,7 +4,7 @@ import {
   PERMANENT_OLLAMA_TOOLS,
   type OllamaWireMessage,
 } from "../runtime/ollama-wire";
-import { notePromptEval } from "../runtime/prompt-eval";
+import { ollamaOptions } from "./ollama-options";
 
 function abortError(): Error {
   const error = new Error("The turn was cancelled.");
@@ -12,13 +12,22 @@ function abortError(): Error {
   return error;
 }
 
+export type OllamaInvocationOptions = {
+  tools?: boolean;
+  format?: Record<string, unknown>;
+  deadlineMs?: number;
+  onCompletion?: (chunk: unknown) => void;
+};
+
 export function ollamaChatBody(
   messages: readonly OllamaWireMessage[],
   settings: ChatSettings,
+  invocation: OllamaInvocationOptions = {},
 ): {
   model: string;
   messages: readonly OllamaWireMessage[];
-  tools: typeof PERMANENT_OLLAMA_TOOLS;
+  tools?: typeof PERMANENT_OLLAMA_TOOLS;
+  format?: Record<string, unknown>;
   stream: true;
   think: boolean;
   keep_alive: string;
@@ -27,14 +36,12 @@ export function ollamaChatBody(
   return {
     model: settings.model,
     messages,
-    tools: PERMANENT_OLLAMA_TOOLS,
+    ...(invocation.tools === false ? {} : { tools: PERMANENT_OLLAMA_TOOLS }),
+    ...(invocation.format ? { format: invocation.format } : {}),
     stream: true as const,
     think: settings.think,
     keep_alive: settings.keepAlive,
-    options: {
-      temperature: settings.temperature,
-      num_ctx: settings.numCtx,
-    },
+    options: ollamaOptions(settings),
   };
 }
 
@@ -43,12 +50,17 @@ export async function streamOllamaTurn(
   settings: ChatSettings,
   signal: AbortSignal,
   onText: (snapshot: string) => void,
+  invocation: OllamaInvocationOptions = {},
 ): Promise<unknown[]> {
   if (signal.aborted) throw abortError();
+  signal = AbortSignal.any([
+    signal,
+    AbortSignal.timeout(invocation.deadlineMs ?? 120_000),
+  ]);
   const response = await fetch(`${OLLAMA_BASE_URL}/api/chat`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(ollamaChatBody(messages, settings)),
+    body: JSON.stringify(ollamaChatBody(messages, settings, invocation)),
     signal,
   });
 
@@ -115,12 +127,7 @@ export async function streamOllamaTurn(
           "done" in chunk &&
           chunk.done === true
         ) {
-          if (
-            "prompt_eval_count" in chunk &&
-            typeof chunk.prompt_eval_count === "number"
-          ) {
-            notePromptEval(chunk.prompt_eval_count);
-          }
+          invocation.onCompletion?.(chunk);
           return chunks;
         }
       }
@@ -130,6 +137,7 @@ export async function streamOllamaTurn(
     if (signal.aborted) throw abortError();
     throw error instanceof Error ? error : new Error("Stream failed");
   } finally {
+    await reader.cancel().catch(() => undefined);
     reader.releaseLock();
   }
 }

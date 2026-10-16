@@ -13,6 +13,7 @@ import {
   type MemoryUsage,
 } from "../../shared/memory";
 import { estimateTokens } from "../services/history-trim";
+import { agentIdSchema, type AgentId } from "../../shared/workflows";
 
 type EntryRow = {
   id: string;
@@ -37,14 +38,18 @@ type ChangeRow = {
 };
 
 export type MemoryListFilter = {
+  audience?: AgentId;
   scope?: MemoryScope;
   inclusion?: MemoryInclusion;
   threadId?: string;
   query?: string;
   limit?: number;
+  offset?: number;
+  unassignedFirst?: boolean;
 };
 
 export type MemoryWrite = {
+  audiences?: AgentId[];
   text: string;
   scope: MemoryScope;
   inclusion: MemoryInclusion;
@@ -55,6 +60,7 @@ export type MemoryWrite = {
 };
 
 export type MemoryPatch = {
+  audiences?: AgentId[];
   id: string;
   text?: string;
   inclusion?: MemoryInclusion;
@@ -83,8 +89,8 @@ export type MemoryStore = {
   add: (write: MemoryWrite) => MemoryFailure | MemorySuccess;
   update: (patch: MemoryPatch) => MemoryFailure | MemorySuccess;
   remove: (id: string, actor: ActorKind) => MemoryFailure | MemorySuccess;
-  snapshot: (threadId?: string) => MemorySnapshot;
-  usage: () => MemoryUsage;
+  snapshot: (threadId?: string, audience?: AgentId) => MemorySnapshot;
+  usage: (audience?: AgentId) => MemoryUsage;
   recentChanges: (limit?: number) => MemoryChange[];
 };
 
@@ -94,8 +100,9 @@ function sourceFor(actor: ActorKind): MemorySource {
   return "user";
 }
 
-function mapEntry(row: EntryRow): MemoryRecord {
+function mapEntry(row: EntryRow, audiences: AgentId[] = []): MemoryRecord {
   return {
+    audiences,
     id: row.id,
     scope: row.scope,
     threadId: row.thread_id,
@@ -138,6 +145,26 @@ export function createMemoryStore(
   budget = ALWAYS_ON_MEMORY_TOKEN_BUDGET,
 ): MemoryStore {
   database.exec("PRAGMA foreign_keys = ON;");
+  function audiences(id: string): AgentId[] {
+    return database
+      .prepare(
+        "SELECT audience FROM context_note_audiences WHERE entry_id=? ORDER BY audience",
+      )
+      .all(id)
+      .map((row) => agentIdSchema.parse(row.audience));
+  }
+  function entryRecord(row: EntryRow): MemoryRecord {
+    return mapEntry(row, audiences(row.id));
+  }
+  function assign(id: string, recipients: AgentId[]): void {
+    database
+      .prepare("DELETE FROM context_note_audiences WHERE entry_id=?")
+      .run(id);
+    for (const recipient of new Set(recipients))
+      database
+        .prepare("INSERT INTO context_note_audiences VALUES(?,?)")
+        .run(id, agentIdSchema.parse(recipient));
+  }
 
   function readEntry(id: string): EntryRow | undefined {
     return database
@@ -145,7 +172,7 @@ export function createMemoryStore(
       .get(id) as EntryRow | undefined;
   }
 
-  function alwaysTokens(exceptId?: string): number {
+  function alwaysTokens(exceptId?: string, audience?: AgentId): number {
     const rows = database
       .prepare(
         `SELECT id, text FROM memory_entries
@@ -154,6 +181,7 @@ export function createMemoryStore(
       .all() as { id: string; text: string }[];
     return rows
       .filter((row) => row.id !== exceptId)
+      .filter((row) => !audience || audiences(row.id).includes(audience))
       .reduce((sum, row) => sum + estimateTokens(row.text), 0);
   }
 
@@ -201,8 +229,14 @@ export function createMemoryStore(
   function budgetFailure(
     text: string,
     exceptId?: string,
+    recipients: AgentId[] = ["conversational"],
   ): MemoryFailure | undefined {
-    const next = alwaysTokens(exceptId) + estimateTokens(text);
+    const next = Math.max(
+      0,
+      ...recipients.map(
+        (recipient) => alwaysTokens(exceptId, recipient) + estimateTokens(text),
+      ),
+    );
     if (next <= budget) return undefined;
     return {
       ok: false,
@@ -233,18 +267,24 @@ export function createMemoryStore(
       clauses.push(`lower(text) LIKE ? ESCAPE '\\'`);
       params.push(likePattern(filter.query));
     }
+    if (filter.audience) {
+      clauses.push(
+        "EXISTS(SELECT 1 FROM context_note_audiences WHERE entry_id=memory_entries.id AND audience=?)",
+      );
+      params.push(filter.audience);
+    }
     const limit = Math.min(Math.max(filter.limit ?? 20, 1), 100);
-    params.push(limit + 1);
+    params.push(limit + 1, Math.max(0, Math.min(filter.offset ?? 0, 100_000)));
     const rows = database
       .prepare(
         `SELECT * FROM memory_entries
          WHERE ${clauses.join(" AND ")}
-         ORDER BY updated_at DESC, id ASC
-         LIMIT ?`,
+         ORDER BY ${filter.unassignedFirst ? "EXISTS(SELECT 1 FROM context_note_audiences WHERE entry_id=memory_entries.id)," : ""} updated_at DESC, id ASC
+         LIMIT ? OFFSET ?`,
       )
       .all(...params) as EntryRow[];
     return {
-      entries: rows.slice(0, limit).map(mapEntry),
+      entries: rows.slice(0, limit).map(entryRecord),
       more: rows.length > limit,
     };
   }
@@ -289,7 +329,11 @@ export function createMemoryStore(
       };
     }
     if (write.scope === "global" && write.inclusion === "always") {
-      const blocked = budgetFailure(text);
+      const blocked = budgetFailure(
+        text,
+        undefined,
+        write.audiences ?? ["conversational"],
+      );
       if (blocked) return blocked;
     }
     const id = randomUUID();
@@ -321,6 +365,7 @@ export function createMemoryStore(
           now,
         );
       audit(id, write.actor, "add", `Added ${snippet(text)}`);
+      assign(id, write.audiences ?? ["conversational"]);
       database.exec("COMMIT");
     } catch (error) {
       database.exec("ROLLBACK");
@@ -331,7 +376,7 @@ export function createMemoryStore(
     return {
       ok: true,
       summary: `Saved memory ${id}. Always-on budget ${used}/${budget} estimated tokens.`,
-      entry: entry ? mapEntry(entry) : undefined,
+      entry: entry ? entryRecord(entry) : undefined,
     };
   }
 
@@ -346,7 +391,11 @@ export function createMemoryStore(
     }
     const text = patch.text?.trim() ?? current.text;
     const inclusion = patch.inclusion ?? current.inclusion;
-    if (patch.text === undefined && patch.inclusion === undefined) {
+    if (
+      patch.text === undefined &&
+      patch.inclusion === undefined &&
+      patch.audiences === undefined
+    ) {
       return {
         ok: false,
         code: "invalid_args",
@@ -367,7 +416,11 @@ export function createMemoryStore(
       };
     }
     if (current.scope === "global" && inclusion === "always") {
-      const blocked = budgetFailure(text, current.id);
+      const blocked = budgetFailure(
+        text,
+        current.id,
+        patch.audiences ?? audiences(current.id),
+      );
       if (blocked) return blocked;
     }
     const now = Date.now();
@@ -380,12 +433,15 @@ export function createMemoryStore(
            WHERE id = ?`,
         )
         .run(text, inclusion, now, current.id);
+      if (patch.audiences !== undefined) assign(current.id, patch.audiences);
       const changed =
         text !== current.text && inclusion !== current.inclusion
           ? "text and inclusion"
           : text !== current.text
             ? "text"
-            : "inclusion";
+            : patch.audiences !== undefined
+              ? "recipients"
+              : "inclusion";
       audit(
         current.id,
         patch.actor,
@@ -401,7 +457,7 @@ export function createMemoryStore(
     return {
       ok: true,
       summary: `Updated memory ${current.id}.`,
-      entry: entry ? mapEntry(entry) : undefined,
+      entry: entry ? entryRecord(entry) : undefined,
     };
   }
 
@@ -426,40 +482,43 @@ export function createMemoryStore(
     return { ok: true, summary: `Removed memory ${id}.` };
   }
 
-  function snapshot(threadId?: string): MemorySnapshot {
+  function snapshot(
+    threadId?: string,
+    audience: AgentId = "conversational",
+  ): MemorySnapshot {
     const alwaysGlobal = (
       database
         .prepare(
           `SELECT text FROM memory_entries
-           WHERE scope = 'global' AND inclusion = 'always'
+           WHERE scope = 'global' AND inclusion = 'always' AND EXISTS(SELECT 1 FROM context_note_audiences WHERE entry_id=memory_entries.id AND audience=?)
            ORDER BY created_at ASC, id ASC`,
         )
-        .all() as { text: string }[]
+        .all(audience) as { text: string }[]
     ).map((row) => row.text);
     const alwaysThread = threadId
       ? (
           database
             .prepare(
               `SELECT text FROM memory_entries
-               WHERE scope = 'thread' AND thread_id = ? AND inclusion = 'always'
+               WHERE scope = 'thread' AND thread_id = ? AND inclusion = 'always' AND EXISTS(SELECT 1 FROM context_note_audiences WHERE entry_id=memory_entries.id AND audience=?)
                ORDER BY created_at ASC, id ASC`,
             )
-            .all(threadId) as { text: string }[]
+            .all(threadId, audience) as { text: string }[]
         ).map((row) => row.text)
       : [];
     const globalCount = database
       .prepare(
         `SELECT count(*) AS count FROM memory_entries
-         WHERE scope = 'global' AND inclusion = 'on_demand'`,
+         WHERE scope = 'global' AND inclusion = 'on_demand' AND EXISTS(SELECT 1 FROM context_note_audiences WHERE entry_id=memory_entries.id AND audience=?)`,
       )
-      .get() as { count: number };
+      .get(audience) as { count: number };
     const threadCount = threadId
       ? (database
           .prepare(
             `SELECT count(*) AS count FROM memory_entries
-             WHERE scope = 'thread' AND thread_id = ? AND inclusion = 'on_demand'`,
+             WHERE scope = 'thread' AND thread_id = ? AND inclusion = 'on_demand' AND EXISTS(SELECT 1 FROM context_note_audiences WHERE entry_id=memory_entries.id AND audience=?)`,
           )
-          .get(threadId) as { count: number })
+          .get(threadId, audience) as { count: number })
       : { count: 0 };
     return {
       alwaysGlobal,
@@ -476,7 +535,7 @@ export function createMemoryStore(
       const found: MemoryRecord[] = [];
       for (const id of ids) {
         const row = readEntry(id);
-        if (row) found.push(mapEntry(row));
+        if (row) found.push(entryRecord(row));
       }
       return found;
     },
@@ -484,7 +543,10 @@ export function createMemoryStore(
     update,
     remove,
     snapshot,
-    usage: () => ({ tokens: alwaysTokens(), budget }),
+    usage: (audience = "conversational") => ({
+      tokens: alwaysTokens(undefined, audience),
+      budget,
+    }),
     recentChanges(limit = 8) {
       const rows = database
         .prepare(

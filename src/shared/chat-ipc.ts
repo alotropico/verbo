@@ -1,6 +1,11 @@
 import type { ActionResult } from "./action-contract";
 import type { ChatSettings } from "./config";
 import type { BackendNotice } from "./backend-notice";
+import type {
+  WorkflowStage,
+  ExecutionSummary,
+  RoutingStage,
+} from "./workflows";
 
 export type ChatTurnStop =
   | "completed"
@@ -39,7 +44,25 @@ export type ChatToolCall = {
   arguments: unknown;
 };
 
-export type ChatEvent =
+export type ChatEvent = (
+  | {
+      type: "turn_identity";
+      turnId: string;
+      threadId: string;
+      userMessageId: string;
+      assistantMessageId: string;
+    }
+  | { type: "stage"; stage: WorkflowStage }
+  | { type: "routing_stage"; stage: RoutingStage }
+  | { type: "execution"; execution: ExecutionSummary }
+  | {
+      type: "finalization";
+      turnId: string;
+      threadId: string;
+      assistantMessageId: string;
+      state: "failed" | "saved";
+      message?: string;
+    }
   | { type: "backend_notice"; notice: BackendNotice }
   | { type: "delta"; text: string }
   | {
@@ -66,7 +89,8 @@ export type ChatEvent =
   | { type: "done" }
   | { type: "error"; message: string }
   | { type: "context_trimmed"; removedCount: number }
-  | { type: "exchange"; interaction: LatestInteraction };
+  | { type: "exchange"; interaction: LatestInteraction }
+) & { deliveryId?: string; sequence?: number };
 
 /** One model round: context assembled for the turn, then the Ollama request and raw response chunks. */
 export type ExchangeRound = {

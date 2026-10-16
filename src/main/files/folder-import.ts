@@ -226,6 +226,7 @@ export function updateFolderSettings(
     write: scope.write,
     defaultSave: scope.defaultSave,
     kind: scope.kind ?? "none",
+    routingDescription: scope.routingDescription ?? "",
     ...parsed.data,
   };
   if (value.write) value.read = true;

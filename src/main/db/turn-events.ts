@@ -3,6 +3,13 @@ import { z } from "zod";
 import { backendNoticeSchema } from "../../shared/backend-notice";
 import type { ChatMessage } from "../../shared/chat-ipc";
 import type { ContextMessage } from "../runtime/context-builder";
+import { finalizationSchema } from "../runtime/controller";
+import {
+  stageEventSchema,
+  routingStageSchema,
+  attributionSchema,
+  type WorkflowAttribution,
+} from "../../shared/workflows";
 
 const toolCallSchema = z.object({
   id: z.string().min(1).max(128),
@@ -31,7 +38,12 @@ const assistantTextPayload = z
   .strict();
 
 export type TurnEventKind =
-  "assistant_tools" | "tool_result" | "assistant_text" | "backend_notice";
+  | "assistant_tools"
+  | "tool_result"
+  | "assistant_text"
+  | "backend_notice"
+  | "finalization"
+  | "stage";
 
 export type TurnEventRecord = {
   id: string;
@@ -41,6 +53,7 @@ export type TurnEventRecord = {
   seq: number;
   kind: TurnEventKind;
   payload: unknown;
+  attribution?: WorkflowAttribution;
 };
 
 type StoredEvent = {
@@ -63,8 +76,8 @@ export function recordTurnEvent(
   database
     .prepare(
       `INSERT INTO turn_events
-        (id, thread_id, message_id, turn_id, seq, kind, payload_json, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        (id, thread_id, message_id, turn_id, seq, kind, payload_json, created_at, attribution_json)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(id) DO NOTHING`,
     )
     .run(
@@ -76,6 +89,9 @@ export function recordTurnEvent(
       event.kind,
       JSON.stringify(payload),
       Date.now(),
+      event.attribution
+        ? JSON.stringify(attributionSchema.parse(event.attribution))
+        : null,
     );
 }
 
@@ -102,7 +118,12 @@ export function loadTurnEvents(
 function eventsToContext(events: readonly StoredEvent[]): ContextMessage[] {
   const messages: ContextMessage[] = [];
   for (const event of events) {
-    if (event.kind === "backend_notice") continue;
+    if (
+      event.kind === "backend_notice" ||
+      event.kind === "finalization" ||
+      event.kind === "stage"
+    )
+      continue;
     if (event.kind === "assistant_tools") {
       const payload = assistantToolsPayload.parse(event.payload);
       messages.push({
@@ -153,11 +174,16 @@ function isKind(value: string): value is TurnEventKind {
     value === "assistant_tools" ||
     value === "tool_result" ||
     value === "assistant_text" ||
-    value === "backend_notice"
+    value === "backend_notice" ||
+    value === "finalization" ||
+    value === "stage"
   );
 }
 
+const recordedStageSchema = z.union([stageEventSchema, routingStageSchema]);
 function parsePayload(kind: TurnEventKind, payload: unknown): unknown {
+  if (kind === "stage") return recordedStageSchema.parse(payload);
+  if (kind === "finalization") return finalizationSchema.parse(payload);
   if (kind === "backend_notice") return backendNoticeSchema.parse(payload);
   if (kind === "assistant_tools") return assistantToolsPayload.parse(payload);
   if (kind === "tool_result") return toolResultPayload.parse(payload);
@@ -166,13 +192,17 @@ function parsePayload(kind: TurnEventKind, payload: unknown): unknown {
 
 function safePayload(kind: TurnEventKind, payload: unknown): unknown {
   const schema =
-    kind === "backend_notice"
-      ? backendNoticeSchema
-      : kind === "assistant_tools"
-        ? assistantToolsPayload
-        : kind === "tool_result"
-          ? toolResultPayload
-          : assistantTextPayload;
+    kind === "stage"
+      ? recordedStageSchema
+      : kind === "finalization"
+        ? finalizationSchema
+        : kind === "backend_notice"
+          ? backendNoticeSchema
+          : kind === "assistant_tools"
+            ? assistantToolsPayload
+            : kind === "tool_result"
+              ? toolResultPayload
+              : assistantTextPayload;
   const parsed = schema.safeParse(payload);
   return parsed.success ? parsed.data : undefined;
 }

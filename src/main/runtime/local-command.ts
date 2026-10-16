@@ -74,6 +74,8 @@ export async function executeLocalCommand(input: {
   threadId?: string;
   store: MemoryStore;
   registry: CapabilityRegistry;
+  turnId?: string;
+  signal?: AbortSignal;
 }): Promise<LocalCommandResult> {
   const route = routeUtterance(input.text, input.source ?? "typed");
   if (route.kind === "new-chat") {
@@ -121,8 +123,14 @@ export async function executeLocalCommand(input: {
           text: parsed.text,
           scope: "global",
           inclusion: "always",
+          audiences: ["conversational"],
         },
-        { actor: "user_command", threadId: input.threadId ?? "settings" },
+        {
+          actor: "user_command",
+          threadId: input.threadId ?? "settings",
+          turnId: input.turnId,
+          signal: input.signal,
+        },
       ),
     );
   }
@@ -137,6 +145,8 @@ export async function executeLocalCommand(input: {
       await input.registry.invoke(parsed.actionId, parsed.args, {
         actor: "user_command",
         threadId: input.threadId,
+        turnId: input.turnId,
+        signal: input.signal,
       }),
     );
   }
@@ -150,6 +160,8 @@ export async function executeLocalCommand(input: {
       {
         actor: "user_command",
         threadId: input.threadId ?? "settings",
+        turnId: input.turnId,
+        signal: input.signal,
       },
     ),
   );

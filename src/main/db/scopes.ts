@@ -29,6 +29,7 @@ type ScopeRow = {
   created_at: number;
   updated_at: number;
   folder_kind: FolderKind;
+  routing_description: string;
 };
 
 type GrantRow = {
@@ -41,6 +42,7 @@ type GrantRow = {
 };
 
 export type ScopeAddition = {
+  routingDescription?: string;
   alias: string;
   path: string;
   read: boolean;
@@ -50,6 +52,7 @@ export type ScopeAddition = {
 };
 
 export type ScopeUpdate = {
+  routingDescription?: string;
   id: string;
   alias: string;
   read: boolean;
@@ -105,6 +108,7 @@ function mapScope(row: ScopeRow): FileScopeRecord {
     write: row.can_write === 1,
     defaultSave: row.is_default === 1,
     kind: row.folder_kind ?? "none",
+    routingDescription: row.routing_description ?? "",
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -267,6 +271,8 @@ export function createScopeStore(
           write: access.write,
           defaultSave: update.defaultSave,
           kind: update.kind ?? scope.kind ?? "none",
+          routingDescription:
+            update.routingDescription ?? scope.routingDescription ?? "",
         });
       }
       const additions: Array<ScopeAddition & { path: string }> = [];
@@ -284,6 +290,7 @@ export function createScopeStore(
           write: access.write,
           defaultSave: addition.defaultSave,
           kind: addition.kind ?? "none",
+          routingDescription: addition.routingDescription ?? "",
         });
       }
       const aliases = [
@@ -318,7 +325,7 @@ export function createScopeStore(
         for (const id of removed) remove.run(id);
         const update = database.prepare(
           `UPDATE file_scopes
-           SET alias = ?, extra_aliases = ?, can_read = ?, can_write = ?, is_default = ?, updated_at = ?, folder_kind = ?
+           SET alias = ?, extra_aliases = ?, can_read = ?, can_write = ?, is_default = ?, updated_at = ?, folder_kind = ?, routing_description = ?
            WHERE id = ?`,
         );
         for (const scope of next) {
@@ -332,13 +339,14 @@ export function createScopeStore(
             scope.defaultSave ? 1 : 0,
             stamp,
             scope.kind ?? "none",
+            scope.routingDescription ?? "",
             scope.id,
           );
         }
         const insert = database.prepare(
           `INSERT INTO file_scopes (
-             id, alias, extra_aliases, canonical_path, can_read, can_write, is_default, created_at, updated_at, folder_kind
-           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+             id, alias, extra_aliases, canonical_path, can_read, can_write, is_default, created_at, updated_at, folder_kind, routing_description
+           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         );
         for (const addition of additions) {
           const names = splitScopeAliases(addition.alias);
@@ -353,6 +361,7 @@ export function createScopeStore(
             stamp,
             stamp,
             addition.kind ?? "none",
+            addition.routingDescription ?? "",
           );
         }
         if (removed.size > 0 || updates.size > 0 || additions.length > 0)

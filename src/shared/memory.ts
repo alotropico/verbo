@@ -1,4 +1,13 @@
 import { z } from "zod";
+import { agentIdSchema, type AgentId } from "./workflows";
+export const contextAudiences = agentIdSchema.options;
+export const contextAudiencesSchema = z
+  .array(agentIdSchema)
+  .max(4)
+  .refine(
+    (values) => new Set(values).size === values.length,
+    "Duplicate recipient.",
+  );
 
 /** Hard cap for global entries with inclusion `always`. Override only in the store. */
 export const ALWAYS_ON_MEMORY_TOKEN_BUDGET = 512;
@@ -16,6 +25,7 @@ export const memoryAddArgsSchema = z
     scope: z.enum(memoryScopes).default("global"),
     inclusion: z.enum(memoryInclusions).default("on_demand"),
     threadId: memoryIdSchema.optional(),
+    audiences: contextAudiencesSchema.default(["conversational"]),
   })
   .strict();
 
@@ -24,10 +34,14 @@ export const memoryUpdateArgsSchema = z
     id: memoryIdSchema,
     text: memoryTextSchema.optional(),
     inclusion: z.enum(memoryInclusions).optional(),
+    audiences: contextAudiencesSchema.optional(),
   })
   .strict()
   .refine(
-    (value) => value.text !== undefined || value.inclusion !== undefined,
+    (value) =>
+      value.text !== undefined ||
+      value.inclusion !== undefined ||
+      value.audiences !== undefined,
     {
       message: "Update needs text or inclusion.",
     },
@@ -59,6 +73,7 @@ export const memoryBrowserSchema = z
   .object({
     scope: z.enum(memoryScopes).optional(),
     threadId: memoryIdSchema.optional(),
+    offset: z.number().int().min(0).max(100_000).optional(),
   })
   .strict();
 
@@ -73,6 +88,7 @@ export const memoryCommandSchema = z
 export const contextEstimateSchema = z
   .object({
     threadId: memoryIdSchema.optional(),
+    audience: agentIdSchema.optional(),
   })
   .strict();
 
@@ -81,6 +97,7 @@ export type MemoryInclusion = (typeof memoryInclusions)[number];
 export type MemorySource = (typeof memorySources)[number];
 
 export type MemoryRecord = {
+  audiences: AgentId[];
   id: string;
   scope: MemoryScope;
   threadId: string | null;
@@ -119,7 +136,7 @@ export type ContextMeters = {
   memoryBudget: number;
   contextTokens: number;
   contextWindow: number;
-  lastPromptEval: number | null;
+  lastInference: import("./inference-metrics").InferenceMeasurement | null;
 };
 
 export function normalizeMemoryText(text: string): string {

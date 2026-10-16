@@ -5,9 +5,11 @@ export type LiveTurn = {
   threadId: string;
   queueItemId: string | null;
   assistantMessageId: string;
+  userMessageId?: string;
   userText: string;
   operationId: string | null;
   abort: AbortController;
+  finalizing?: boolean;
 };
 
 type Session = {
@@ -36,8 +38,20 @@ export function openLiveTurn(live: LiveTurn): void {
 export function publishLive(turnId: string, event: ChatEvent): void {
   const session = sessions.get(turnId);
   if (!session) return;
-  session.events.push(event);
-  for (const listener of session.listeners) listener(event);
+  const sequence = session.events.length + 1;
+  const delivered: ChatEvent = {
+    ...event,
+    deliveryId: `${turnId}:${sequence}`,
+    sequence,
+  };
+  session.events.push(delivered);
+  for (const listener of session.listeners) {
+    try {
+      listener(delivered);
+    } catch {
+      session.listeners.delete(listener);
+    }
+  }
 }
 
 export function liveEvents(turnId: string): readonly ChatEvent[] {
@@ -87,6 +101,7 @@ export function requestTurnCancel(turnId?: string): boolean {
     });
   const session = id ? sessions.get(id) : undefined;
   if (!id || !session) return false;
+  if (session.live.finalizing) return false;
   session.live.abort.abort();
   cancelHandler?.(id);
   return true;

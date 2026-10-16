@@ -29,6 +29,7 @@ import {
 const TEXT = new Set<string>(TEXT_EXTENSIONS);
 
 export type AssetStore = {
+  text(threadId: string, id: string): string | null;
   /** Live command references are metadata, separate from copied upload bytes. */
   liveReferences(threadId: string, receiptId: string): CommandResource[];
   put(input: {
@@ -177,6 +178,10 @@ function excerptOf(name: string, mediaType: string, bytes: Buffer): string {
 
 function referencedIds(database: DatabaseSync): Set<string> {
   const found = new Set<string>();
+  for (const row of database
+    .prepare("SELECT attachment_id FROM workflow_content_refs")
+    .all())
+    found.add(String(row.attachment_id).toLowerCase());
   const messages = database
     .prepare(`SELECT content_json FROM messages`)
     .all() as { content_json: string }[];
@@ -287,6 +292,14 @@ export function createAssetStore(
     remove(threadId, id) {
       const stored = row(id);
       if (!stored || stored.thread_id !== threadId) return false;
+      if (
+        database
+          .prepare(
+            "SELECT 1 FROM workflow_content_refs WHERE attachment_id=? LIMIT 1",
+          )
+          .get(id)
+      )
+        return false;
       database.prepare(`DELETE FROM attachments WHERE id = ?`).run(id);
       rmSync(join(root, fileName(id)), { force: true });
       return true;
@@ -298,6 +311,18 @@ export function createAssetStore(
       const bytes = readManaged(root, id);
       if (!bytes || !intact(stored, bytes)) return null;
       return { mediaType: stored.media_type, bytes };
+    },
+    text(threadId, id) {
+      const stored = row(id);
+      if (
+        !stored ||
+        stored.thread_id !== threadId ||
+        !stored.media_type.startsWith("text/") ||
+        stored.byte_size > 2_000_000
+      )
+        return null;
+      const bytes = readManaged(root, id);
+      return bytes && intact(stored, bytes) ? utf8(bytes) : null;
     },
     excerpt(threadId, ids) {
       const unique = [...new Set(ids)].slice(0, ATTACHMENT_LIMITS.maxPerTurn);

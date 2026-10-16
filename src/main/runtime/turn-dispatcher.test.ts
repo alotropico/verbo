@@ -221,6 +221,7 @@ describe("turn dispatcher", () => {
     if (!saved.ok) throw new Error("enqueue failed");
     queue.releaseReservation(saved.item.id);
     addMessage(database, "regen", "thread-a", "root");
+    queue.reconcileBranches();
     expect(queue.snapshot("thread-a").items[0]?.status).toBe("pinned");
     const restarted = createTurnDispatcher(database);
     restarted.recover();

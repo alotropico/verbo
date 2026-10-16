@@ -5,7 +5,11 @@ type Job = {
 };
 
 export type RequestGate = {
-  schedule: <T>(priority: number, task: () => Promise<T>) => Promise<T>;
+  schedule: <T>(
+    priority: number,
+    task: () => Promise<T>,
+    signal?: AbortSignal,
+  ) => Promise<T>;
 };
 
 /** Lower priority numbers run first. A running request is not preempted. */
@@ -29,13 +33,38 @@ export function createRequestGate(): RequestGate {
     });
   }
 
-  function schedule<T>(priority: number, task: () => Promise<T>): Promise<T> {
+  function schedule<T>(
+    priority: number,
+    task: () => Promise<T>,
+    signal?: AbortSignal,
+  ): Promise<T> {
     return new Promise((resolve, reject) => {
-      pending.push({
+      if (signal?.aborted) {
+        reject(signal.reason);
+        return;
+      }
+      let started = false;
+      const onAbort = (): void => {
+        if (started) return;
+        const index = pending.indexOf(job);
+        if (index >= 0) pending.splice(index, 1);
+        reject(signal?.reason ?? new DOMException("Cancelled", "AbortError"));
+      };
+      const job: Job = {
         priority,
         order: order++,
-        run: () => task().then(resolve, reject),
-      });
+        run: () => {
+          started = true;
+          signal?.removeEventListener("abort", onAbort);
+          if (signal?.aborted) {
+            reject(signal.reason);
+            return Promise.resolve();
+          }
+          return Promise.resolve().then(task).then(resolve, reject);
+        },
+      };
+      signal?.addEventListener("abort", onAbort, { once: true });
+      pending.push(job);
       pump();
     });
   }

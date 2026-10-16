@@ -54,6 +54,7 @@ export const scopeFlagSchema = z
     write: z.boolean(),
     defaultSave: z.boolean(),
     kind: folderKindSchema.optional(),
+    routingDescription: z.string().trim().max(1000).optional(),
   })
   .strict();
 
@@ -91,6 +92,7 @@ export type ScopePatch = z.infer<typeof scopePatchSchema>;
 export type ScopeCommit = z.infer<typeof scopeCommitSchema>;
 
 export type FileScopeRecord = {
+  routingDescription?: string;
   id: string;
   alias: string;
   aliases: string[];

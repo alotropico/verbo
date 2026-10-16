@@ -21,6 +21,12 @@ type Slot = {
 };
 
 export type TurnDispatcher = {
+  reconcileBranches(): void;
+  restoreFinalization(input: {
+    queueItemId?: string;
+    threadId: string;
+    turnId: string;
+  }): void;
   recover(): void;
   enqueue(input: {
     threadId: string;
@@ -123,6 +129,24 @@ export function createTurnDispatcher(
   }
 
   return {
+    reconcileBranches(): void {
+      const reserved = slot?.phase === "reserved" ? slot.queueItemId : null;
+      if (store.markStaleBranches(Date.now(), reserved ?? undefined)) changed();
+    },
+    restoreFinalization(input): void {
+      if (slot && slot.turnId !== input.turnId)
+        throw new Error("Another turn owns the foreground slot.");
+      slot = {
+        queueItemId: input.queueItemId ?? null,
+        threadId: input.threadId,
+        turnId: input.turnId,
+        phase: "running",
+      };
+      if (input.queueItemId)
+        store.setStatus(input.queueItemId, "running", Date.now());
+      hold = store.hasInterrupted();
+      changed();
+    },
     recover(): void {
       if (recovered) return;
       recovered = true;
@@ -540,12 +564,8 @@ export function createTurnDispatcher(
         slot.queueItemId
           ? slot.queueItemId
           : null;
-      const stale = outgoingId
-        ? store.markStaleBranches(Date.now(), outgoingId)
-        : store.markStaleBranches(Date.now());
       const next =
         !hold && !serviceHold && !slot ? store.nextQueuedHead() : null;
-      if (stale) changed();
       const reservedElsewhere =
         slot && slot.threadId !== threadId ? slot.threadId : null;
       return {

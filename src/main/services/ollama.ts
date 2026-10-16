@@ -1,6 +1,7 @@
 import { OLLAMA_BASE_URL } from "../../shared/config";
 import type { ChatMessage } from "../../shared/chat-ipc";
 import type { ChatSettings } from "../../shared/config";
+import { ollamaOptions } from "./ollama-options";
 
 export type OllamaStatus =
   | { ok: true; version?: string; models: string[] }
@@ -47,6 +48,7 @@ export async function completeOllamaChat(
   messages: OllamaChatMessage[],
   settings: ChatSettings,
   signal?: AbortSignal,
+  onCompletion?: (chunk: unknown) => void,
 ): Promise<string> {
   const response = await fetch(`${OLLAMA_BASE_URL}/api/chat`, {
     method: "POST",
@@ -57,10 +59,7 @@ export async function completeOllamaChat(
       stream: false,
       think: settings.think,
       keep_alive: settings.keepAlive,
-      options: {
-        temperature: settings.temperature,
-        num_ctx: settings.numCtx,
-      },
+      options: ollamaOptions(settings),
     }),
     signal,
   });
@@ -79,6 +78,7 @@ export async function completeOllamaChat(
   if (json.error) {
     throw new Error(json.error);
   }
+  onCompletion?.(json);
   return json.message?.content ?? "";
 }
 

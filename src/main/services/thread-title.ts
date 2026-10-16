@@ -7,6 +7,9 @@ import {
 import { completeOllamaChat } from "./ollama";
 import { ollamaRequestGate } from "../runtime/ollama-gate";
 import { BACKGROUND_REQUEST_PRIORITY } from "../runtime/request-gate";
+import { routeUtterance } from "../../shared/local-commands";
+import { randomUUID } from "node:crypto";
+import { inferenceMeasurements } from "../runtime/prompt-eval";
 
 export type TitleSourceMessage = {
   role: "user" | "assistant";
@@ -22,28 +25,39 @@ export async function generateThreadTitle(
   const userText = messages
     .find((message) => message.role === "user")
     ?.content.trim();
-  if (!userText) return fallback;
+  if (!userText || routeUtterance(userText).kind !== "model") return fallback;
 
+  settings = { ...settings, think: false, temperature: 0.2 };
+  let signal: AbortSignal | undefined;
+  const measurement = inferenceMeasurements.begin({
+    threadId,
+    invocationId: randomUUID(),
+    agentId: "title",
+    work: "background",
+    model: settings.model,
+    numCtx: settings.numCtx,
+  });
   try {
     const raw = await ollamaRequestGate.schedule(
       BACKGROUND_REQUEST_PRIORITY,
-      () =>
-        completeOllamaChat(
+      () => {
+        signal = AbortSignal.timeout(20_000);
+        measurement.start();
+        return completeOllamaChat(
           [
             { role: "system", content: TITLE_SYSTEM_PROMPT },
             { role: "user", content: userText.slice(0, 4000) },
           ],
-          {
-            ...settings,
-            think: false,
-            temperature: 0.2,
-            numCtx: Math.min(settings.numCtx, 2048),
-          },
-          AbortSignal.timeout(20_000),
-        ),
+          settings,
+          signal,
+          measurement.complete,
+        );
+      },
     );
+    measurement.finish();
     return sanitizeGeneratedTitle(raw) ?? fallback;
-  } catch {
+  } catch (error) {
+    measurement.finish(error, signal?.aborted);
     return fallback;
   }
 }

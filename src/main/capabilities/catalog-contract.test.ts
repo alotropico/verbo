@@ -22,7 +22,10 @@ describe("production command compatibility", () => {
       "software.launch",
     ]);
     const shippedIds = ids.filter(
-      (id) => !id.startsWith("web.") && !additive.has(id),
+      (id) =>
+        !id.startsWith("web.") &&
+        !id.startsWith("obsidian.") &&
+        !additive.has(id),
     );
     const contracts = shippedIds.flatMap(
       (id) => registry.describe([id]).entries,
