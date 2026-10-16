@@ -1,12 +1,13 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import type { ActionResult } from "../../shared/action-contract";
 import type { MutationSubmit } from "./mutation-plan";
+import { withBoundCommand } from "../agents/policy";
 
 type PreparedChild = Pick<
   MutationSubmit,
   "database" | "actor" | "threadId" | "turnId" | "action" | "args"
 > & {
-  execute: () => ActionResult;
+  execute: () => ActionResult | Promise<ActionResult>;
   consumed: boolean;
 };
 const prepared = new AsyncLocalStorage<PreparedChild>();
@@ -27,11 +28,13 @@ export async function dispatchPreparedFileChild(
   input: Omit<PreparedChild, "consumed">,
   dispatch: () => Promise<ActionResult>,
 ): Promise<ActionResult> {
-  return prepared.run({ ...input, consumed: false }, dispatch);
+  return prepared.run({ ...input, consumed: false }, () =>
+    withBoundCommand(input.action, input.args, dispatch),
+  );
 }
-export function consumePreparedFileChild(
+export async function consumePreparedFileChild(
   input: MutationSubmit,
-): ActionResult | undefined {
+): Promise<ActionResult | undefined> {
   const grant = prepared.getStore();
   if (!grant) return undefined;
   if (

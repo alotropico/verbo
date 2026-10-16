@@ -3,6 +3,14 @@ import type { PreparedEffect } from "./preparation";
 import { CommandFailure } from "./command-failure";
 import type { CommandMetadata } from "../../shared/command-metadata";
 import { randomUUID } from "node:crypto";
+import {
+  activeInvocation,
+  bindApprovalInvocation,
+  permitsCommand,
+  withInvocation,
+  type InvocationPolicy,
+} from "../agents/policy";
+import type { WorkflowAttribution } from "../../shared/workflows";
 import type { CommandResource } from "../../shared/command-receipts";
 import { collectCommandResources } from "../files/resource-events";
 import {
@@ -40,6 +48,10 @@ export type ActionContext = {
   parentReceiptId?: string;
   receiptId?: string;
   onProgress?: (message: string) => void;
+  invocation?: InvocationPolicy;
+  attribution?: WorkflowAttribution;
+  /** A verified backend substitution shares the semantic command's durable attempt. */
+  derivedDispatch?: true;
 };
 
 export type Capability = {
@@ -61,6 +73,10 @@ export type Capability = {
 };
 
 export type CapabilityRegistry = {
+  normalize?: (
+    name: string,
+    args: Record<string, unknown>,
+  ) => { name: string; args: Record<string, unknown> };
   metadata?: () => CommandMetadata[];
   /** Backend preparation hooks are not model tools or renderer IPC. */
   prepareEffect?: (
@@ -482,6 +498,13 @@ export function createRegistry(
   const nodes = options.nodes ?? [...fallbackNodes.values()];
   const resolve = createCommandResolver(nodes);
   const byNode = new Map(nodes.map((node) => [node.id, node]));
+  const visible = (id: string): boolean =>
+    byId.has(id)
+      ? permitsCommand(id, true)
+      : [...byId.keys()].some(
+          (action) =>
+            action.startsWith(`${id}.`) && permitsCommand(action, true),
+        );
 
   function list(path?: string): ListResult {
     const requested = path?.trim() ?? "";
@@ -499,7 +522,9 @@ export function createRegistry(
     }
     const children = nodes
       .filter(
-        (node) => node.id.split(".").slice(0, -1).join(".") === normalized,
+        (node) =>
+          node.id.split(".").slice(0, -1).join(".") === normalized &&
+          visible(node.id),
       )
       .sort((left, right) => left.id.localeCompare(right.id));
     if (children.length === 0 && normalized && !byNode.has(normalized)) {
@@ -532,6 +557,7 @@ export function createRegistry(
     const entries = requested.map((id) => {
       const resolution = resolve(id);
       const canonical = resolution.ok ? resolution.id : id;
+      if (!visible(canonical)) return { id, code: "unknown" as const };
       const capability = byId.get(canonical);
       if (!capability) {
         const node = byNode.get(canonical);
@@ -556,28 +582,55 @@ export function createRegistry(
     return { entries, truncated: ids.length > DESCRIBE_LIMIT };
   }
 
-  async function invoke(
+  function invoke(
+    name: string,
+    args: Record<string, unknown>,
+    context: ActionContext,
+  ): Promise<ActionResult> {
+    return withInvocation(context.invocation, () =>
+      invokeAuthorized(name, args, context),
+    );
+  }
+  async function invokeAuthorized(
     name: string,
     args: Record<string, unknown>,
     context: ActionContext,
   ): Promise<ActionResult> {
     const startedAt = Date.now();
-    context = { ...context, receiptId: randomUUID() };
+    context = {
+      ...context,
+      receiptId: context.receiptId ?? randomUUID(),
+      attribution: context.attribution ?? activeInvocation()?.attribution,
+    };
+    const ledger =
+      context.parentReceiptId || context.derivedDispatch
+        ? undefined
+        : activeInvocation()?.ledger;
+    let claim: { id: string; receiptId: string } | undefined;
     const settle = (
       result: ActionResult,
       resources: CommandResource[] = [],
     ): ActionResult => {
       const validated = contractResult(result);
+      if (validated.status === "requires_confirmation" && validated.operationId)
+        bindApprovalInvocation(validated.operationId, context.threadId);
       try {
-        return (
+        const saved =
           options.finalize?.({
             result: validated,
             context,
             startedAt,
             resources,
-          }) ?? validated
-        );
+          }) ?? validated;
+        if (claim) ledger?.after(claim, saved);
+        return saved;
       } catch {
+        if (claim)
+          ledger?.after(claim, {
+            ...validated,
+            code: "receipt_failed",
+            status: "error",
+          });
         return {
           ...validated,
           status: "error",
@@ -609,6 +662,13 @@ export function createRegistry(
       );
     }
     name = capability.id;
+    if (!permitsCommand(name, false, args))
+      return settle({
+        action: name,
+        status: "denied",
+        code: "invocation_forbidden",
+        summary: "This command is outside the current step's authority.",
+      });
     const parsed = capability.args.safeParse(args);
     if (!parsed.success) {
       return settle(
@@ -630,6 +690,22 @@ export function createRegistry(
       });
     }
     try {
+      const admission = ledger?.before(
+        name,
+        parsed.data as Record<string, unknown>,
+        capability.kind,
+      );
+      if (admission?.replay) return admission.replay;
+      if (admission) {
+        claim = admission;
+        context = {
+          ...context,
+          receiptId: admission.receiptId,
+          attribution: context.attribution
+            ? { ...context.attribution, attemptId: admission.id }
+            : undefined,
+        };
+      }
       const recorded = await collectCommandResources(async () => {
         try {
           return await capability.execute(
@@ -638,11 +714,17 @@ export function createRegistry(
           );
         } catch (error) {
           if (error instanceof CommandFailure)
-            return errorResult(
-              name,
-              error.code,
-              `Operation failed: ${error.message}`.slice(0, 500),
-            );
+            return {
+              ...errorResult(
+                name,
+                error.code,
+                `Operation failed: ${error.message}`.slice(0, 500),
+              ),
+              ...(error.code === "obsidian_unqualified" ||
+              error.code === "not_supported"
+                ? { status: "not_supported" as const }
+                : {}),
+            };
           return errorResult(
             name,
             "execution_failed",
@@ -651,12 +733,14 @@ export function createRegistry(
         }
       });
       return settle(recorded.result, recorded.resources);
-    } catch {
+    } catch (error) {
       return settle(
         errorResult(
           name,
-          "execution_failed",
-          "Operation failed: the registered executor could not complete.",
+          error instanceof CommandFailure ? error.code : "execution_failed",
+          error instanceof CommandFailure
+            ? error.message
+            : "Operation failed: the registered executor could not complete.",
         ),
       );
     }
@@ -680,6 +764,7 @@ export function createRegistry(
       left.id.localeCompare(right.id),
     );
     for (const capability of capabilities) {
+      if (!permitsCommand(capability.id, true)) continue;
       const legacyAliases = ACTION_ALIASES.filter(
         (entry) => entry.actionId === capability.id,
       ).map((entry) => entry.alias);
@@ -765,6 +850,7 @@ export function createRegistry(
       });
     }
     for (const command of LOCAL_COMMANDS) {
+      if (activeInvocation()) continue;
       if (command.actionId) continue;
       const haystack = [command.name, command.syntax, command.blurb]
         .join("\n")
@@ -797,7 +883,20 @@ export function createRegistry(
     describe,
     invoke,
     resolve,
-    nodes: () => nodes.map((node) => ({ ...node, aliases: [...node.aliases] })),
+    nodes: () =>
+      nodes
+        .filter((node) => visible(node.id))
+        .map((node) => ({ ...node, aliases: [...node.aliases] })),
+    normalize: (name, args) => {
+      const resolution = resolve(name);
+      const canonical = resolution.ok ? resolution.id : name;
+      const capability = byId.get(canonical);
+      const parsed = capability?.args.safeParse(args);
+      return {
+        name: canonical,
+        args: parsed?.success ? (parsed.data as Record<string, unknown>) : args,
+      };
+    },
   };
 }
 
@@ -807,6 +906,24 @@ export async function dispatchModelTool(
   rawArgs: unknown,
   context: ActionContext,
 ): Promise<ActionResult> {
+  return withInvocation(context.invocation, () =>
+    dispatchAuthorizedModelTool(registry, name, rawArgs, context),
+  );
+}
+
+async function dispatchAuthorizedModelTool(
+  registry: CapabilityRegistry,
+  name: string,
+  rawArgs: unknown,
+  context: ActionContext,
+): Promise<ActionResult> {
+  if (activeInvocation() && !activeInvocation()!.exposed)
+    return {
+      action: name,
+      status: "denied",
+      code: "invocation_forbidden",
+      summary: "This agent has no tools or command discovery.",
+    };
   if (name === "capabilities.list") {
     const parsed = listArgsSchema.safeParse(rawArgs ?? {});
     if (!parsed.success) {

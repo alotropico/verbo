@@ -107,6 +107,25 @@ async function approve(
 }
 
 describe("file mutations", () => {
+  it("rejects unknown stored backend identities before dispatch", async () => {
+    const root = folder("verbo-backend-");
+    const db = register(root);
+    const result = await invoke(db, "files.create", {
+      items: [
+        { path: "notes:/note.md", kind: "file", content: "Body" },
+        { path: "notes:/second.md", kind: "file", content: "Other" },
+      ],
+    });
+    expect(result.status).toBe("requires_confirmation");
+    db.prepare(
+      "UPDATE operation_items SET expected_json=json_set(expected_json,'$.backend','unknown-cli') WHERE operation_id=?",
+    ).run(result.operationId!);
+    expect(await approve(db, result.operationId!)).toMatchObject({
+      status: "error",
+      code: "unsupported_backend",
+    });
+    expect(existsSync(join(root, "note.md"))).toBe(false);
+  });
   it("authorizes an ordered create/edit/rename chain once and retains only its surviving file", async () => {
     const root = folder("verbo-chain-");
     const db = register(root);

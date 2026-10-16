@@ -59,6 +59,7 @@ describe("capability registry", () => {
       "environment",
       "files",
       "memory",
+      "obsidian",
       "projects",
       "software",
       "web",

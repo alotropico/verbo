@@ -1,4 +1,5 @@
 import { win32 } from "node:path";
+import { classifyVaultTarget } from "./vault-target-policy";
 import type { ActorKind } from "../../shared/action-contract";
 import { displayFinalPath, scopeAliasSchema } from "../../shared/files";
 import type { FileGrantRecord, FileScopeRecord } from "../../shared/files";
@@ -179,7 +180,7 @@ function containedFinal(
   return { ok: true, finalPath: resolved.finalPath };
 }
 
-export function resolveFileReference(input: {
+function resolveScopedReference(input: {
   reference: string;
   purpose: "read" | "write";
   actor: ActorKind;
@@ -333,4 +334,32 @@ export function resolveFileReference(input: {
     "needs_selection",
     "That path is outside registered folders. Select the file or folder to allow a bounded read.",
   );
+}
+
+export function resolveFileReference(
+  input: Parameters<typeof resolveScopedReference>[0],
+): PathFailure | PathSuccess {
+  const resolved = resolveScopedReference(input);
+  if (!resolved.ok) return resolved;
+  try {
+    const hits = classifyVaultTarget({
+      path: resolved.path.absolute,
+      scopes: input.scopes,
+    });
+    const denied = hits.find(
+      (hit) =>
+        !hit.scope.read || (input.purpose === "write" && !hit.scope.write),
+    );
+    if (denied)
+      return failure(
+        "vault_permission_denied",
+        `The canonical target intersects vault '${denied.scope.alias}', whose ${input.purpose} permission is disabled.`,
+      );
+  } catch (error) {
+    return failure(
+      "vault_target_unverifiable",
+      error instanceof Error ? error.message : "Vault target unavailable.",
+    );
+  }
+  return resolved;
 }

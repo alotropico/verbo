@@ -204,6 +204,7 @@ export function createOperationStore(database: DatabaseSync) {
   return {
     purge,
     insert(input: {
+      id?: string;
       threadId: string;
       turnId?: string;
       sessionId: string;
@@ -218,7 +219,7 @@ export function createOperationStore(database: DatabaseSync) {
       now: number;
     }): StoredPlan {
       purge(input.now);
-      const id = randomUUID();
+      const id = input.id ?? randomUUID();
       const expiresAt = input.now + FILE_MUTATION_LIMITS.planTtlMs;
       database.exec("BEGIN");
       try {

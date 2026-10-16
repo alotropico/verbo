@@ -35,7 +35,7 @@ describe("private prepared file authorization", () => {
           };
         },
       };
-      expect(consumePreparedFileChild(input)).toBeUndefined();
+      expect(await consumePreparedFileChild(input)).toBeUndefined();
       for (const altered of [
         { ...input, database: other },
         { ...input, threadId: "other" },
@@ -44,19 +44,22 @@ describe("private prepared file authorization", () => {
         { ...input, args: { ...input.args, content: "changed" } },
       ]) {
         expect(
-          await dispatchPreparedFileChild(grant, async () =>
-            consumePreparedFileChild(altered)!,
+          await dispatchPreparedFileChild(
+            grant,
+            async () => (await consumePreparedFileChild(altered))!,
           ),
         ).toMatchObject({ status: "error", code: "invalid_grant" });
       }
       expect(effects).toBe(0);
       await dispatchPreparedFileChild(grant, async () => {
-        expect(consumePreparedFileChild(input)?.status).toBe("success");
-        expect(consumePreparedFileChild(input)?.code).toBe("invalid_grant");
+        expect((await consumePreparedFileChild(input))?.status).toBe("success");
+        expect((await consumePreparedFileChild(input))?.code).toBe(
+          "invalid_grant",
+        );
         return { action: input.action, status: "success", summary: "Checked" };
       });
       expect(effects).toBe(1);
-      expect(consumePreparedFileChild(input)).toBeUndefined();
+      expect(await consumePreparedFileChild(input)).toBeUndefined();
     } finally {
       database.close();
       other.close();

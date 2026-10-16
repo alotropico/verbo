@@ -2,6 +2,7 @@ import { AsyncLocalStorage } from "node:async_hooks";
 import { lstatSync } from "node:fs";
 import type { CommandResource } from "../../shared/command-receipts";
 import { displayFinalPath } from "../../shared/files";
+import { invalidateRoutingInventories } from "./routing-inventory";
 
 const recorder = new AsyncLocalStorage<CommandResource[]>();
 export async function collectCommandResources<T>(
@@ -22,6 +23,7 @@ export function recordFileResource(
   event: CommandResource["event"] = "read",
   from?: string,
 ): void {
+  if (event !== "read") invalidateRoutingInventories();
   recorder.getStore()?.push({
     path,
     event,

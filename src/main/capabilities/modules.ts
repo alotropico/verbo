@@ -1,6 +1,11 @@
 import { z } from "zod";
 import { AsyncLocalStorage } from "node:async_hooks";
 import {
+  permitsCommand,
+  withInvocation,
+  withBoundCommand,
+} from "../agents/policy";
+import {
   commandFingerprint,
   preparedEffectSchema,
   type EffectPreparation,
@@ -230,6 +235,10 @@ export function createModuleRegistry(
     args: Record<string, unknown>,
     context: ActionContext,
   ): Promise<PreparedEffect> {
+    if (!permitsCommand(name, false, args))
+      throw new Error(
+        "Prepared command is outside this invocation's authority.",
+      );
     const definition = definitions.get(name);
     if (
       !definition?.preparation ||
@@ -305,6 +314,7 @@ export function createModuleRegistry(
         );
         const childContext = {
           ...context,
+          receiptId: undefined,
           parentReceiptId: context.receiptId,
           signal: context.signal
             ? AbortSignal.any([context.signal, deadline])
@@ -356,7 +366,9 @@ export function createModuleRegistry(
                 if (prepared.length >= MAX_FAN_OUT)
                   throw new Error("Prepared child limit exceeded.");
                 prepared.push(
-                  await prepareEffect(step.command, childArgs, childContext),
+                  await withBoundCommand(step.command, childArgs, () =>
+                    prepareEffect(step.command, childArgs, childContext),
+                  ),
                 );
               }
               const child: ActionResult = preparing
@@ -366,7 +378,9 @@ export function createModuleRegistry(
                     summary: "Prepared command.",
                   }
                 : await ancestry.run(nextState, () =>
-                    registry.invoke(step.command, childArgs, childContext),
+                    withBoundCommand(step.command, childArgs, () =>
+                      registry.invoke(step.command, childArgs, childContext),
+                    ),
                   );
               if (!preparing) children.push(child);
               outcomes.push(child);
@@ -424,7 +438,10 @@ export function createModuleRegistry(
     ...options,
     nodes: options.configureNodes?.(nodes) ?? nodes,
   });
-  registry.prepareEffect = prepareEffect;
+  registry.prepareEffect = (name, args, context) =>
+    withInvocation(context.invocation, () =>
+      prepareEffect(name, args, context),
+    );
   registry.metadata = () =>
     [...definitions.values()].map((definition) => ({
       id: definition.id,

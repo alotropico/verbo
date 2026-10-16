@@ -15,6 +15,7 @@ import { effectiveCommandNodes } from "../db/command-overrides";
 import { webModule, webBindings } from "./web";
 import { createPreparationOwner } from "./preparation";
 import { projectOpeningBindings } from "./project-opening";
+import { obsidianBindings, obsidianModule } from "./obsidian";
 
 /** Production catalog. Tests add fixture actions on their own registry. */
 export function createProductionRegistry(
@@ -38,6 +39,7 @@ export function createProductionRegistry(
     return resolveDatabase();
   };
   const ags = agsBindings(resolveDatabase, resolveScopes);
+  const obsidian = obsidianBindings(resolveDatabase);
   const handlers = {
     ...environmentBindings(resolveScopes, resolveDatabase),
     ...memoryBindings(() => {
@@ -82,6 +84,7 @@ export function createProductionRegistry(
       softwareModule,
       agsModule,
       webModule,
+      obsidianModule,
     ],
     {
       handlers: Object.assign(
@@ -89,9 +92,14 @@ export function createProductionRegistry(
         handlers,
         webBindings(resolveDatabase),
         opening.handlers,
+        obsidian.handlers,
       ),
-      processes: { ...opening.processes, ...ags.processes },
-      preparers: opening.preparers,
+      processes: {
+        ...opening.processes,
+        ...ags.processes,
+        ...obsidian.processes,
+      },
+      preparers: { ...opening.preparers, ...obsidian.preparers },
       aggregators: opening.aggregators,
     },
     resolveDatabase

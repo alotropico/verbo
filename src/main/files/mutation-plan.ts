@@ -44,6 +44,12 @@ import {
 } from "./prepared-file-child";
 import { recordFileResource } from "./resource-events";
 import {
+  classifyVaultTarget,
+  guardNativeVaultTargets,
+} from "./vault-target-policy";
+import { obsidianTranslationAvailable } from "../obsidian/config";
+import { permitsCommand } from "../agents/policy";
+import {
   isProtectedLocation,
   parseFileReference,
   qualifyFileReference,
@@ -98,6 +104,7 @@ type RawItem =
   | { kind: "trash"; from: string };
 
 type SubmitBase = {
+  receiptId?: string;
   database: DatabaseSync;
   scopes: ScopeStore;
   actor: ActorKind;
@@ -137,7 +144,105 @@ const BINARY = new Set([
 ]);
 
 function failure(action: string, code: string, summary: string): ActionResult {
-  return actionResultSchema.parse({ action, status: "error", code, summary });
+  return actionResultSchema.parse({
+    action,
+    status: code === "vault_backend_required" ? "not_supported" : "error",
+    code,
+    summary,
+  });
+}
+
+async function routeVaultBackend(
+  input: MutationSubmit,
+  items: RawItem[],
+): Promise<ActionResult | undefined> {
+  if (
+    items.length !== 1 ||
+    input.action === "files.batch" ||
+    input.action === "files.undo"
+  )
+    return;
+  const item = items[0]!;
+  if (
+    item.kind === "create_directory" ||
+    item.kind === "copy" ||
+    (item.kind === "edit" && item.mode !== "full")
+  )
+    return;
+  const operation =
+    item.kind === "create_file"
+      ? "create"
+      : item.kind === "trash"
+        ? "delete"
+        : item.kind;
+  if (!obsidianTranslationAvailable(operation)) return;
+  const scopes = input.scopes.list();
+  const reference = "from" in item ? item.from : item.to;
+  const source = locate({
+    reference,
+    purpose: "write",
+    actor: input.actor,
+    scopes,
+    grants: input.scopes.activeGrants(),
+    allowMissing: true,
+  });
+  if (!source.ok || source.path.directory) return;
+  const hits = classifyVaultTarget({ path: source.path.absolute, scopes });
+  if (
+    hits.length !== 1 ||
+    hits[0]!.relation !== "inside" ||
+    !hits[0]!.relativePath
+  )
+    return;
+  const selected = hits[0]!;
+  const action = `obsidian.${operation}`;
+  if (!permitsCommand(action))
+    return {
+      action: input.action,
+      status: "denied",
+      code: "invocation_forbidden",
+      summary:
+        "This vault target requires authorization for both the semantic file operation and its Obsidian backend.",
+    };
+  const args: Record<string, unknown> = {
+    vault: selected.scope.id,
+    path: selected.relativePath,
+  };
+  if (item.kind === "create_file" || item.kind === "edit")
+    args.content = item.content ?? "";
+  if (item.kind === "edit")
+    args.revision = capture(source.path.absolute).sha256;
+  if (item.kind === "move" || item.kind === "rename") {
+    const destination = locate({
+      reference: item.to,
+      purpose: "write",
+      actor: input.actor,
+      scopes,
+      grants: input.scopes.activeGrants(),
+      allowMissing: true,
+    });
+    if (!destination.ok || destination.path.directory) return;
+    const destinations = classifyVaultTarget({
+      path: destination.path.absolute,
+      scopes,
+    });
+    if (
+      destinations.length !== 1 ||
+      destinations[0]!.scope.id !== selected.scope.id ||
+      !destinations[0]!.relativePath
+    )
+      return;
+    args.to = destinations[0]!.relativePath;
+  }
+  const { registryForDatabase } = await import("../capabilities/catalog");
+  return registryForDatabase(input.database).invoke(action, args, {
+    actor: input.actor,
+    threadId: input.threadId,
+    turnId: input.turnId,
+    signal: input.signal,
+    receiptId: input.receiptId,
+    derivedDispatch: true,
+  });
 }
 
 function comparable(candidate: string): string {
@@ -996,6 +1101,33 @@ function preflight(
   }
 
   const risks: string[] = [];
+  const vaultPolicy = guardNativeVaultTargets({
+    scopes,
+    targets: resolved.flatMap((item) => [
+      ...(item.source
+        ? [
+            {
+              path: item.source.absolute,
+              purpose:
+                item.raw.kind === "copy"
+                  ? ("read" as const)
+                  : ("write" as const),
+              tree: item.source.directory,
+            },
+          ]
+        : []),
+      ...(item.destination
+        ? [
+            {
+              path: item.destination.absolute,
+              purpose: "write" as const,
+              tree: item.destination.directory,
+            },
+          ]
+        : []),
+    ]),
+  });
+  if (!vaultPolicy.ok) return vaultPolicy;
   const items: Planned[] = [];
   const destinations = new Set<string>();
   const consumed = new Set<string>();
@@ -1813,21 +1945,31 @@ async function executeStored(
         }),
       )
       .find((path) => !path.ok);
-    const guarded = !currentScope
-      ? {
-          ok: false as const,
-          code: "stale_scope",
-          summary: "The folders changed. Remaining steps stopped.",
-        }
-      : unsafe && !unsafe.ok
-        ? unsafe
-        : dependencyInvalid
-          ? {
-              ok: false as const,
-              code: "dependency",
-              summary: "The required earlier result is unavailable.",
-            }
-          : undefined;
+    const vaultPolicy = guardNativeVaultTargets({
+      scopes: scopes.list(),
+      targets: paths.map((path) => ({
+        path: path.reference,
+        purpose: path.purpose,
+        tree: true,
+      })),
+    });
+    const guarded = !vaultPolicy.ok
+      ? vaultPolicy
+      : !currentScope
+        ? {
+            ok: false as const,
+            code: "stale_scope",
+            summary: "The folders changed. Remaining steps stopped.",
+          }
+        : unsafe && !unsafe.ok
+          ? unsafe
+          : dependencyInvalid
+            ? {
+                ok: false as const,
+                code: "dependency",
+                summary: "The required earlier result is unavailable.",
+              }
+            : undefined;
     const outcome: { value?: ReturnType<typeof applyItem> } = {
       value: guarded,
     };
@@ -2034,7 +2176,7 @@ function audit(
 export async function submitFileMutation(
   input: MutationSubmit,
 ): Promise<ActionResult> {
-  const prepared = consumePreparedFileChild(input);
+  const prepared = await consumePreparedFileChild(input);
   if (prepared) return prepared;
   const now = mutationPorts().now();
   const operations = createOperationStore(input.database);
@@ -2059,6 +2201,10 @@ export async function submitFileMutation(
   }
   const plannedItems = preflight(input, normalized.items);
   if (!plannedItems.ok) {
+    if (plannedItems.code === "vault_backend_required") {
+      const routed = await routeVaultBackend(input, normalized.items);
+      if (routed) return routed;
+    }
     return audit(
       input.database,
       input,
@@ -2069,12 +2215,16 @@ export async function submitFileMutation(
   const approval = needsApproval(input.action, plannedItems.items)
     ? "required"
     : "auto";
+  for (const item of plannedItems.items) {
+    item.expected = { ...item.expected, backend: "native", backendVersion: 1 };
+  }
   const verb = input.action.replace("files.", "");
   const summary =
     approval === "required"
       ? `${verb} ${plannedItems.items.length} item${plannedItems.items.length === 1 ? "" : "s"} needs confirmation.`
       : `${verb} ${plannedItems.items.length} item${plannedItems.items.length === 1 ? "" : "s"}.`;
   const plan = operations.insert({
+    id: input.receiptId,
     threadId: input.threadId,
     ...(input.turnId ? { turnId: input.turnId } : {}),
     sessionId: operationSession(),
@@ -2323,6 +2473,27 @@ async function decideNativeOperation(input: {
     );
   }
   const items = store.items(plan.id);
+  for (const item of items) {
+    const expected = JSON.parse(item.expectedJson) as Record<string, unknown>;
+    if (
+      expected.backend !== undefined &&
+      (expected.backend !== "native" || expected.backendVersion !== 1)
+    ) {
+      store.finish(
+        plan.id,
+        "failed",
+        "unsupported_backend",
+        "The stored mutation backend is unknown or incompatible. Prepare a new operation.",
+        now,
+      );
+      store.markRemaining(plan.id, 0);
+      return failure(
+        plan.actionId,
+        "unsupported_backend",
+        "The stored mutation backend is unknown or incompatible. Prepare a new operation.",
+      );
+    }
+  }
   const fingerprint = fingerprintOf(
     items.map((item) => ({
       kind: item.kind as Planned["kind"],
@@ -2419,8 +2590,26 @@ async function decideNativeOperation(input: {
 export async function decideOperation(
   input: Parameters<typeof decideNativeOperation>[0],
 ): Promise<ActionResult> {
+  const { withApprovalInvocation } = await import("../agents/policy");
+  return withApprovalInvocation(input.operationId, input.threadId, () =>
+    decideOperationWithAuthority(input),
+  );
+}
+
+async function decideOperationWithAuthority(
+  input: Parameters<typeof decideNativeOperation>[0],
+): Promise<ActionResult> {
   const store = createOperationStore(input.database);
   const plan = store.get(input.operationId);
+  const { permitsCommand } = await import("../agents/policy");
+  if (plan && !permitsCommand(plan.actionId))
+    return {
+      action: plan.actionId,
+      status: "denied",
+      code: "invocation_forbidden",
+      summary:
+        "This approved operation is outside its originating invocation's authority.",
+    };
   const generic =
     plan && store.items(plan.id).some((item) => item.kind === "command");
   const result = generic

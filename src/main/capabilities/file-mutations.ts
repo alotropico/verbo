@@ -33,6 +33,7 @@ export function fileMutationBindings(
       threadId: string;
       turnId?: string;
       signal?: AbortSignal;
+      receiptId?: string;
     },
   ): Omit<MutationSubmit, "action" | "args"> | ActionResult {
     try {
@@ -40,6 +41,7 @@ export function fileMutationBindings(
         database: resolveDatabase(),
         scopes: resolveScopes(),
         actor: context.actor,
+        receiptId: context.receiptId,
         threadId: context.threadId,
         ...(context.turnId ? { turnId: context.turnId } : {}),
         ...(context.signal ? { signal: context.signal } : {}),

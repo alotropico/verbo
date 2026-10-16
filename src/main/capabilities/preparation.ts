@@ -1,4 +1,5 @@
 import { AsyncLocalStorage } from "node:async_hooks";
+import { withBoundCommand } from "../agents/policy";
 import { createHash } from "node:crypto";
 import type { DatabaseSync } from "node:sqlite";
 import { z } from "zod";
@@ -19,6 +20,7 @@ export const preparedEffectSchema = z
     snapshot: z.json(),
     summary: z.string().min(1).max(500),
     automatic: z.boolean(),
+    readOnly: z.literal(true).optional(),
     risks: z.array(z.string().max(500)).max(8).default([]),
     details: z.string().max(32768).optional(),
   })
@@ -27,7 +29,7 @@ export type PreparedEffect = z.infer<typeof preparedEffectSchema>;
 export type EffectPreparation = Pick<
   PreparedEffect,
   "snapshot" | "summary" | "automatic"
-> & { risks?: string[]; details?: string };
+> & { risks?: string[]; details?: string; readOnly?: true };
 export type PreparationRequest = {
   action: string;
   signature: string;
@@ -164,7 +166,8 @@ export function createPreparationOwner(
           "Operation failed: preparation is too large.",
         );
       const automatic =
-        request.context.actor !== "model" &&
+        (request.context.actor !== "model" ||
+          request.effects.every((effect) => effect.readOnly === true)) &&
         request.effects.every((effect) => effect.automatic);
       const summary = `${automatic ? "Running" : "Review"} ${request.effects.length} command${request.effects.length === 1 ? "" : "s"}.`;
       const store = createOperationStore(database);
@@ -180,6 +183,7 @@ export function createPreparationOwner(
         expectedJson: JSON.stringify({ diff: effect.details }),
       }));
       const plan = store.insert({
+        id: request.context.receiptId,
         threadId: request.context.threadId,
         ...(request.context.turnId ? { turnId: request.context.turnId } : {}),
         sessionId: operationSession(),
@@ -350,10 +354,8 @@ export async function decidePreparedOperation(input: {
   const context = planContext(plan, input.signal);
   for (const { effect } of envelopes) {
     try {
-      const current = await input.registry.prepareEffect?.(
-        effect.action,
-        effect.args,
-        context,
+      const current = await withBoundCommand(effect.action, effect.args, () =>
+        input.registry.prepareEffect?.(effect.action, effect.args, context),
       );
       if (!current || stableCommandJson(current) !== stableCommandJson(effect))
         return reject(
@@ -415,10 +417,12 @@ export async function decidePreparedOperation(input: {
         index,
       },
       () =>
-        input.registry.invoke(envelope.effect.action, envelope.effect.args, {
-          ...context,
-          parentReceiptId: plan.id,
-        }),
+        withBoundCommand(envelope.effect.action, envelope.effect.args, () =>
+          input.registry.invoke(envelope.effect.action, envelope.effect.args, {
+            ...context,
+            parentReceiptId: plan.id,
+          }),
+        ),
     );
     children.push(last);
     store.markItem(item.id, {
