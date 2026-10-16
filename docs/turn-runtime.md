@@ -1,33 +1,67 @@
-# Turn instructions and command results
+# Turn lifecycle and workflows
 
-Electron main owns the chat turn. The renderer submits text and observes events through the preload bridge; it does not execute model tools.
+Electron main owns admission, execution and final persistence through [Controller](../src/main/runtime/controller.ts). The renderer observes events through the preload MessagePort. It does not execute tools or persist a competing assistant final. Immediate turns, promoted queue items, typed slash commands and literal voice slash commands share the existing foreground dispatcher.
 
-## Instructions on every chat request
+## Final responses and recovery
 
-[`CORE_INSTRUCTIONS`](../src/main/runtime/context-builder.ts) is the mandatory system message. It includes these command rules:
+Controller saves one canonical assistant message before emitting `done`, closing the live mapping and releasing the foreground slot. Promoted follow-ups extend the persisted reply on their selected branch. Idempotent history writes and branch-head comparisons protect newer branches from stale renderer echoes or late save acknowledgments.
 
-- Never request the same command with the same arguments twice in a row, even with a different tool-call ID. Use the result already returned, including after failure.
-- Provide a user-facing explanation of the command result even if the command fails, is denied, or cannot run.
-- Describe the status actually returned. Claim success only with a confirming result; preserve reported counts and treat `null` as unknown.
+A failed final save retains the frozen response and stable IDs, performs bounded automatic retries, and holds the queue. **Retry saving response** retries persistence only. It cannot call a model, restart a workflow or dispatch commands. Pending final snapshots survive process restart; multiple snapshots recover one at a time. Reopening a chat reattaches to its canonical live response. Closing observation leaves main execution running; **Stop generating** requests cancellation without releasing the slot ahead of final persistence.
 
-`composeSystemPrompt` places these instructions before always-on memory. On-demand memories contribute availability counts until a memory command returns their text. `buildTurnContext` reserves space for the system message, latest user message, and tool results before retaining recent history. It returns a capacity error if mandatory context cannot fit, rather than sending a request without the instructions. Renderer-supplied system text is ignored.
+Conversation regeneration can produce another answer. Regenerating an operational response reuses saved receipt evidence instead of repeating effects.
 
-[`runTurn`](../src/main/runtime/turn.ts) retains this system message across tool rounds, including continuation after an approval decision. Memory is frozen for the turn. Title generation is a separate request with its own prompt; these command instructions apply to chat inference.
+## Workflows and compatibility worker
 
-## Runtime enforcement and limits
+The versioned workflow runner is enabled by default. Set `VERBO_WORKFLOW_V1=0` to select the compatibility worker; `1` also explicitly selects workflows. Both paths use Controller, the existing request gate, registry, approvals, receipts, resources and history. Changing the flag does not replay completed effects or discard pending execution evidence.
 
-The model discovers commands with `capabilities.search`, `capabilities.list`, and `capabilities.describe`, then runs one with `actions.invoke`. The registry validates arguments and applies native policy. An approval decision returns a receipt to the same turn.
+Three versioned, data-only definitions are registered:
 
-The runtime separately blocks a repeated tool name and serialized arguments within a turn, even if the tool-call ID changes. This guard is broader than the prompt's consecutive-repeat rule. It stops with `no_progress` and does not execute the repeated request. Argument serialization is literal; it does not normalize object key order.
+- **Conversational:** one tool-free invocation, published directly.
+- **Commander:** bounded registered-command work, followed by receipt-grounded presentation.
+- **Obsidian:** a local decision and exhaustive write/edit/move/rename/delete routes. Writer creates a managed body reference; Commander integrates or saves it. Edit retains the original path, revision and body reference across read, Writer and save steps.
 
-A turn permits at most eight model rounds and twenty tool requests. Tool results remain in the context for the next model request. Answer text is published only after a complete response with no tool calls. Empty or unreadable replies produce a backend notice.
+Definitions validate schema references, producer availability, branch coverage, forward jumps, model profiles and declared grants. The interpreter owns sequential transitions and terminal settlement. Reserved nested workflow references validate ID/version/contracts, but nested execution returns explicit `not_supported` in V1.
 
-The core rules are model instructions. They do not synthesize an assistant reply if a model returns no text or the turn stops at a guard. Receipts and backend notices remain the authoritative evidence of what ran and what happened.
+Execution revisions, step results, action attempts, turn links and content pins are durable. Continuation validates branch, execution/version/revision, typed answer, target snapshot and approved guidance. Removed/reassigned guidance or changed source files block continuation. Queued input interrupts pending work: a preexisting queued “yes” cannot answer a later question. Interrupted effects require reconciliation and are not replayed automatically.
+
+## Instructions, context and authority
+
+The compatibility worker uses [CORE_INSTRUCTIONS](../src/main/runtime/context-builder.ts). Workflow invocations use immutable host instructions, role instructions and explicit step context/tool/skill selection (CTS). Renderer system text is not authority. Titles and welcome lines retain their separate bounded prompts.
+
+Decision, Conversational and Writer/Responder omit tools from the wire and are denied direct backend dispatch. Commander discovers and invokes registered commands through `capabilities.list`, `capabilities.search`, `capabilities.describe` and `actions.invoke`. Trusted invocation policy survives aliases, composites, recreated registries, private prepared children and approval continuation. Shell, PowerShell and JavaScript evaluation remain prohibited.
+
+Notes have explicit recipients: Decision, Conversational, Writer and Commander. Legacy notes remain editable, unassigned and uninjected until assigned in Settings. New notes visibly default to Conversational. Role context meters reflect the selected audience. Guidance files require explicit scope/audience/hash assignments; installed AGS guidance is never automatically loaded into application agents.
+
+Routing uses bounded cached folder metadata, descriptions and shallow directory names. A named vault resolves through trusted scopes; a sole vault can be selected automatically. Several unnamed vaults require clarification even if a model supplies a plausible alias. Generic default-save settings never choose a vault.
+
+## Budgets, receipts and presentation
+
+The existing tool worker permits eight model rounds and twenty tool requests. A second consecutive equivalent request returns the prior result as feedback; a third stops without execution. Canonical aliases and stable serialization normalize equivalent requests. Differing arguments or intervening work reset the serial guard. Every announced call receives a terminal result, including unattempted calls after cancellation, capacity limits or a trusted terminal result.
+
+Workflow invocations share a turn deadline, sixteen inference admissions with presentation capacity reserved, and twenty tool admissions. Each role also has a bounded model profile. Invalid Commander final JSON can receive one tool-free contract repair; completed effects cannot repeat during that repair. A domain `not_supported` receipt terminates its Obsidian step without another backend search.
+
+Operational presentation uses a frozen outcome from persisted execution and receipts. Writer/Responder must preserve status, receipt IDs, exact findings and required questions. Deterministic fallback handles invalid output, failure, deadlines or cancellation. Worker/decision prose is not final user text. Global routing and workflow stages remain in the durable timeline; newer execution revisions suppress old pending indicators.
+
+## Obsidian boundary and rollout
+
+Canonical vault classification covers generic filesystem operations too: parent aliases, absolute/missing paths, ancestors, nested scopes, batch/undo and both endpoints. Native writes cannot bypass a vault's backend policy. Unknown stored backend/version identities are rejected.
+
+The CLI adapter requires explicit executable/application identity, profile, unique vault mapping and qualification. Read/create/move/rename candidates have disposable fixture evidence. Full edit lacks equivalent revision CAS; vault-local trash does not establish system Recycle Bin equivalence. Cold-vault reads can return empty output with exit code zero; exact verification rejects these. Related note resources are observed within explicit bounds, with truncation reported. Complete effects and atomic undo are not guaranteed.
+
+The user approved activation of the qualified subset on 2026-10-16. Installation-specific activation is read from `obsidian-qualification.json` in Verbo's userData directory; the adapter rechecks executable/application identity before dispatch. Missing, disabled or stale qualification leaves operations unavailable. Unsupported edit/delete retain their branches and precise results. Module-wide passthrough discloses exact invocation and unknown effects; action-only grants cannot become arbitrary CLI authority. No native vault fallback is available.
+
+The wrapper explicitly registers `obsidian.help`, `obsidian.read`, `obsidian.create`, `obsidian.move`, `obsidian.rename`, `obsidian.edit`, `obsidian.delete` and `obsidian.cli`, with individual schemas, help and support limitations. They appear in command discovery and Settings. Typed slash commands bypass model routing:
+
+```text
+/obsidian.help {"vault":"garden","command":"create"}
+/obsidian.read {"vault":"garden","path":"Inbox/Idea.md"}
+/obsidian.create {"vault":"garden","path":"Inbox/New.md","content":"# New note\nText"}
+/obsidian.move {"vault":"garden","path":"Inbox/Idea.md","to":"Archive/Idea.md"}
+/obsidian.rename {"vault":"garden","path":"Archive/Idea.md","to":"Archive/New name.md"}
+```
+
+Replace `garden` with a configured vault scope ID or alias. Obsidian's CLI must be enabled, its vault registry must uniquely match the configured scope, and scope permissions still apply. Create/move/rename require approval. Natural-language workflows retain the measured model limitations (occasional missing actions or unnecessary questions); deterministic slash commands provide direct access to the registered wrapper.
 
 ## Verification
 
-```sh
-pnpm test -- src/main/runtime/turn.test.ts src/main/runtime/ollama-wire.test.ts src/main/services/ollama-tool-stream.test.ts --maxWorkers=2
-```
-
-The tests check instruction retention with trimmed history and memory, stable context across tool rounds, receipt continuation after success/error/denial, repeated-request blocking, and Ollama tool-stream serialization. They use deterministic model fixtures; they do not measure a local model's compliance with the prompt.
+Run tests, both TypeScript checks, lint and electron-vite build. Deterministic fixtures prove lifecycle, authorization and interpreter behavior; they do not establish local-model compliance. Opt-in Qwen routing/composition benchmarks and isolated Obsidian qualification retain per-case evidence under ignored `.tmp/scratch/`. Rendered Electron acceptance uses disposable profiles and covers Stop, queue promotion, reload, injected save failure and actual process-restart recovery without replay.

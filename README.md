@@ -21,7 +21,7 @@ Each turn freezes its instructions, settings, and always-on memory, then keeps a
 
 The model can call four tools: `capabilities.list`, `capabilities.search`, `capabilities.describe`, and `actions.invoke`. They discover and run the same registered commands as human routes. The backend withholds model text until a tool-free response completes and all commands or approvals settle. Tool receipts are stored with the turn.
 
-Every chat inference request includes core instructions to avoid consecutive requests for the same command and arguments, use the returned result, and explain the outcome even after failure or denial. Those instructions remain present with memory and later tool rounds. They guide the model; the runtime separately blocks repeated requests and reports an empty final reply. See [turn instructions and command results](docs/turn-runtime.md).
+The main Controller saves a canonical final response before releasing the queue. A storage failure shows **Retry saving response**; recovery saves the frozen result without rerunning models or commands, including after restart. Versioned workflows handle conversation, commands and Obsidian notes by default; `VERBO_WORKFLOW_V1=0` selects the compatibility worker. Obsidian's explicit command wrappers expose qualified read/create/move/rename operations, with installation-specific activation and normal permissions/approvals. Full edit and system-trash equivalence remain unsupported. See [turn lifecycle and workflows](docs/turn-runtime.md).
 
 ### Conversation history
 
@@ -29,9 +29,11 @@ Create, switch, search by title, rename, archive, and delete conversations from 
 
 ### Memory
 
-`/remember <text>` saves one global memory that later turns can see, and it does so without calling Ollama. Other memories are on demand: they enter a turn only when the model lists or reads them. The always-on global set is capped at about 512 estimated tokens. Settings → Commands → Memory lists, edits, and removes entries; the top-level Memory tab links there. `/memories` opens memory settings. `/forget <id>` removes one entry.
+`/remember <text>` saves a global note for Conversational without calling Ollama. Settings → Commands → Memory lists, edits, and removes entries, and assigns recipients individually or to the displayed unassigned group. Legacy notes stay unassigned and uninjected until you choose recipients; new notes visibly default to Conversational. Always-on context has a budget of about 512 estimated tokens per recipient. Other notes are on demand. The top-level Memory tab and `/memories` open memory settings; `/forget <id>` removes an entry.
 
 ### Files and changes
+
+Folders marked as Obsidian vaults require the qualified Obsidian backend for mutations, including through generic file commands. That integration remains disabled pending rollout acceptance; unsupported operations report their limitation and do not fall back to native writes.
 
 Registered folders are the write boundary. Reads go through the same path checks, including Windows junctions and protected locations. Settings → Commands → Files can list, search, read, stat, hash, inspect, and compare; the top-level Files tab links there. The same actions are available to the model and to `/files` and `/action`. A list or summary reports an observed count and an exact total. The exact total is absent when the scan stops early. Hidden names and folders that are not entered, such as `.git` and `node_modules`, stay out of an exact total and are named in the scan.
 
