@@ -24,6 +24,7 @@ import { reconcileOperations } from "./files/mutation-plan";
 import { closeWebBrowser } from "./web/browser-client";
 import { resolvePublicUrl } from "../shared/public-network";
 import { loadWindowState, rememberWindowState } from "./window-state";
+import { registerReplyNotifications } from "./reply-notifications";
 
 nativeTheme.themeSource = "dark";
 
@@ -60,6 +61,7 @@ function createWindow(): void {
     },
   });
   rememberWindowState(mainWindow, windowStatePath);
+  registerReplyNotifications(mainWindow);
 
   mainWindow.on("ready-to-show", () => {
     if (windowState.maximized) mainWindow?.maximize();

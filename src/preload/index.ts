@@ -77,6 +77,15 @@ const assistantAI: AssistantAI = {
 };
 
 const verbo = {
+  notifications: {
+    onReply(listener: () => void): () => void {
+      const wrapped = (): void => listener();
+      ipcRenderer.on(IPC_CHANNELS.replyNotification, wrapped);
+      return () => {
+        ipcRenderer.removeListener(IPC_CHANNELS.replyNotification, wrapped);
+      };
+    },
+  },
   clipboard: {
     writeText: (text: string): void => {
       ipcRenderer.send(IPC_CHANNELS.clipboardWrite, text);

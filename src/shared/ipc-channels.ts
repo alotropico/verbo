@@ -1,4 +1,5 @@
 export const IPC_CHANNELS = {
+  replyNotification: "verbo:reply:notification",
   commandsReceipt: "verbo:commands:receipt",
   commandsSettings: "verbo:commands:settings",
   commandsSave: "verbo:commands:save",

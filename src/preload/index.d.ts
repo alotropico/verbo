@@ -69,6 +69,9 @@ type MemoryMutation = (
 ) & { usage: MemoryUsage };
 
 type VerboApi = {
+  notifications: {
+    onReply: (listener: () => void) => () => void;
+  };
   clipboard: {
     writeText: (text: string) => void;
   };

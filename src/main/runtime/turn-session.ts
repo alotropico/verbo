@@ -20,7 +20,18 @@ type Session = {
 
 const sessions = new Map<string, Session>();
 const byThread = new Map<string, string>();
+const eventListeners = new Set<(turnId: string, event: ChatEvent) => void>();
 let cancelHandler: ((turnId: string) => void) | null = null;
+
+/** Observes new events across all turns, including turns detached from the UI. */
+export function subscribeTurnEvents(
+  listener: (turnId: string, event: ChatEvent) => void,
+): () => void {
+  eventListeners.add(listener);
+  return () => {
+    eventListeners.delete(listener);
+  };
+}
 
 export function setTurnCancelHandler(
   handler: ((turnId: string) => void) | null,
@@ -45,6 +56,13 @@ export function publishLive(turnId: string, event: ChatEvent): void {
     sequence,
   };
   session.events.push(delivered);
+  for (const listener of eventListeners) {
+    try {
+      listener(turnId, delivered);
+    } catch {
+      // Optional observers must never interrupt turn execution or delivery.
+    }
+  }
   for (const listener of session.listeners) {
     try {
       listener(delivered);
