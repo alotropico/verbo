@@ -105,7 +105,7 @@ describe("production command compatibility", () => {
         description:
           "Plan an ordered list of create, copy, move, rename, and trash items. A directory create can satisfy a later move. Any trash, or two or more items, waits for confirmation. Edits are separate one-file plans. Execution stops on the first failure.",
         syntax:
-          '{items:[{action:"files.create", path, kind:"file"|"directory", content?, format?:"text"|"json"|"markdown"} | {action:"files.copy"|"files.move"|"files.rename", from, to} | {action:"files.trash", path}]}',
+          '{items:[{action:"files.create", path, kind:"file"|"directory", content?, format?:"text"|"json"|"markdown"} | {action:"files.copy"|"files.move"|"files.rename", from, to} | {action:"files.copy"|"files.move", in, toDirectory, formats?, pattern?} | {action:"files.trash", path} | {action:"files.trash", in, formats?, pattern?}]}',
       };
     });
     expect(compatible).toMatchSnapshot();

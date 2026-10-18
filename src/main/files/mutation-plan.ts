@@ -10,6 +10,7 @@ import {
   renameSync,
   rmSync,
   writeFileSync,
+  type Dirent,
 } from "node:fs";
 import { win32 } from "node:path";
 import type { DatabaseSync } from "node:sqlite";
@@ -100,7 +101,12 @@ type RawItem =
       endLine?: number;
       format?: FileFormat;
     }
-  | { kind: "copy" | "move" | "rename"; from: string; to: string }
+  | {
+      kind: "copy" | "move" | "rename";
+      from: string;
+      to: string;
+      disambiguate?: boolean;
+    }
   | { kind: "trash"; from: string };
 
 type SubmitBase = {
@@ -424,7 +430,6 @@ function locate(input: {
       input.purpose,
     );
     if (!contained.ok) continue;
-    if (input.purpose === "write" && !scope.write) continue;
     if (input.purpose === "read" && !scope.read) continue;
     if (
       !best ||
@@ -432,6 +437,13 @@ function locate(input: {
     ) {
       best = { scope, candidate: parsed.path };
     }
+  }
+  if (best && input.purpose === "write" && !best.scope.write) {
+    return {
+      ok: false,
+      code: "write_denied",
+      summary: `${best.scope.alias}: is not writable.`,
+    };
   }
   if (best) return finishLocate(best.scope, best.candidate, input);
   if (input.purpose === "write") {
@@ -674,17 +686,50 @@ function inspectTree(root: string): { ok: true; count: number } | StepFailure {
   return { ok: true, count };
 }
 
-function suggestion(absolute: string): string {
+function suffixedLeaf(absolute: string, index: number): string {
   const extension = win32.extname(absolute);
   const base = win32.basename(absolute, extension);
+  return `${base} (${index})${extension}`;
+}
+
+function suggestion(absolute: string): string {
   for (let index = 2; index < 100; index += 1) {
-    const candidate = win32.join(
-      win32.dirname(absolute),
-      `${base} (${index})${extension}`,
-    );
-    if (!existsSync(candidate)) return `${base} (${index})${extension}`;
+    const leaf = suffixedLeaf(absolute, index);
+    if (!existsSync(win32.join(win32.dirname(absolute), leaf))) return leaf;
   }
-  return `${base} (2)${extension}`;
+  return suffixedLeaf(absolute, 2);
+}
+
+function allocateFreeName(
+  destination: Located,
+  reserved: Set<string>,
+): { ok: true; path: Located } | StepFailure {
+  const directory = win32.dirname(destination.absolute);
+  for (let index = 2; index < 100_000; index += 1) {
+    const leaf = suffixedLeaf(destination.absolute, index);
+    if (!legalSegment(leaf)) break;
+    const absolute = displayFinalPath(win32.join(directory, leaf));
+    const key = comparable(absolute);
+    if (reserved.has(key) || existsSync(absolute)) continue;
+    const slash = destination.display.lastIndexOf("/");
+    const display =
+      slash === -1 ? leaf : `${destination.display.slice(0, slash + 1)}${leaf}`;
+    return {
+      ok: true,
+      path: {
+        absolute,
+        display,
+        exists: false,
+        directory: false,
+        write: destination.write,
+      },
+    };
+  }
+  return {
+    ok: false,
+    code: "collision",
+    summary: `${destination.display} already exists. No free name is available in that folder.`,
+  };
 }
 
 function snapshotFresh(database: DatabaseSync, snapshotId: string): boolean {
@@ -773,7 +818,7 @@ function resultPaths(input: {
     return {
       ok: false,
       code: "too_large",
-      summary: "Narrow the result set below 100 items.",
+      summary: `A result set can change at most ${FILE_MUTATION_LIMITS.maxItems} items. This one is larger, so nothing changed.`,
     };
   }
   const items = store.page(snapshot.id, 0, count, snapshot.sort);
@@ -785,6 +830,279 @@ function resultPaths(input: {
     };
   }
   return { ok: true, paths: items.map((item) => item.absolutePath) };
+}
+
+type FolderSelection = {
+  in: string;
+  formats?: string[];
+  pattern?: string;
+};
+
+function extensionOf(name: string): string {
+  const extension = win32.extname(name);
+  return extension.startsWith(".") ? extension.slice(1).toLowerCase() : "";
+}
+
+function patternMatches(
+  pattern: RegExp,
+  candidates: readonly string[],
+): boolean {
+  return candidates.some((candidate) => {
+    pattern.lastIndex = 0;
+    return pattern.test(candidate);
+  });
+}
+
+function folderSelectionTooLarge(): string {
+  return `A folder selection can change at most ${FILE_MUTATION_LIMITS.maxItems} files. This one is larger, so nothing changed. Narrow with formats or a pattern that matches fewer files. No command selects a larger set.`;
+}
+
+function selectFolder(
+  input: MutationSubmit,
+  selection: FolderSelection,
+):
+  | { ok: true; paths: string[]; absolutes: Map<string, string> }
+  | StepFailure {
+  const root = locate({
+    reference: selection.in,
+    purpose: "read",
+    actor: input.actor,
+    scopes: input.scopes.list(),
+    grants: input.scopes.activeGrants(),
+    allowMissing: false,
+  });
+  if (!root.ok) return root;
+  if (!root.path.exists || !root.path.directory) {
+    return { ok: false, code: "invalid_args", summary: "in must be a folder." };
+  }
+  const formats = (selection.formats ?? []).map((format) =>
+    format.replace(/^\.+/u, "").toLowerCase(),
+  );
+  let expression: RegExp | undefined;
+  if (selection.pattern !== undefined) {
+    try {
+      expression = new RegExp(selection.pattern, "u");
+    } catch {
+      return {
+        ok: false,
+        code: "invalid_args",
+        summary: "pattern must be a valid regex.",
+      };
+    }
+  }
+  const paths: string[] = [];
+  const absolutes = new Map<string, string>();
+  const pending = [root.path.absolute];
+  let examined = 0;
+  while (pending.length > 0) {
+    const directory = pending.pop();
+    if (!directory) break;
+    let listing: Dirent[];
+    try {
+      if (namedReparse(directory)) continue;
+      const stats = lstatSync(directory);
+      if (stats.isSymbolicLink() || !stats.isDirectory()) continue;
+      listing = readdirSync(directory, { withFileTypes: true });
+    } catch {
+      return {
+        ok: false,
+        code: "unreadable",
+        summary: "A folder in that path could not be opened.",
+      };
+    }
+    listing.sort((left, right) =>
+      left.name.localeCompare(right.name, undefined, {
+        sensitivity: "accent",
+      }),
+    );
+    for (const entry of listing) {
+      examined += 1;
+      if (examined > FILE_MUTATION_LIMITS.maxTreeEntries) {
+        return {
+          ok: false,
+          code: "too_large",
+          summary: "That folder is too large to select at once.",
+        };
+      }
+      const absolute = displayFinalPath(win32.join(directory, entry.name));
+      if (namedReparse(absolute) || entry.isSymbolicLink()) continue;
+      if (entry.isDirectory()) {
+        pending.push(absolute);
+        continue;
+      }
+      if (!entry.isFile()) continue;
+      if (formats.length > 0 && !formats.includes(extensionOf(entry.name))) {
+        continue;
+      }
+      const relative = win32
+        .relative(root.path.absolute, absolute)
+        .split("\\")
+        .join("/");
+      const display = `${root.path.display.replace(/[\\/]+$/u, "")}/${relative}`;
+      if (
+        expression &&
+        !patternMatches(expression, [
+          display,
+          relative,
+          absolute,
+          absolute.replace(/\\/gu, "/"),
+        ])
+      ) {
+        continue;
+      }
+      if (paths.length >= FILE_MUTATION_LIMITS.maxItems) {
+        return {
+          ok: false,
+          code: "too_large",
+          summary: folderSelectionTooLarge(),
+        };
+      }
+      paths.push(display);
+      absolutes.set(display, absolute);
+    }
+  }
+  if (paths.length === 0) {
+    return {
+      ok: false,
+      code: "missing",
+      summary: "No files matched that folder.",
+    };
+  }
+  paths.sort((left, right) => left.localeCompare(right));
+  return { ok: true, paths, absolutes };
+}
+
+function folderTransfers(
+  input: MutationSubmit,
+  selection: FolderSelection,
+  toDirectory: string,
+  kind: "copy" | "move",
+):
+  | {
+      ok: true;
+      items: Array<{
+        kind: "copy" | "move";
+        from: string;
+        to: string;
+        disambiguate: true;
+      }>;
+    }
+  | StepFailure {
+  const selected = selectFolder(input, selection);
+  if (!selected.ok) return selected;
+  const items: Array<{
+    kind: "copy" | "move";
+    from: string;
+    to: string;
+    disambiguate: true;
+  }> = [];
+  const directory = locate({
+    reference: toDirectory,
+    purpose: "read",
+    actor: input.actor,
+    scopes: input.scopes.list(),
+    grants: input.scopes.activeGrants(),
+    allowMissing: true,
+  });
+  for (const from of selected.paths) {
+    const to = joinDestination(toDirectory, win32.basename(from));
+    const absolute = selected.absolutes.get(from);
+    const stays =
+      directory.ok && absolute
+        ? comparable(win32.dirname(absolute)) ===
+          comparable(directory.path.absolute)
+        : comparable(from) === comparable(to);
+    if (stays) continue;
+    items.push({ kind, from, to, disambiguate: true });
+  }
+  if (items.length === 0) {
+    return {
+      ok: false,
+      code: "invalid_args",
+      summary: "Those files are already in the destination.",
+    };
+  }
+  if (items.length > FILE_MUTATION_LIMITS.maxItems) {
+    return {
+      ok: false,
+      code: "too_large",
+      summary: folderSelectionTooLarge(),
+    };
+  }
+  return { ok: true, items };
+}
+
+function expandBatch(
+  input: Extract<MutationSubmit, { action: "files.batch" }>,
+): { ok: true; items: RawItem[] } | StepFailure {
+  const items: RawItem[] = [];
+  for (const item of input.args.items) {
+    if (item.action === "files.create") {
+      items.push(
+        item.kind === "directory"
+          ? { kind: "create_directory", to: item.path }
+          : {
+              kind: "create_file",
+              to: item.path,
+              content: item.content ?? "",
+              ...(item.format ? { format: item.format } : {}),
+            },
+      );
+      continue;
+    }
+    if (item.action === "files.trash") {
+      if (item.in) {
+        const selected = selectFolder(input, {
+          in: item.in,
+          formats: item.formats,
+          pattern: item.pattern,
+        });
+        if (!selected.ok) return selected;
+        for (const from of selected.paths) items.push({ kind: "trash", from });
+        continue;
+      }
+      items.push({ kind: "trash", from: item.path ?? "" });
+      continue;
+    }
+    if (item.action === "files.edit") {
+      const { action, path, ...edit } = item;
+      items.push({
+        kind: action.slice("files.".length) as "edit",
+        from: path,
+        ...edit,
+      });
+      continue;
+    }
+    if (item.in) {
+      if (item.action === "files.rename") {
+        return {
+          ok: false,
+          code: "invalid_args",
+          summary: "Rename needs an explicit destination for each file.",
+        };
+      }
+      const transferred = folderTransfers(
+        input,
+        { in: item.in, formats: item.formats, pattern: item.pattern },
+        item.toDirectory ?? "",
+        item.action === "files.copy" ? "copy" : "move",
+      );
+      if (!transferred.ok) return transferred;
+      items.push(...transferred.items);
+      continue;
+    }
+    const kind = item.action.slice("files.".length) as
+      "copy" | "move" | "rename";
+    items.push({ kind, from: item.from ?? "", to: item.to ?? "" });
+  }
+  if (items.length > FILE_MUTATION_LIMITS.maxItems) {
+    return {
+      ok: false,
+      code: "too_large",
+      summary: `One operation can change at most ${FILE_MUTATION_LIMITS.maxItems} items. This plan is larger, so nothing changed.`,
+    };
+  }
+  return { ok: true, items };
 }
 
 function normalize(
@@ -865,6 +1183,18 @@ function normalize(
         items: paths.paths.map((from) => ({ kind: "trash" as const, from })),
       };
     }
+    if (input.args.in) {
+      const selected = selectFolder(input, {
+        in: input.args.in,
+        formats: input.args.formats,
+        pattern: input.args.pattern,
+      });
+      if (!selected.ok) return selected;
+      return {
+        ok: true,
+        items: selected.paths.map((from) => ({ kind: "trash" as const, from })),
+      };
+    }
     const paths =
       input.args.paths ?? (input.args.path ? [input.args.path] : []);
     return {
@@ -872,35 +1202,25 @@ function normalize(
       items: paths.map((from) => ({ kind: "trash" as const, from })),
     };
   }
-  if (input.action === "files.batch") {
-    return {
-      ok: true,
-      items: input.args.items.map((item) => {
-        if (item.action === "files.create") {
-          return item.kind === "directory"
-            ? { kind: "create_directory" as const, to: item.path }
-            : {
-                kind: "create_file" as const,
-                to: item.path,
-                content: item.content ?? "",
-                ...(item.format ? { format: item.format } : {}),
-              };
-        }
-        if (item.action === "files.trash")
-          return { kind: "trash" as const, from: item.path };
-        if (item.action === "files.edit") {
-          const { action, path, ...edit } = item;
-          return {
-            kind: action.slice("files.".length) as "edit",
-            from: path,
-            ...edit,
-          };
-        }
-        const kind = item.action.slice("files.".length) as
-          "copy" | "move" | "rename";
-        return { kind, from: item.from, to: item.to };
-      }),
-    };
+  if (input.action === "files.batch") return expandBatch(input);
+  if (input.args.in) {
+    if (input.action === "files.rename") {
+      return {
+        ok: false,
+        code: "invalid_args",
+        summary: "Rename needs an explicit destination for each file.",
+      };
+    }
+    return folderTransfers(
+      input,
+      {
+        in: input.args.in,
+        formats: input.args.formats,
+        pattern: input.args.pattern,
+      },
+      input.args.toDirectory ?? "",
+      input.action === "files.copy" ? "copy" : "move",
+    );
   }
   if (input.args.resultSet) {
     if (input.action === "files.rename") {
@@ -926,6 +1246,7 @@ function normalize(
         kind,
         from,
         to: joinDestination(directory, win32.basename(from)),
+        disambiguate: true,
       })),
     };
   }
@@ -1035,6 +1356,7 @@ type Planned = {
   before: Fingerprint;
   expected: Record<string, unknown>;
   descendants: number;
+  rejection?: { code: string; summary: string };
 };
 
 function preflight(
@@ -1139,7 +1461,7 @@ function preflight(
 
   for (const [index, item] of resolved.entries()) {
     const source = item.source;
-    const destination = item.destination;
+    let destination = item.destination;
     const dependency = source
       ? produced.get(comparable(source.absolute))
       : undefined;
@@ -1200,9 +1522,20 @@ function preflight(
       }
     }
     if (destination) {
-      const key = comparable(destination.absolute);
+      let key = comparable(destination.absolute);
       const sameFile = source ? comparable(source.absolute) === key : false;
-      if (destinations.has(key) || (destination.exists && !sameFile)) {
+      const taken = destinations.has(key) || (destination.exists && !sameFile);
+      if (
+        taken &&
+        (item.raw.kind === "copy" || item.raw.kind === "move") &&
+        item.raw.disambiguate
+      ) {
+        const freed = allocateFreeName(destination, destinations);
+        if (!freed.ok) return freed;
+        destination = freed.path;
+        item.destination = freed.path;
+        key = comparable(destination.absolute);
+      } else if (taken) {
         return {
           ok: false,
           code: "collision",
@@ -1263,7 +1596,31 @@ function preflight(
       risks,
       dependency,
     );
-    if (!planned.ok) return planned;
+    if (!planned.ok) {
+      if (
+        planned.code === "too_large" &&
+        raw.length > 1 &&
+        source &&
+        destination
+      ) {
+        destinations.delete(comparable(destination.absolute));
+        items.push({
+          kind: item.raw.kind,
+          sourcePath: source.absolute,
+          destinationPath: destination.absolute,
+          sourceDisplay: source.display,
+          destinationDisplay: destination.display,
+          content: null,
+          format: null,
+          before: capture(source.absolute),
+          expected: { descendants: 0 },
+          descendants: 0,
+          rejection: { code: planned.code, summary: planned.summary },
+        });
+        continue;
+      }
+      return planned;
+    }
     if (dependency && source) {
       planned.item.expected.dependency = dependency.index;
       planned.item.expected.initialSource = capture(source.absolute);
@@ -1455,7 +1812,7 @@ function materialize(
       return {
         ok: false,
         code: "too_large",
-        summary: "That file is too large to transfer.",
+        summary: `${source.display} is ${before.size} bytes. The transfer limit is ${FILE_MUTATION_LIMITS.maxFileBytes} bytes.`,
       };
     }
     const tree = dependency
@@ -1882,6 +2239,7 @@ async function executeStored(
   const registry = registryForDatabase(database);
   let executionFailure: StepFailure | undefined;
   for (const item of loaded) {
+    if (item.status !== "planned") continue;
     // Let cancellation and scope-change IPC run between native effects.
     await new Promise<void>((resolve) => setImmediate(resolve));
     if (store.cancelRequested(operationId)) {
@@ -2117,15 +2475,27 @@ async function executeStored(
           ? "succeeded"
           : "failed";
   const failedItem = items.find((item) => item.status === "failed");
+  const reported = [
+    executionFailure?.summary,
+    ...items.flatMap((item) =>
+      item.status === "failed" && item.errorSummary ? [item.errorSummary] : [],
+    ),
+  ]
+    .filter((line): line is string => Boolean(line))
+    .filter((line, index, all) => all.indexOf(line) === index)
+    .join(" ");
+  const counts = `${succeeded} succeeded, ${failed} failed, ${notAttempted} not attempted.`;
   const summary = cancelled
-    ? `Cancelled: ${succeeded} succeeded, ${failed} failed, ${notAttempted} not attempted.`
+    ? `Cancelled: ${counts}`
     : status === "partial"
-      ? `Partial: ${succeeded} succeeded, ${failed} failed, ${notAttempted} not attempted. ${executionFailure?.summary ?? failedItem?.errorSummary ?? ""}`
-          .trim()
-          .slice(0, 4000)
-      : status === "failed"
-        ? (failedItem?.errorSummary ?? "The file change failed.")
-        : initial.summary.replace(" needs confirmation.", ".");
+      ? `Partial: ${counts} ${reported}`.trim().slice(0, 4000)
+      : status === "failed" && items.length > 1
+        ? `${counts} ${reported || "The file change failed."}`
+            .trim()
+            .slice(0, 4000)
+        : status === "failed"
+          ? (failedItem?.errorSummary ?? "The file change failed.")
+          : initial.summary.replace(" needs confirmation.", ".");
   const code =
     status === "succeeded"
       ? undefined
@@ -2212,17 +2582,46 @@ export async function submitFileMutation(
       failure(input.action, plannedItems.code, plannedItems.summary),
     );
   }
-  const approval = needsApproval(input.action, plannedItems.items)
+  const executable = plannedItems.items.filter((item) => !item.rejection);
+  if (executable.length === 0) {
+    const rejected = plannedItems.items.flatMap((item) =>
+      item.rejection ? [item.rejection.summary] : [],
+    );
+    return audit(
+      input.database,
+      input,
+      input.action,
+      failure(
+        input.action,
+        plannedItems.items.every((item) => item.rejection?.code === "too_large")
+          ? "too_large"
+          : "failed",
+        `0 succeeded, ${plannedItems.items.length} failed, 0 not attempted. ${rejected.join(" ")}`.slice(
+          0,
+          4000,
+        ),
+      ),
+    );
+  }
+  const approval = needsApproval(input.action, executable)
     ? "required"
     : "auto";
   for (const item of plannedItems.items) {
     item.expected = { ...item.expected, backend: "native", backendVersion: 1 };
   }
   const verb = input.action.replace("files.", "");
-  const summary =
+  const rejected = plannedItems.items.flatMap((item) =>
+    item.rejection ? [item.rejection.summary] : [],
+  );
+  const failureNote =
+    rejected.length > 0
+      ? ` ${rejected.length} failed: ${rejected.join(" ")}`
+      : "";
+  const summary = (
     approval === "required"
-      ? `${verb} ${plannedItems.items.length} item${plannedItems.items.length === 1 ? "" : "s"} needs confirmation.`
-      : `${verb} ${plannedItems.items.length} item${plannedItems.items.length === 1 ? "" : "s"}.`;
+      ? `${verb} ${executable.length} item${executable.length === 1 ? "" : "s"} needs confirmation.${failureNote}`
+      : `${verb} ${executable.length} item${executable.length === 1 ? "" : "s"}.${failureNote}`
+  ).slice(0, 4000);
   const plan = operations.insert({
     id: input.receiptId,
     threadId: input.threadId,
@@ -2246,13 +2645,20 @@ export async function submitFileMutation(
       format: item.format,
       beforeJson: JSON.stringify(item.before),
       expectedJson: JSON.stringify(item.expected),
+      ...(item.rejection
+        ? {
+            status: "failed" as const,
+            errorCode: item.rejection.code,
+            errorSummary: item.rejection.summary,
+          }
+        : {}),
     })),
   });
   if (approval === "required") {
     return audit(
       input.database,
       input,
-      requestSummary(input.action, plannedItems.items),
+      requestSummary(input.action, executable),
       publish(
         input.action,
         summary,
@@ -2283,7 +2689,7 @@ export async function submitFileMutation(
     return audit(
       input.database,
       input,
-      requestSummary(input.action, plannedItems.items),
+      requestSummary(input.action, executable),
       await executeStored(input.database, plan.id, input.scopes),
     );
   } finally {
@@ -2520,6 +2926,7 @@ async function decideNativeOperation(input: {
     );
   }
   for (const item of items) {
+    if (item.status === "failed") continue;
     const expected = JSON.parse(item.expectedJson) as {
       dependency?: number;
       initialSource?: Fingerprint;

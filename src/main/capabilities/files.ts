@@ -187,7 +187,7 @@ export const fileQueryCommands: CommandDefinition[] = [
     id: "files.list",
     aliases: ["ls", "directory"],
     description:
-      "List accessible descendants of one folder, without a subfolder-depth limit. entryType directories counts only folders. Folder size is null. pageSize defaults to 20. Pass cursor for the next page. Relay counts.directories and counts.files from the result, including exactTotal null when the bounded scan is incomplete. Hidden entries, .git, and node_modules are skipped unless includeHidden is set; .git and node_modules are still not entered. When scan.complete is true, scan.omitted still names hidden and skipped-descent entries left out of an exact total.",
+      "Query page, not a mutation source. Do not page this to build files.move, files.copy, files.trash, or files.batch items when that command syntax includes {in}. Lists accessible descendants of one folder, without a subfolder-depth limit. entryType directories counts only folders. Folder size is null. pageSize defaults to 20. Pass cursor for the next page. Relay counts.directories and counts.files from the result, including exactTotal null when the bounded scan is incomplete. Hidden entries, .git, and node_modules are skipped unless includeHidden is set; .git and node_modules are still not entered. When scan.complete is true, scan.omitted still names hidden and skipped-descent entries left out of an exact total.",
     kind: "read",
     approval: "none",
     args: filesListArgsSchema,
@@ -208,7 +208,7 @@ export const fileQueryCommands: CommandDefinition[] = [
     id: "files.search",
     aliases: ["find", "locate"],
     description:
-      "Search accessible descendants of one folder by file name or UTF-8 text, without a subfolder-depth limit. Scans retain entry, time and content limits. mode filename does not read contents. mode content returns one bounded snippet per file unless groupBy is match. Pass the same arguments plus cursor for the next page.",
+      "Query page, not a mutation source. Do not page this to build mutation items when the mutation syntax includes {in}, formats, or pattern. Search accessible descendants of one folder by file name or UTF-8 text, without a subfolder-depth limit. Scans retain entry, time and content limits. mode filename does not read contents. mode content returns one bounded snippet per file unless groupBy is match. Pass the same arguments plus cursor for the next page.",
     kind: "read",
     approval: "none",
     args: filesSearchArgsSchema,

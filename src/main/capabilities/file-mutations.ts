@@ -8,6 +8,7 @@ import {
   filesBatchArgsSchema,
   filesCreateArgsSchema,
   filesEditArgsSchema,
+  filesRenameArgsSchema,
   filesTrashArgsSchema,
   filesTransferArgsSchema,
   filesUndoArgsSchema,
@@ -94,7 +95,7 @@ export function fileMutationBindings(
       return submitFileMutation({
         ...opened,
         action: "files.rename",
-        args: filesTransferArgsSchema.parse(args),
+        args: filesRenameArgsSchema.parse(args),
       });
     },
     "files.trash": async (args, context): Promise<ActionResult> => {
@@ -184,13 +185,14 @@ export const fileMutationCommands: CommandDefinition[] = [
     id: "files.copy",
     aliases: ["duplicate", "cp"],
     description:
-      "Copy a file or folder into a writable alias. The source may be read-only. One collision-free copy runs immediately. Multiple copies, or a resultSet, wait for confirmation. No silent overwrite.",
+      "Copy. Widest: {in, toDirectory, formats?, pattern?} copies every nested file under in. Else {resultSet, toDirectory}, {items:[{from, to}]}, or {from, to}. Source may be read-only. formats: extensions, case insensitive. pattern: path regex. {in, toDirectory} and {resultSet, toDirectory} store a taken name as name (2).ext, then (3), until free. One copy runs now. Several, or a resultSet, wait for confirmation. No silent overwrite.",
     kind: "mutation",
     approval: "none",
     args: filesTransferArgsSchema,
-    syntax: "{from, to} or {items:[{from, to}]} or {resultSet, toDirectory}",
-    example: { from: "tmp:/note.md", to: "tmp:/copy.md" },
-    tags: [],
+    syntax:
+      "{in, toDirectory, formats?, pattern?} or {resultSet, toDirectory} or {items:[{from, to}]} or {from, to}",
+    example: { in: "tmp:/Inbox", toDirectory: "tmp:/Copies" },
+    tags: ["nested", "subfolder", "subfolders"],
     parameterHelp: {},
     execution: { type: "handler", handler: "files.copy" },
     output: actionResultSchema,
@@ -206,13 +208,14 @@ export const fileMutationCommands: CommandDefinition[] = [
     id: "files.move",
     aliases: ["relocate", "mv"],
     description:
-      "Move a file or folder between writable aliases. One collision-free move runs immediately. Multiple moves, or a resultSet plus toDirectory, wait for confirmation. Cross-volume moves copy, then send the original to the Recycle Bin.",
+      "Move. Widest: {in, toDirectory, formats?, pattern?} moves every nested file under in into toDirectory; the same folder flattens. Else {resultSet, toDirectory}, {items:[{from, to}]}, {from, to}, or files.batch. formats: extensions, case insensitive. pattern: path regex. A path already at the destination stays. {in, toDirectory} and {resultSet, toDirectory} store a taken name as name (2).ext, then (3), until free. One move runs now. Several wait for confirmation. Cross-volume: copy, then Recycle Bin the source.",
     kind: "mutation",
     approval: "none",
     args: filesTransferArgsSchema,
-    syntax: "{from, to} or {items:[{from, to}]} or {resultSet, toDirectory}",
-    example: { from: "tmp:/Inbox/a.md", to: "tmp:/Sorted/a.md" },
-    tags: [],
+    syntax:
+      "{in, toDirectory, formats?, pattern?} or {resultSet, toDirectory} or {items:[{from, to}]} or {from, to}",
+    example: { in: "tmp:/agent-files", toDirectory: "tmp:/agent-files" },
+    tags: ["flatten", "nested", "subfolder", "subfolders"],
     parameterHelp: {},
     execution: { type: "handler", handler: "files.move" },
     output: actionResultSchema,
@@ -233,10 +236,10 @@ export const fileMutationCommands: CommandDefinition[] = [
         "Ordered source and destination pairs; confirmation binds the exact native plan.",
     },
     description:
-      "Rename a file or folder inside its current folder. One collision-free rename runs immediately. Several renames wait for confirmation. Changing folders is files.move. Swaps and cycles are rejected.",
+      "Rename inside the current folder. Not a flatten. Changing folders is files.move {in, toDirectory}. One collision-free rename runs now. Several wait for confirmation. Each file needs its own from and to. Swaps and cycles are rejected.",
     kind: "mutation",
     approval: "none",
-    args: filesTransferArgsSchema,
+    args: filesRenameArgsSchema,
     syntax: "{from, to} or {items:[{from, to}]} or {resultSet, toDirectory}",
     example: { from: "tmp:/draft.md", to: "tmp:/final.md" },
     execution: { type: "handler", handler: "files.rename" },
@@ -253,13 +256,14 @@ export const fileMutationCommands: CommandDefinition[] = [
     id: "files.trash",
     aliases: ["recycle", "discard"],
     description:
-      "Send files or folders to the Recycle Bin. Always waits for confirmation, including a single file. Failure leaves the item in place. There is no permanent delete.",
+      "Trash to Recycle Bin. Widest: {in, formats?, pattern?} every nested file under in. Else {resultSet}, {paths:[path]}, or {path}. formats: extensions, case insensitive. pattern: path regex. Always waits for confirmation. Failure leaves the item. No permanent delete.",
     kind: "mutation",
     approval: "required",
     args: filesTrashArgsSchema,
-    syntax: "{path} or {paths:[path]} or {resultSet}",
-    example: { path: "tmp:/old.md" },
-    tags: [],
+    syntax:
+      "{in, formats?, pattern?} or {resultSet} or {paths:[path]} or {path}",
+    example: { in: "tmp:/old", formats: ["md"] },
+    tags: ["nested", "subfolder", "subfolders"],
     parameterHelp: {},
     execution: { type: "handler", handler: "files.trash" },
     output: actionResultSchema,
@@ -275,16 +279,19 @@ export const fileMutationCommands: CommandDefinition[] = [
     id: "files.batch",
     aliases: ["bulk", "group"],
     description:
-      "Plan an ordered list of create, edit, copy, move, rename, and trash items. Later items can use files and folders produced by earlier items. One confirmation covers the immutable ordered plan. Execution stops on the first failure.",
+      'Ordered plan of create, edit, copy, move, rename, and trash. Prefer one item {action:"files.move"|"files.copy", in, toDirectory, formats?, pattern?} or {action:"files.trash", in, formats?, pattern?} over a path list. Explicit {from, to} and {path} remain. formats: extensions, case insensitive. pattern: path regex. Later items may use paths earlier items create. One confirmation. Stops on first failure.',
     kind: "mutation",
     approval: "required",
     args: filesBatchArgsSchema,
     syntax:
-      '{items:[{action:"files.create", path, kind:"file"|"directory", content?, format?:"text"|"json"|"markdown"} | {action:"files.edit", path, mode:"full"|"replace"|"lines", content?, find?, replace?, expectedMatches?, startLine?, endLine?, format?} | {action:"files.copy"|"files.move"|"files.rename", from, to} | {action:"files.trash", path}]}',
+      '{items:[{action:"files.copy"|"files.move", in, toDirectory, formats?, pattern?} | {action:"files.trash", in, formats?, pattern?} | {action:"files.copy"|"files.move"|"files.rename", from, to} | {action:"files.trash", path} | {action:"files.create", path, kind:"file"|"directory", content?, format?:"text"|"json"|"markdown"} | {action:"files.edit", path, mode:"full"|"replace"|"lines", content?, find?, replace?, expectedMatches?, startLine?, endLine?, format?}]}',
     example: {
       items: [
-        { action: "files.create", kind: "directory", path: "tmp:/Sorted" },
-        { action: "files.move", from: "tmp:/a.md", to: "tmp:/Sorted/a.md" },
+        {
+          action: "files.move",
+          in: "tmp:/agent-files",
+          toDirectory: "tmp:/agent-files",
+        },
       ],
     },
     tags: [],

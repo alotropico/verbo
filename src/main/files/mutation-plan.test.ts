@@ -1,7 +1,10 @@
 import {
+  closeSync,
   existsSync,
+  ftruncateSync,
   mkdirSync,
   mkdtempSync,
+  openSync,
   readFileSync,
   renameSync,
   rmSync,
@@ -60,6 +63,15 @@ function database(): DatabaseSync {
   databases.push(db);
   migrateDatabase(db, VERBO_MIGRATIONS);
   return db;
+}
+
+function sparse(path: string, size: number): void {
+  const handle = openSync(path, "w");
+  try {
+    ftruncateSync(handle, size);
+  } finally {
+    closeSync(handle);
+  }
 }
 
 function folder(name: string): string {
@@ -430,6 +442,13 @@ describe("file mutations", () => {
       to: "notes:/stay.txt",
     });
     expect(moved.code).toBe("write_denied");
+    expect(moved.summary).toContain("locked:");
+    const absolute = await invoke(db, "files.move", {
+      from: join(source, "stay.txt"),
+      to: join(source, "moved.txt"),
+    });
+    expect(absolute.code).toBe("write_denied");
+    expect(absolute.summary).toContain("locked:");
     expect(existsSync(join(source, "stay.txt"))).toBe(true);
   });
 
@@ -806,5 +825,353 @@ describe("file mutations", () => {
         },
       ]),
     ).toBe(false);
+  });
+
+  it("stores a flattened name as the next free suffix", async () => {
+    const root = folder("verbo-flatten-suffix-");
+    const db = register(root);
+    mkdirSync(join(root, "sub"));
+    writeFileSync(join(root, "00-document-map.md"), "root");
+    writeFileSync(join(root, "00-document-map (2).md"), "second");
+    writeFileSync(join(root, "sub", "00-document-map.md"), "nested");
+    const moved = await invoke(db, "files.move", {
+      in: "notes:/",
+      toDirectory: "notes:/",
+    });
+    expect(moved.status).toBe("success");
+    expect(readFileSync(join(root, "00-document-map.md"), "utf8")).toBe("root");
+    expect(readFileSync(join(root, "00-document-map (2).md"), "utf8")).toBe(
+      "second",
+    );
+    expect(readFileSync(join(root, "00-document-map (3).md"), "utf8")).toBe(
+      "nested",
+    );
+    expect(existsSync(join(root, "sub", "00-document-map.md"))).toBe(false);
+
+    mkdirSync(join(root, "a"));
+    mkdirSync(join(root, "b"));
+    writeFileSync(join(root, "a", "note.md"), "aaa");
+    writeFileSync(join(root, "b", "note.md"), "bbb");
+    writeFileSync(join(root, "note.md"), "root-note");
+    const pending = await invoke(db, "files.move", {
+      in: "notes:/",
+      toDirectory: "notes:/",
+    });
+    expect(pending.status).toBe("requires_confirmation");
+    expect(pending.totalItems).toBe(2);
+    expect(pending.preview?.join("\n")).toContain("note (2).md");
+    expect(pending.preview?.join("\n")).toContain("note (3).md");
+    expect((await approve(db, pending.operationId ?? "")).status).toBe(
+      "success",
+    );
+    expect(readFileSync(join(root, "note.md"), "utf8")).toBe("root-note");
+    expect(readFileSync(join(root, "note (2).md"), "utf8")).toBe("aaa");
+    expect(readFileSync(join(root, "note (3).md"), "utf8")).toBe("bbb");
+    expect(existsSync(join(root, "a", "note.md"))).toBe(false);
+    expect(existsSync(join(root, "b", "note.md"))).toBe(false);
+
+    const explicit = await invoke(db, "files.move", {
+      from: "notes:/note (2).md",
+      to: "notes:/note.md",
+    });
+    expect(explicit.code).toBe("collision");
+    expect(readFileSync(join(root, "note.md"), "utf8")).toBe("root-note");
+    expect(readFileSync(join(root, "note (2).md"), "utf8")).toBe("aaa");
+  });
+
+  it("leaves root files in place when a flatten names the folder by absolute path", async () => {
+    const root = folder("verbo-flatten-absolute-");
+    const db = register(root);
+    mkdirSync(join(root, "sub"));
+    writeFileSync(join(root, "report.md"), "root");
+    writeFileSync(join(root, "sub", "report.md"), "nested");
+    sparse(join(root, "huge.bin"), FILE_MUTATION_LIMITS.maxFileBytes + 1);
+    const moved = await invoke(db, "files.move", {
+      in: root,
+      toDirectory: root,
+    });
+    expect(moved.status).toBe("success");
+    expect(readFileSync(join(root, "report.md"), "utf8")).toBe("root");
+    expect(readFileSync(join(root, "report (2).md"), "utf8")).toBe("nested");
+    expect(existsSync(join(root, "sub", "report.md"))).toBe(false);
+    expect(existsSync(join(root, "huge.bin"))).toBe(true);
+  });
+
+  it("copies a taken folder-selection name to the next free suffix", async () => {
+    const root = folder("verbo-copy-suffix-");
+    const db = register(root);
+    mkdirSync(join(root, "sub"));
+    writeFileSync(join(root, "only.md"), "root");
+    writeFileSync(join(root, "sub", "only.md"), "nested");
+    const copied = await invoke(db, "files.copy", {
+      in: "notes:/",
+      toDirectory: "notes:/",
+    });
+    expect(copied.status).toBe("success");
+    expect(readFileSync(join(root, "only.md"), "utf8")).toBe("root");
+    expect(readFileSync(join(root, "only (2).md"), "utf8")).toBe("nested");
+    expect(readFileSync(join(root, "sub", "only.md"), "utf8")).toBe("nested");
+  });
+
+  it("renames a result-set move when the kept name is taken", async () => {
+    const root = folder("verbo-set-suffix-");
+    const db = register(root);
+    mkdirSync(join(root, "sub"));
+    mkdirSync(join(root, "out"));
+    writeFileSync(join(root, "out", "only.md"), "taken");
+    writeFileSync(join(root, "out", "only (2).md"), "second");
+    writeFileSync(join(root, "sub", "only.md"), "nested");
+    const listed = await invoke(db, "files.list", {
+      root: "notes:/sub",
+      entryType: "files",
+      pageSize: 20,
+    });
+    const detail = JSON.parse(listed.detail ?? "{}") as { resultSet?: string };
+    const pending = await invoke(db, "files.move", {
+      resultSet: detail.resultSet,
+      toDirectory: "notes:/out",
+    });
+    const moved =
+      pending.status === "success"
+        ? pending
+        : await approve(db, pending.operationId ?? "");
+    expect(moved.status).toBe("success");
+    expect(readFileSync(join(root, "out", "only.md"), "utf8")).toBe("taken");
+    expect(readFileSync(join(root, "out", "only (2).md"), "utf8")).toBe(
+      "second",
+    );
+    expect(readFileSync(join(root, "out", "only (3).md"), "utf8")).toBe(
+      "nested",
+    );
+    expect(existsSync(join(root, "sub", "only.md"))).toBe(false);
+  });
+
+  it("moves nested files from a folder selection and keeps other formats", async () => {
+    const root = folder("verbo-folder-move-");
+    const db = register(root);
+    mkdirSync(join(root, "sub", "nested"), { recursive: true });
+    writeFileSync(join(root, "stay.txt"), "root");
+    writeFileSync(join(root, "sub", "a.MD"), "markdown");
+    writeFileSync(join(root, "sub", "nested", "b.txt"), "text");
+    writeFileSync(join(root, "sub", "c.png"), "image");
+    const pending = await invoke(db, "files.move", {
+      in: "notes:/",
+      toDirectory: "notes:/",
+      formats: ["md", ".TXT"],
+    });
+    expect(pending.status).toBe("requires_confirmation");
+    expect(pending.totalItems).toBe(2);
+    expect((await approve(db, pending.operationId ?? "")).status).toBe(
+      "success",
+    );
+    expect(readFileSync(join(root, "a.MD"), "utf8")).toBe("markdown");
+    expect(readFileSync(join(root, "b.txt"), "utf8")).toBe("text");
+    expect(readFileSync(join(root, "stay.txt"), "utf8")).toBe("root");
+    expect(existsSync(join(root, "sub", "a.MD"))).toBe(false);
+    expect(existsSync(join(root, "sub", "nested", "b.txt"))).toBe(false);
+    expect(existsSync(join(root, "sub", "c.png"))).toBe(true);
+    expect(existsSync(join(root, "sub"))).toBe(true);
+  });
+
+  it("copies files whose relative path matches a regex", async () => {
+    const root = folder("verbo-folder-pattern-");
+    const db = register(root);
+    mkdirSync(join(root, "keep", "nested"), { recursive: true });
+    mkdirSync(join(root, "out"));
+    writeFileSync(join(root, "keep", "skip.md"), "no");
+    writeFileSync(join(root, "keep", "nested", "yes.md"), "yes");
+    const pending = await invoke(db, "files.copy", {
+      in: "notes:/keep",
+      toDirectory: "notes:/out",
+      pattern: "nested/.*\\.md$",
+    });
+    expect(pending.totalItems).toBe(1);
+    const copied =
+      pending.status === "success"
+        ? pending
+        : await approve(db, pending.operationId ?? "");
+    expect(copied.status).toBe("success");
+    expect(readFileSync(join(root, "out", "yes.md"), "utf8")).toBe("yes");
+    expect(existsSync(join(root, "keep", "nested", "yes.md"))).toBe(true);
+    expect(existsSync(join(root, "out", "skip.md"))).toBe(false);
+  });
+
+  it("trashes a folder selection from a batch item", async () => {
+    const root = folder("verbo-folder-batch-");
+    const db = register(root);
+    mkdirSync(join(root, "old"));
+    writeFileSync(join(root, "old", "gone.txt"), "x");
+    writeFileSync(join(root, "old", "keep.md"), "y");
+    const pending = await invoke(db, "files.batch", {
+      items: [
+        {
+          action: "files.trash",
+          in: "notes:/old",
+          formats: ["txt"],
+        },
+      ],
+    });
+    expect(pending.status).toBe("requires_confirmation");
+    expect((await approve(db, pending.operationId ?? "")).status).toBe(
+      "success",
+    );
+    expect(existsSync(join(root, "old", "gone.txt"))).toBe(false);
+    expect(existsSync(join(root, "old", "gone.txt.trashed"))).toBe(true);
+    expect(existsSync(join(root, "old", "keep.md"))).toBe(true);
+  });
+
+  it("rejects a folder selection that is not a folder, an invalid pattern, or too many files", async () => {
+    const root = folder("verbo-folder-reject-");
+    const db = register(root);
+    writeFileSync(join(root, "note.md"), "x");
+    expect(
+      (
+        await invoke(db, "files.move", {
+          in: "notes:/note.md",
+          toDirectory: "notes:/",
+        })
+      ).summary,
+    ).toContain("in must be a folder");
+    expect(
+      (
+        await invoke(db, "files.move", {
+          in: "notes:/",
+          toDirectory: "notes:/out",
+          pattern: "(",
+        })
+      ).summary,
+    ).toContain("pattern must be a valid regex");
+    expect(
+      (
+        await invoke(db, "files.rename", {
+          in: "notes:/",
+          toDirectory: "notes:/",
+        })
+      ).code,
+    ).toBe("invalid_args");
+    for (let index = 0; index < FILE_MUTATION_LIMITS.maxItems + 1; index += 1) {
+      writeFileSync(join(root, `n${index}.txt`), "x");
+    }
+    const oversized = await invoke(db, "files.trash", {
+      in: "notes:/",
+      formats: ["txt"],
+    });
+    expect(oversized.code).toBe("too_large");
+    expect(oversized.summary).toBe(
+      `A folder selection can change at most ${FILE_MUTATION_LIMITS.maxItems} files. This one is larger, so nothing changed. Narrow with formats or a pattern that matches fewer files. No command selects a larger set.`,
+    );
+    expect(existsSync(join(root, "n0.txt"))).toBe(true);
+  });
+
+  it("holds a full folder selection for confirmation and rejects one more file before moving", async () => {
+    const root = folder("verbo-flatten-limit-");
+    const nested = join(root, "nested");
+    mkdirSync(nested);
+    const db = register(root);
+    for (let index = 0; index < FILE_MUTATION_LIMITS.maxItems; index += 1)
+      writeFileSync(join(nested, `n${index}.txt`), "x");
+    const accepted = await invoke(db, "files.move", {
+      in: "notes:/",
+      toDirectory: "notes:/",
+    });
+    expect(accepted.status).toBe("requires_confirmation");
+    expect(existsSync(join(nested, "n0.txt"))).toBe(true);
+    expect(existsSync(join(root, "n0.txt"))).toBe(false);
+
+    const larger = folder("verbo-flatten-over-");
+    const largerNested = join(larger, "nested");
+    mkdirSync(largerNested);
+    const largerDb = register(larger);
+    for (let index = 0; index < FILE_MUTATION_LIMITS.maxItems + 1; index += 1)
+      writeFileSync(join(largerNested, `n${index}.txt`), "x");
+    const rejected = await invoke(largerDb, "files.move", {
+      in: "notes:/",
+      toDirectory: "notes:/",
+    });
+    expect(rejected).toMatchObject({
+      status: "error",
+      code: "too_large",
+      summary: `A folder selection can change at most ${FILE_MUTATION_LIMITS.maxItems} files. This one is larger, so nothing changed. Narrow with formats or a pattern that matches fewer files. No command selects a larger set.`,
+    });
+    expect(existsSync(join(largerNested, "n0.txt"))).toBe(true);
+    expect(existsSync(join(larger, "n0.txt"))).toBe(false);
+  });
+
+  it("names the transfer limit and the file size when one file is too large", async () => {
+    const root = folder("verbo-transfer-one-");
+    const db = register(root);
+    const size = FILE_MUTATION_LIMITS.maxFileBytes + 1;
+    sparse(join(root, "big.bin"), size);
+    const result = await invoke(db, "files.move", {
+      from: "notes:/big.bin",
+      to: "notes:/out.bin",
+    });
+    expect(result).toMatchObject({ status: "error", code: "too_large" });
+    expect(result.summary).toContain(`${size} bytes`);
+    expect(result.summary).toContain(
+      `${FILE_MUTATION_LIMITS.maxFileBytes} bytes`,
+    );
+    expect(existsSync(join(root, "big.bin"))).toBe(true);
+    expect(existsSync(join(root, "out.bin"))).toBe(false);
+  });
+
+  it("moves the other nested files when one file exceeds the transfer limit", async () => {
+    const root = folder("verbo-transfer-bulk-");
+    const nested = join(root, "nested");
+    mkdirSync(nested);
+    const db = register(root);
+    const size = FILE_MUTATION_LIMITS.maxFileBytes + 1;
+    writeFileSync(join(nested, "a.txt"), "a");
+    writeFileSync(join(nested, "b.txt"), "b");
+    sparse(join(nested, "big.bin"), size);
+    const pending = await invoke(db, "files.move", {
+      in: "notes:/",
+      toDirectory: "notes:/",
+    });
+    expect(pending.status).toBe("requires_confirmation");
+    expect(pending.summary).toContain(`${size} bytes`);
+    expect(pending.summary).toContain(
+      `${FILE_MUTATION_LIMITS.maxFileBytes} bytes`,
+    );
+    expect(existsSync(join(nested, "a.txt"))).toBe(true);
+
+    const moved = await approve(db, pending.operationId ?? "");
+    expect(moved.status).toBe("partial");
+    expect(moved.summary).toContain("2 succeeded, 1 failed, 0 not attempted");
+    expect(moved.summary).toContain(`${size} bytes`);
+    expect(moved.summary).toContain(
+      `${FILE_MUTATION_LIMITS.maxFileBytes} bytes`,
+    );
+    expect(readFileSync(join(root, "a.txt"), "utf8")).toBe("a");
+    expect(readFileSync(join(root, "b.txt"), "utf8")).toBe("b");
+    expect(existsSync(join(nested, "a.txt"))).toBe(false);
+    expect(existsSync(join(nested, "b.txt"))).toBe(false);
+    expect(existsSync(join(nested, "big.bin"))).toBe(true);
+    expect(existsSync(join(root, "big.bin"))).toBe(false);
+  });
+
+  it("reports every oversized file when none of a folder move can transfer", async () => {
+    const root = folder("verbo-transfer-none-");
+    const nested = join(root, "nested");
+    mkdirSync(nested);
+    const db = register(root);
+    const larger = FILE_MUTATION_LIMITS.maxFileBytes + 1;
+    const largest = FILE_MUTATION_LIMITS.maxFileBytes + 64;
+    sparse(join(nested, "big.bin"), larger);
+    sparse(join(nested, "bigger.bin"), largest);
+    const result = await invoke(db, "files.move", {
+      in: "notes:/",
+      toDirectory: "notes:/",
+    });
+    expect(result).toMatchObject({ status: "error", code: "too_large" });
+    expect(result.summary).toContain("0 succeeded, 2 failed, 0 not attempted");
+    expect(result.summary).toContain(`${larger} bytes`);
+    expect(result.summary).toContain(`${largest} bytes`);
+    expect(result.summary).toContain(
+      `${FILE_MUTATION_LIMITS.maxFileBytes} bytes`,
+    );
+    expect(existsSync(join(nested, "big.bin"))).toBe(true);
+    expect(existsSync(join(nested, "bigger.bin"))).toBe(true);
+    expect(existsSync(join(root, "big.bin"))).toBe(false);
   });
 });

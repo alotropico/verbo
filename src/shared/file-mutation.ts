@@ -1,9 +1,9 @@
 import { z } from "zod";
 
 export const FILE_MUTATION_LIMITS = {
-  maxItems: 100,
+  maxItems: 1000,
   maxContentChars: 256 * 1024,
-  maxFileBytes: 32 * 1024 * 1024,
+  maxFileBytes: 320 * 1024 * 1024,
   maxTreeEntries: 4000,
   planTtlMs: 15 * 60 * 1000,
   maxPlans: 32,
@@ -14,6 +14,48 @@ export const FILE_MUTATION_LIMITS = {
 
 const fileRef = z.string().trim().min(1).max(1024);
 const fileFormatSchema = z.enum(["text", "json", "markdown"]);
+const formatSchema = z
+  .string()
+  .trim()
+  .min(1)
+  .max(32)
+  .regex(
+    /^\.?[A-Za-z0-9][A-Za-z0-9+_-]*$/u,
+    "A format is an extension such as md or .txt.",
+  );
+const formatsSchema = z.array(formatSchema).min(1).max(32);
+const pathPatternSchema = z.string().trim().min(1).max(256);
+
+function refinePathPattern(
+  pattern: string | undefined,
+  context: { addIssue: (issue: { code: "custom"; message: string }) => void },
+): void {
+  if (pattern === undefined) return;
+  try {
+    new RegExp(pattern, "u");
+  } catch {
+    context.addIssue({
+      code: "custom",
+      message: "pattern must be a valid regex.",
+    });
+  }
+}
+
+function refineFolderFilters(
+  value: { in?: string; formats?: string[]; pattern?: string },
+  context: { addIssue: (issue: { code: "custom"; message: string }) => void },
+): void {
+  if (
+    value.in === undefined &&
+    (value.formats !== undefined || value.pattern !== undefined)
+  ) {
+    context.addIssue({
+      code: "custom",
+      message: "formats and pattern belong to a folder selection.",
+    });
+  }
+  refinePathPattern(value.pattern, context);
+}
 
 const createItemSchema = z
   .object({
@@ -132,6 +174,62 @@ export const filesTransferArgsSchema = z
       .optional(),
     resultSet: z.string().uuid().optional(),
     toDirectory: fileRef.optional(),
+    in: fileRef.optional(),
+    formats: formatsSchema.optional(),
+    pattern: pathPatternSchema.optional(),
+  })
+  .strict()
+  .superRefine((value, context) => {
+    const pair = value.from !== undefined || value.to !== undefined;
+    const folder = value.in !== undefined;
+    const modes =
+      Number(pair) +
+      Number(value.items !== undefined) +
+      Number(value.resultSet !== undefined) +
+      Number(folder);
+    if (modes !== 1) {
+      context.addIssue({
+        code: "custom",
+        message:
+          "Provide one from/to pair, an items list, a resultSet, or a folder selection.",
+      });
+      return;
+    }
+    if (pair && (value.from === undefined || value.to === undefined)) {
+      context.addIssue({
+        code: "custom",
+        message: "A transfer needs both from and to.",
+      });
+    }
+    if ((value.resultSet || folder) && value.toDirectory === undefined) {
+      context.addIssue({
+        code: "custom",
+        message: folder
+          ? "A folder selection needs toDirectory."
+          : "A resultSet transfer needs toDirectory.",
+      });
+    }
+    if (!value.resultSet && !folder && value.toDirectory !== undefined) {
+      context.addIssue({
+        code: "custom",
+        message:
+          "toDirectory is only valid with a resultSet or a folder selection.",
+      });
+    }
+    refineFolderFilters(value, context);
+  });
+
+export const filesRenameArgsSchema = z
+  .object({
+    from: fileRef.optional(),
+    to: fileRef.optional(),
+    items: z
+      .array(transferPairSchema)
+      .min(1)
+      .max(FILE_MUTATION_LIMITS.maxItems)
+      .optional(),
+    resultSet: z.string().uuid().optional(),
+    toDirectory: fileRef.optional(),
   })
   .strict()
   .superRefine((value, context) => {
@@ -176,6 +274,9 @@ export const filesTrashArgsSchema = z
       .max(FILE_MUTATION_LIMITS.maxItems)
       .optional(),
     resultSet: z.string().uuid().optional(),
+    in: fileRef.optional(),
+    formats: formatsSchema.optional(),
+    pattern: pathPatternSchema.optional(),
   })
   .strict()
   .superRefine((value, context) => {
@@ -183,29 +284,91 @@ export const filesTrashArgsSchema = z
       value.path !== undefined,
       value.paths !== undefined,
       value.resultSet !== undefined,
+      value.in !== undefined,
     ].filter(Boolean).length;
     if (modes !== 1) {
       context.addIssue({
         code: "custom",
-        message: "Provide one path, a paths list, or a resultSet.",
+        message:
+          "Provide one path, a paths list, a resultSet, or a folder selection.",
       });
+      return;
     }
+    refineFolderFilters(value, context);
   });
 
 const batchCreateSchema = createItemSchema
   .extend({ action: z.literal("files.create") })
   .strict();
-const batchTransferSchema = transferPairSchema
-  .extend({
+const batchTransferSchema = z
+  .object({
     action: z.enum(["files.copy", "files.move", "files.rename"]),
+    from: fileRef.optional(),
+    to: fileRef.optional(),
+    in: fileRef.optional(),
+    toDirectory: fileRef.optional(),
+    formats: formatsSchema.optional(),
+    pattern: pathPatternSchema.optional(),
   })
-  .strict();
+  .strict()
+  .superRefine((value, context) => {
+    const pair = value.from !== undefined || value.to !== undefined;
+    const folder = value.in !== undefined;
+    if (Number(pair) + Number(folder) !== 1) {
+      context.addIssue({
+        code: "custom",
+        message: "Provide from and to, or a folder selection.",
+      });
+      return;
+    }
+    if (pair && (value.from === undefined || value.to === undefined)) {
+      context.addIssue({
+        code: "custom",
+        message: "A transfer needs both from and to.",
+      });
+    }
+    if (pair && value.toDirectory !== undefined) {
+      context.addIssue({
+        code: "custom",
+        message: "toDirectory belongs to a folder selection.",
+      });
+    }
+    if (folder && value.action === "files.rename") {
+      context.addIssue({
+        code: "custom",
+        message: "Rename needs an explicit destination for each file.",
+      });
+    }
+    if (folder && value.toDirectory === undefined) {
+      context.addIssue({
+        code: "custom",
+        message: "A folder selection needs toDirectory.",
+      });
+    }
+    refineFolderFilters(value, context);
+  });
 const batchTrashSchema = z
   .object({
     action: z.literal("files.trash"),
-    path: fileRef,
+    path: fileRef.optional(),
+    in: fileRef.optional(),
+    formats: formatsSchema.optional(),
+    pattern: pathPatternSchema.optional(),
   })
-  .strict();
+  .strict()
+  .superRefine((value, context) => {
+    if (
+      Number(value.path !== undefined) + Number(value.in !== undefined) !==
+      1
+    ) {
+      context.addIssue({
+        code: "custom",
+        message: "Provide one path or a folder selection.",
+      });
+      return;
+    }
+    refineFolderFilters(value, context);
+  });
 const batchEditSchema = filesEditArgsSchema.safeExtend({
   action: z.literal("files.edit"),
 });

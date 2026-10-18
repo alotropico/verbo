@@ -27,6 +27,9 @@ export type NewOperationItem = {
   format: string | null;
   beforeJson: string;
   expectedJson: string;
+  status?: ItemStatus;
+  errorCode?: string | null;
+  errorSummary?: string | null;
 };
 
 export type StoredPlan = {
@@ -250,8 +253,8 @@ export function createOperationStore(database: DatabaseSync) {
           `INSERT INTO operation_items (
              id, operation_id, item_index, kind, source_path, destination_path,
              source_display, destination_display, content, format, before_json,
-             expected_json, status
-           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'planned')`,
+             expected_json, status, error_code, error_summary
+           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         );
         input.items.forEach((item, index) => {
           insertItem.run(
@@ -267,6 +270,9 @@ export function createOperationStore(database: DatabaseSync) {
             item.format,
             item.beforeJson,
             item.expectedJson,
+            item.status ?? "planned",
+            item.errorCode ?? null,
+            item.errorSummary ?? null,
           );
         });
         database.exec("COMMIT");
