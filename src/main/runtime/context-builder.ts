@@ -1,8 +1,8 @@
 import type { MemorySnapshot } from "../../shared/memory";
+import { COMMAND_SELECTION } from "../agents/command-selection";
 import { estimateTokens } from "../services/history-trim";
 
-export const CORE_INSTRUCTIONS =
-  "You are Verbo, a local assistant. Talk freely. Decide yourself whether the request needs a registered action. If it does, find it with capabilities.search instead of listing each category, then use capabilities.describe and actions.invoke. capabilities.list still lists one known category. Otherwise answer in conversation and do not call a tool. Each listed, searched, or described action includes syntax. Pass actions.invoke args that match that syntax; quoted values are the only allowed values. Never request the same command with the same arguments twice in a row, even with a different tool-call ID. Use the returned result instead of immediately repeating the request, including after a failure. Always provide a user-facing message explaining the command result, even when it fails, is denied, or cannot run. Report an action only with the status the tool returned; never claim success without a confirming result. Relay counts; null unknown. Do not request a shell, PowerShell, or filesystem path outside a registered action.";
+export const CORE_INSTRUCTIONS = `You are Verbo, a local assistant. Talk freely. Decide yourself whether the request needs a registered action. If it does, find it with capabilities.search instead of listing each category. When that result includes syntax covering the target, call actions.invoke next. capabilities.describe only if syntax or example is missing. capabilities.list still lists one known category. Otherwise answer in conversation and do not call a tool. Each listed, searched, or described action includes syntax. ${COMMAND_SELECTION} Pass actions.invoke args that match that syntax; quoted values are the only allowed values. Never request the same command with the same arguments twice in a row, even with a different tool-call ID. Use the returned result instead of immediately repeating the request, including after a failure. Always provide a user-facing message explaining the command result, even when it fails, is denied, or cannot run. Report an action only with the status the tool returned; never claim success without a confirming result. Relay counts; null unknown. Do not request a shell, PowerShell, or filesystem path outside a registered action.`;
 
 export type ContextToolCall = {
   id: string;
@@ -91,6 +91,87 @@ function messageTokens(message: ContextMessage): number {
 
 export function contextTokens(messages: readonly ContextMessage[]): number {
   return messages.reduce((sum, message) => sum + messageTokens(message), 0);
+}
+
+function compactResultData(data: unknown): Record<string, unknown> | undefined {
+  if (!data || typeof data !== "object" || Array.isArray(data))
+    return undefined;
+  const kept: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(data)) {
+    if (key === "items" && Array.isArray(value)) {
+      kept.items = value.slice(0, 40).map((item) => {
+        if (!item || typeof item !== "object") return item;
+        const row = item as Record<string, unknown>;
+        return {
+          ...(typeof row.path === "string" ? { path: row.path } : {}),
+          ...(typeof row.type === "string" ? { type: row.type } : {}),
+        };
+      });
+      continue;
+    }
+    if (key === "matches" || key === "entries") continue;
+    if (
+      value === null ||
+      typeof value === "string" ||
+      typeof value === "number" ||
+      typeof value === "boolean"
+    ) {
+      kept[key] = value;
+      continue;
+    }
+    if (key === "page" || key === "counts" || key === "scan") kept[key] = value;
+  }
+  return Object.keys(kept).length > 0 ? kept : undefined;
+}
+
+/** Shorten a tool payload once the live turn no longer has room for every page. */
+export function compactToolResult(content: string): string {
+  try {
+    const parsed = JSON.parse(content) as {
+      action?: unknown;
+      status?: unknown;
+      summary?: unknown;
+      code?: unknown;
+      receiptId?: unknown;
+      operationId?: unknown;
+      data?: unknown;
+    };
+    if (typeof parsed.summary !== "string")
+      return content.length > 500 ? `${content.slice(0, 497)}...` : content;
+    const data = compactResultData(parsed.data);
+    return JSON.stringify({
+      ...(typeof parsed.action === "string" ? { action: parsed.action } : {}),
+      ...(typeof parsed.status === "string" ? { status: parsed.status } : {}),
+      summary: parsed.summary.slice(0, 500),
+      ...(typeof parsed.code === "string" ? { code: parsed.code } : {}),
+      ...(typeof parsed.receiptId === "string"
+        ? { receiptId: parsed.receiptId }
+        : {}),
+      ...(typeof parsed.operationId === "string"
+        ? { operationId: parsed.operationId }
+        : {}),
+      ...(data ? { data } : {}),
+    });
+  } catch {
+    return content.length > 500 ? `${content.slice(0, 497)}...` : content;
+  }
+}
+
+export function fitToolMessages(
+  messages: ContextMessage[],
+  budget: number,
+): void {
+  if (contextTokens(messages) <= budget) return;
+  const toolIndexes = messages.flatMap((message, index) =>
+    message.role === "tool" ? [index] : [],
+  );
+  for (const index of [...toolIndexes.slice(0, -1), ...toolIndexes.slice(-1)]) {
+    const message = messages[index];
+    if (!message || message.role !== "tool") continue;
+    const compact = compactToolResult(message.content);
+    if (compact.length < message.content.length) message.content = compact;
+    if (contextTokens(messages) <= budget) return;
+  }
 }
 
 function historyGroups(history: readonly ContextMessage[]): ContextMessage[][] {

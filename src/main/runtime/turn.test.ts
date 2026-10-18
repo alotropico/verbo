@@ -5,6 +5,7 @@ import { platformCapability } from "../capabilities/environment";
 import { createRegistry, type Capability } from "../capabilities/registry";
 import {
   buildTurnContext,
+  compactToolResult,
   composeSystemPrompt,
   CORE_INSTRUCTIONS,
   contextTokens,
@@ -118,6 +119,125 @@ describe("turn context", () => {
     expect(result.results[1]?.code).toBe("unattempted");
     expect(effects).toBe(1);
     expect(inferences).toBe(1);
+  });
+  it("compacts older tool pages so a later result still fits", async () => {
+    const payload = "x".repeat(1600);
+    const page = (n: number): string =>
+      JSON.stringify({
+        action: "files.fixture",
+        status: "success",
+        summary: "Listed entries.",
+        data: {
+          items: [
+            {
+              path: "desktop:/agent-files/note.md",
+              type: "file",
+              modified: payload,
+              n,
+            },
+          ],
+        },
+      });
+    const call = (id: string, n: number) =>
+      ({
+        role: "assistant",
+        content: "",
+        toolCalls: [
+          {
+            id,
+            name: "actions.invoke",
+            arguments: { name: "files.fixture", args: { n } },
+          },
+        ],
+      }) as const;
+    const fullPair = contextTokens([
+      { role: "system", content: CORE_INSTRUCTIONS },
+      { role: "user", content: "List" },
+      call("call-1", 1),
+      { role: "tool", toolName: "actions.invoke", content: page(1) },
+      call("call-2", 2),
+      { role: "tool", toolName: "actions.invoke", content: page(2) },
+    ]);
+    const fitted = contextTokens([
+      { role: "system", content: CORE_INSTRUCTIONS },
+      { role: "user", content: "List" },
+      call("call-1", 1),
+      {
+        role: "tool",
+        toolName: "actions.invoke",
+        content: compactToolResult(page(1)),
+      },
+      call("call-2", 2),
+      { role: "tool", toolName: "actions.invoke", content: page(2) },
+    ]);
+    const registry = createRegistry([
+      {
+        id: "files.fixture",
+        description: "Fixture",
+        args: z.object({ n: z.number() }).strict(),
+        kind: "read",
+        approval: "none",
+        example: { n: 1 },
+        execute: (args) => ({
+          action: "files.fixture",
+          status: "success",
+          summary: "Listed entries.",
+          data: {
+            items: [
+              {
+                path: "desktop:/agent-files/note.md",
+                type: "file",
+                modified: payload,
+                n: args.n,
+              },
+            ],
+          },
+        }),
+      },
+    ]);
+    const seen: string[][] = [];
+    const result = await runTurn({
+      userText: "List",
+      history: [],
+      numCtx: Math.ceil((fitted + 24) / 0.75),
+      context: { actor: "model", threadId: "thread" },
+      gate: createRequestGate(),
+      registry,
+      model: async (messages) => {
+        seen.push(
+          messages.flatMap((message) =>
+            message.role === "tool" ? [message.content] : [],
+          ),
+        );
+        if (seen.length < 3) {
+          return [
+            {
+              message: {
+                tool_calls: [
+                  {
+                    id: `call-${seen.length}`,
+                    function: {
+                      name: "actions.invoke",
+                      arguments: {
+                        name: "files.fixture",
+                        args: { n: seen.length },
+                      },
+                    },
+                  },
+                ],
+              },
+              done: true,
+            },
+          ];
+        }
+        return [{ message: { content: "done" }, done: true }];
+      },
+    });
+    expect(fullPair).toBeGreaterThan(Math.floor(((fitted + 24) / 0.75) * 0.75));
+    expect(result.stop).toBe("completed");
+    expect(seen[2]?.[0]).not.toContain(payload);
+    expect(seen[2]?.[0]).toContain("desktop:/agent-files/note.md");
+    expect(seen[2]?.[1]).toContain(payload);
   });
   it("drops renderer system text and trims old history before the latest user message", () => {
     const built = buildTurnContext({
@@ -511,6 +631,299 @@ describe("turn runner", () => {
       undefined,
       "duplicate_feedback",
       "unattempted",
+    ]);
+  });
+
+  it("stops an alternating discovery loop with the size rejection", async () => {
+    const rejection =
+      "A folder selection can change at most 100 files. This one is larger, so nothing changed. Narrow with formats or a pattern that matches fewer files. No command selects a larger set.";
+    let moves = 0;
+    let step = 0;
+    const registry = createRegistry([
+      {
+        id: "files.move",
+        description: "Move",
+        args: z.object({ in: z.string(), toDirectory: z.string() }).strict(),
+        kind: "mutation",
+        approval: "none",
+        example: { in: "tmp:/a", toDirectory: "tmp:/a" },
+        execute: () => {
+          moves += 1;
+          return {
+            action: "files.move",
+            status: "error",
+            code: "too_large",
+            summary: rejection,
+            resourceCount: 0,
+          };
+        },
+      },
+    ]);
+    const outcome = await runTurn({
+      userText: "Flatten",
+      history: [],
+      numCtx: 8192,
+      context: { actor: "model", threadId: "thread-1" },
+      gate: createRequestGate(),
+      registry,
+      model: async () => {
+        step += 1;
+        const call =
+          step === 1
+            ? {
+                name: "actions.invoke",
+                arguments: {
+                  name: "files.move",
+                  args: {
+                    in: "C:\\Users\\Leandro\\Desktop\\agent-files",
+                    toDirectory: "C:\\Users\\Leandro\\Desktop\\agent-files",
+                  },
+                },
+              }
+            : {
+                name: "capabilities.list",
+                arguments:
+                  step % 2 === 0
+                    ? { category: "files" }
+                    : {
+                        category: "C:\\Users\\Leandro\\Desktop\\agent-files",
+                      },
+              };
+        return [
+          {
+            message: {
+              role: "assistant",
+              content: "",
+              tool_calls: [
+                {
+                  function: {
+                    index: 0,
+                    name: call.name,
+                    arguments: call.arguments,
+                  },
+                },
+              ],
+            },
+            done: true,
+          },
+        ];
+      },
+    });
+    expect(outcome.stop).toBe("no_progress");
+    expect(outcome.summary).toBe(rejection);
+    expect(moves).toBe(1);
+    expect(outcome.toolRequests).toBe(3);
+    expect(outcome.rounds).toBe(4);
+    expect(outcome.results.map((result) => result.code)).toEqual([
+      "too_large",
+      undefined,
+      "unknown_category",
+      "unattempted",
+    ]);
+  });
+
+  it("does not execute the same failed invoke again after another call", async () => {
+    const rejection =
+      "A folder selection can change at most 100 files. This one is larger, so nothing changed.";
+    let moves = 0;
+    let step = 0;
+    const registry = createRegistry([
+      {
+        id: "files.move",
+        description: "Move",
+        args: z
+          .object({
+            in: z.string(),
+            toDirectory: z.string(),
+            pattern: z.string().optional(),
+          })
+          .strict(),
+        kind: "mutation",
+        approval: "none",
+        example: { in: "tmp:/a", toDirectory: "tmp:/a" },
+        execute: () => {
+          moves += 1;
+          return {
+            action: "files.move",
+            status: "error",
+            code: "too_large",
+            summary: rejection,
+            resourceCount: 0,
+          };
+        },
+      },
+    ]);
+    const outcome = await runTurn({
+      userText: "Flatten",
+      history: [],
+      numCtx: 8192,
+      context: { actor: "model", threadId: "thread-1" },
+      gate: createRequestGate(),
+      registry,
+      model: async () => {
+        step += 1;
+        const args =
+          step === 2
+            ? {
+                in: "C:\\temp\\agent-files",
+                toDirectory: "C:\\temp\\agent-files",
+                pattern: ".*",
+              }
+            : {
+                in: "C:\\temp\\agent-files",
+                toDirectory: "C:\\temp\\agent-files",
+              };
+        return [
+          {
+            message: {
+              role: "assistant",
+              content: "",
+              tool_calls: [
+                {
+                  function: {
+                    index: 0,
+                    name: "actions.invoke",
+                    arguments: { name: "files.move", args },
+                  },
+                },
+              ],
+            },
+            done: true,
+          },
+        ];
+      },
+    });
+    expect(outcome.stop).toBe("no_progress");
+    expect(outcome.summary).toBe(rejection);
+    expect(moves).toBe(2);
+    expect(outcome.results.map((result) => result.code)).toEqual([
+      "too_large",
+      "too_large",
+      "unattempted",
+    ]);
+  });
+
+  it("treats a legacy list path as the same discovery call", async () => {
+    let step = 0;
+    const registry = createRegistry([
+      {
+        id: "files.fixture",
+        description: "Fixture",
+        args: z.object({}).strict(),
+        kind: "read",
+        approval: "none",
+        example: {},
+        execute: () => ({
+          action: "files.fixture",
+          status: "success",
+          summary: "unused",
+        }),
+      },
+    ]);
+    const outcome = await runTurn({
+      userText: "List",
+      history: [],
+      numCtx: 8192,
+      context: { actor: "model", threadId: "thread-1" },
+      gate: createRequestGate(),
+      registry,
+      model: async () => {
+        step += 1;
+        return [
+          {
+            message: {
+              role: "assistant",
+              content: "",
+              tool_calls: [
+                {
+                  function: {
+                    index: 0,
+                    name: "capabilities.list",
+                    arguments:
+                      step % 2 === 1
+                        ? { category: "files" }
+                        : { path: "files" },
+                  },
+                },
+              ],
+            },
+            done: true,
+          },
+        ];
+      },
+    });
+    expect(outcome.stop).toBe("no_progress");
+    expect(outcome.toolRequests).toBe(2);
+    expect(outcome.results.map((result) => result.code)).toEqual([
+      undefined,
+      "duplicate_feedback",
+      "unattempted",
+    ]);
+  });
+
+  it("still runs alternating reads that are not repeated discovery", async () => {
+    let step = 0;
+    const registry = createRegistry([
+      {
+        id: "files.list",
+        description: "List",
+        args: z.object({ cursor: z.string().optional() }).strict(),
+        kind: "read",
+        approval: "none",
+        example: {},
+        execute: (args) => ({
+          action: "files.list",
+          status: "success",
+          summary: `Page ${String(args.cursor ?? "1")}`,
+        }),
+      },
+    ]);
+    const outcome = await runTurn({
+      userText: "Read pages",
+      history: [],
+      numCtx: 8192,
+      context: { actor: "model", threadId: "thread-1" },
+      gate: createRequestGate(),
+      registry,
+      model: async () => {
+        step += 1;
+        if (step > 3) {
+          return [
+            {
+              message: { role: "assistant", content: "Done." },
+              done: true,
+            },
+          ];
+        }
+        return [
+          {
+            message: {
+              role: "assistant",
+              content: "",
+              tool_calls: [
+                {
+                  function: {
+                    index: 0,
+                    name: "actions.invoke",
+                    arguments: {
+                      name: "files.list",
+                      args: { cursor: step % 2 === 0 ? "b" : "a" },
+                    },
+                  },
+                },
+              ],
+            },
+            done: true,
+          },
+        ];
+      },
+    });
+    expect(outcome.stop).toBe("completed");
+    expect(outcome.content).toBe("Done.");
+    expect(outcome.results.map((result) => result.summary)).toEqual([
+      "Page a",
+      "Page b",
+      "Page a",
     ]);
   });
 

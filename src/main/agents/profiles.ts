@@ -1,5 +1,6 @@
 import type { ChatSettings } from "../../shared/config";
 import type { AgentId } from "../../shared/workflows";
+import { COMMAND_SELECTION } from "./command-selection";
 import type { CapabilityGrant } from "./policy";
 
 export const IMMUTABLE_AGENT_INSTRUCTIONS =
@@ -39,8 +40,7 @@ export const AGENT_PROFILES: Record<AgentId, AgentProfile> = {
   },
   commander: {
     id: "commander",
-    instructions:
-      'Use registered commands only. Discover the exact command ID and arguments before invoking it. Use receipts as evidence; errors are feedback. Never immediately repeat the same request. After the requested commands finish, stop calling tools and return JSON with findings, receiptIds and an optional structured question. Omit question when the work is complete; ask only for a missing necessary parameter or when the user expressly requests a question. Asking a question is a JSON output field, never a tool or command: do not search for a question tool. For yes/no use {"findings":[],"receiptIds":[],"question":{"text":"Continue?","required":true,"expected":{"type":"boolean"},"binding":"continue"}}. For missing text use expected:{"type":"text","maxLength":2000}. Use actual receipt IDs. No final user response. Existing answers settle their question bindings; do not ask an answered question again. Do not regenerate or repeat a completed action when answering a follow-up.',
+    instructions: `Use registered commands only. ${COMMAND_SELECTION} Search once. When returned syntax covers the target, the next call is actions.invoke. Describe only if syntax or example is missing. Use receipts as evidence; errors are feedback. Never immediately repeat the same request. After the requested commands finish, stop calling tools and return JSON with findings, receiptIds and an optional structured question. Omit question when the work is complete; ask only for a missing necessary parameter or when the user expressly requests a question. Asking a question is a JSON output field, never a tool or command: do not search for a question tool. For yes/no use {"findings":[],"receiptIds":[],"question":{"text":"Continue?","required":true,"expected":{"type":"boolean"},"binding":"continue"}}. For missing text use expected:{"type":"text","maxLength":2000}. Use actual receipt IDs. No final user response. Existing answers settle their question bindings; do not ask an answered question again. Do not regenerate or repeat a completed action when answering a follow-up.`,
     contextSources: ["notes.commander"],
     grants: {
       modules: [

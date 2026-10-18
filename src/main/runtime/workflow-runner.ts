@@ -45,6 +45,7 @@ import {
 import {
   deterministicPresentation,
   freezeWorkflowOutcome,
+  PRESENTATION_INSTRUCTION,
   presentationSchema,
   validatePresentation,
 } from "./workflow-outcome";
@@ -222,6 +223,45 @@ export async function runWorkflowTurn(
   }
   routingStage("succeeded", routed.value);
   const decision = routed.value;
+  const present = async (
+    outcome: ReturnType<typeof freezeWorkflowOutcome>,
+    stop: ChatTurnStop,
+  ): Promise<string> => {
+    const fallback = deterministicPresentation(outcome);
+    input.checkpointPresentation(fallback, stop);
+    if (budget.signal.aborted) return fallback;
+    try {
+      const cts = resolveCTS({
+        invocationId: randomUUID(),
+        agentId: "writer",
+        ceiling: { modules: [], actions: [] },
+        sources: notes("writer"),
+        trustedInstructions: PRESENTATION_INSTRUCTION,
+      });
+      const response = await invoke({
+        agentId: "writer",
+        modelProfileId: "responder",
+        configured: input.settings,
+        cts,
+        value: outcome,
+        outputSchema: presentationSchema,
+        outputJsonSchema: z.toJSONSchema(presentationSchema),
+        registry: input.registry,
+        context: {
+          actor: "model",
+          threadId: envelope.threadId,
+          turnId: envelope.turnId,
+        },
+        gate: input.gate,
+        budget,
+        presentation: true,
+      });
+      return validatePresentation(outcome, response.output) ?? fallback;
+    } catch {
+      /* The frozen result is sufficient; presentation never repeats effects. */
+      return fallback;
+    }
+  };
   let execution: WorkflowExecution;
   let resuming = false;
   if (decision.kind === "clarify") {
@@ -253,10 +293,12 @@ export async function runWorkflowTurn(
     if (execution.status !== "running") {
       const outcome = freezeWorkflowOutcome(database, execution);
       emit({ type: "execution", execution: executionSummary(execution) });
-      emit({ type: "delta", text: deterministicPresentation(outcome) });
-      return {
-        stop: execution.status === "cancelled" ? "cancelled" : "completed",
-      };
+      const stop: ChatTurnStop =
+        execution.status === "cancelled" ? "cancelled" : "completed";
+      const text = await present(outcome, stop);
+      persist("assistant_text", { content: text });
+      emit({ type: "delta", text });
+      return { stop };
     }
     resuming = true;
   } else {
@@ -918,42 +960,7 @@ export async function runWorkflowTurn(
   emit({ type: "execution", execution: executionSummary(execution) });
   const stop: ChatTurnStop =
     execution.status === "cancelled" ? "cancelled" : "completed";
-  const fallback = deterministicPresentation(outcome);
-  input.checkpointPresentation(fallback, stop);
-  let text = fallback;
-  if (!budget.signal.aborted) {
-    try {
-      const cts = resolveCTS({
-        invocationId: randomUUID(),
-        agentId: "writer",
-        ceiling: { modules: [], actions: [] },
-        sources: notes("writer"),
-        trustedInstructions:
-          "Present the frozen outcome. Select/reorder short findings verbatim using findingIndex; include any exact required question. Copy status and receipt IDs. No new effect claims or resources.",
-      });
-      const response = await invoke({
-        agentId: "writer",
-        modelProfileId: "responder",
-        configured: input.settings,
-        cts,
-        value: outcome,
-        outputSchema: presentationSchema,
-        outputJsonSchema: z.toJSONSchema(presentationSchema),
-        registry: input.registry,
-        context: {
-          actor: "model",
-          threadId: envelope.threadId,
-          turnId: envelope.turnId,
-        },
-        gate: input.gate,
-        budget,
-        presentation: true,
-      });
-      text = validatePresentation(outcome, response.output) ?? fallback;
-    } catch {
-      /* The frozen result is sufficient; presentation never repeats effects. */
-    }
-  }
+  const text = await present(outcome, stop);
   persist("assistant_text", { content: text });
   emit({ type: "delta", text });
   return { stop };

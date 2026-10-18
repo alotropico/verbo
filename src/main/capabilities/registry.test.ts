@@ -152,11 +152,24 @@ describe("capability registry", () => {
     const listed = await dispatchModelTool(
       registry,
       "capabilities.list",
-      { path: "environment" },
+      { category: "environment" },
       context,
     );
     expect(listed.status).toBe("success");
+    expect(listed.summary).toContain(
+      "Listed command definitions in category 'environment'",
+    );
     expect(listed.detail).toContain("environment.platform");
+    const legacy = await dispatchModelTool(
+      registry,
+      "capabilities.list",
+      { path: "environment" },
+      context,
+    );
+    expect(legacy.status).toBe("success");
+    expect(JSON.parse(legacy.detail ?? "{}")).toMatchObject({
+      category: "environment",
+    });
     const invoked = await dispatchModelTool(
       registry,
       "actions.invoke",
@@ -181,6 +194,37 @@ describe("capability registry", () => {
         )
       ).code,
     ).toBe("invalid_args");
+    const nulledList = await dispatchModelTool(
+      registry,
+      "actions.invoke",
+      {
+        name: "files.list",
+        args: {
+          root: "desktop:",
+          path: null,
+          name: null,
+          glob: null,
+          extensions: null,
+          minSize: null,
+          maxSize: null,
+          modifiedAfter: null,
+          modifiedBefore: null,
+          cursor: null,
+        },
+      },
+      context,
+    );
+    expect(nulledList.code).toBe("unavailable");
+    expect(
+      (
+        await dispatchModelTool(
+          registry,
+          "actions.invoke",
+          { name: "files.list", args: { root: null } },
+          context,
+        )
+      ).code,
+    ).toBe("invalid_args");
     expect(
       (
         await dispatchModelTool(
@@ -198,25 +242,55 @@ describe("capability registry", () => {
     const listed = await dispatchModelTool(
       registry,
       "capabilities.list",
-      { path: "files" },
+      { category: "files" },
       context,
     );
     expect(listed.status).toBe("success");
+    expect(listed.summary).toBe(
+      "Listed command definitions in category 'files'. Syntax is complete. Descriptions were shortened or omitted.",
+    );
     expect(listed.detail?.length ?? 0).toBeLessThanOrEqual(4000);
     const body = JSON.parse(listed.detail ?? "{}") as {
+      category?: string;
       children: Array<{ id: string; description?: string; syntax?: string }>;
     };
+    expect(body.category).toBe("files");
+    expect(body).not.toHaveProperty("path");
     const create = body.children.find((child) => child.id === "files.create");
-    expect(create?.description).toContain("Create");
+    expect(
+      registry.describe(["files.create"]).entries[0]?.description,
+    ).toContain("Create");
     expect(create?.syntax).toBe(
       '{path, kind:"file"|"directory", content?, format?:"text"|"json"|"markdown"} or {items:[{path, kind:"file"|"directory", content?, format?}]}',
     );
     for (const child of body.children) {
       expect(child.syntax?.length ?? 0).toBeGreaterThan(0);
     }
-    expect(
-      body.children.find((child) => child.id === "files.list")?.syntax,
-    ).toContain("root");
+    const listCommand = body.children.find(
+      (child) => child.id === "files.list",
+    );
+    expect(Object.keys(listCommand ?? {}).slice(0, 3)).toEqual([
+      "id",
+      "kind",
+      "syntax",
+    ]);
+    if (listCommand?.description) {
+      expect(listCommand.description).toContain(
+        "Query page, not a mutation source",
+      );
+    }
+    expect(listCommand?.syntax).toContain("root");
+    expect(registry.describe(["files.list"]).entries[0]?.description).toContain(
+      "Query page, not a mutation source",
+    );
+    const move = body.children.find((child) => child.id === "files.move");
+    expect(move?.syntax?.startsWith("{in, toDirectory")).toBe(true);
+    if (move?.description) {
+      expect(move.description.startsWith("Move. Widest:")).toBe(true);
+    }
+    expect(registry.describe(["files.move"]).entries[0]?.description).toMatch(
+      /^Move\. Widest:/,
+    );
     expect(
       body.children.find((child) => child.id === "files.search")?.syntax,
     ).toContain('mode:"filename"|"content"');
@@ -250,7 +324,19 @@ describe("capability registry", () => {
       context,
     );
     expect(one.detail).toContain("files.create");
-    expect(JSON.parse(one.detail ?? "{}")).toMatchObject({
+    const created = JSON.parse(one.detail ?? "{}") as {
+      entries: Array<Record<string, unknown>>;
+    };
+    expect(Object.keys(created.entries[0] ?? {})).toEqual([
+      "id",
+      "kind",
+      "approval",
+      "syntax",
+      "example",
+      "description",
+      "args",
+    ]);
+    expect(created).toMatchObject({
       entries: [
         {
           id: "files.create",
@@ -283,6 +369,20 @@ describe("capability registry", () => {
       matches: Array<{ id: string }>;
     };
     expect(moveBody.matches.map((match) => match.id)).toContain("files.move");
+    const flatten = await dispatchModelTool(
+      registry,
+      "capabilities.search",
+      { query: "move files nested within subfolders to root" },
+      context,
+    );
+    const flattenBody = JSON.parse(flatten.detail ?? "{}") as {
+      matches: Array<{ id: string; example?: { in?: string } }>;
+    };
+    expect(flattenBody.matches[0]?.id).toBe("files.move");
+    expect(flattenBody.matches[0]?.example).toEqual({
+      in: "tmp:/agent-files",
+      toDirectory: "tmp:/agent-files",
+    });
     const grep = await dispatchModelTool(
       registry,
       "capabilities.search",
@@ -332,6 +432,53 @@ describe("capability registry", () => {
         })
       ).summary,
     ).toContain("memory.add");
+  });
+
+  it("rejects a folder path as a command category without prescribing invoke", async () => {
+    const registry = createProductionRegistry();
+    const folder = "C:\\Users\\Leandro\\Desktop\\agent-files";
+    const listed = await dispatchModelTool(
+      registry,
+      "capabilities.list",
+      { category: folder },
+      context,
+    );
+    expect(listed.status).toBe("error");
+    expect(listed.code).toBe("unknown_category");
+    expect(listed.summary).toBe(
+      `No command category named ${folder}. category lists command definitions, such as "files". It is not a folder.`,
+    );
+    expect(listed.summary).not.toContain("actions.invoke");
+    expect(JSON.parse(listed.detail ?? "{}")).toMatchObject({
+      category: folder,
+    });
+    const legacy = await dispatchModelTool(
+      registry,
+      "capabilities.list",
+      { path: "tmp:/Users/Leandro/Desktop/agent-files" },
+      context,
+    );
+    expect(legacy.code).toBe("unknown_category");
+    expect(legacy.summary).toContain("It is not a folder.");
+    const unknown = await dispatchModelTool(
+      registry,
+      "capabilities.list",
+      { category: "widgets" },
+      context,
+    );
+    expect(unknown.summary).toBe(
+      'No command category named widgets. category is a command-category id such as "files". Omit it to list root categories.',
+    );
+    expect(unknown.summary).not.toContain("actions.invoke");
+    const root = await dispatchModelTool(
+      registry,
+      "capabilities.list",
+      {},
+      context,
+    );
+    expect(root.summary.startsWith("Listed root command categories.")).toBe(
+      true,
+    );
   });
 
   it("rejects a model payload that claims approval", async () => {

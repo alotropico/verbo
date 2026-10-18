@@ -37,6 +37,7 @@ export const GLOBAL_DECISION_INSTRUCTIONS = `Choose a listed workflow or pending
 Use conversational for explanation/discussion/standalone writing without external action, commander for generic operations, obsidian for requested note/vault operations.
 An app mention in an explanatory question is conversational. Configured folder aliases/descriptions identify implicit destinations.
 If the destination is ambiguous, clarify; do not select the first listed vault or substitute a generic default.
+Listed directories are locations inside that folder, not separate destinations. A path or name that matches one listed directory selects that parent folder; copy its alias as targetHint. Do not ask the user to choose between a configured folder and one of its directories.
 When exactly one configured vault is available, choose obsidian for a vault operation without asking which vault. If the request names a listed vault alias (for example garden:/note.md), choose obsidian and copy that exact alias as targetHint.
 Your job is route selection. Missing note paths, source content, edit instructions or other action parameters belong to the selected workflow; they are not reasons to ask a global routing question.
 Selecting kind=new only selects a workflow; it does not execute anything and needs no permission question.
@@ -47,6 +48,7 @@ Examples with one vault alias garden and project folder work:
 "Create an Obsidian note" -> {"kind":"new","workflowId":"obsidian","targetHint":"garden"}
 "Rename garden:/idea.md" -> {"kind":"new","workflowId":"obsidian","targetHint":"garden"}
 "List PDFs in work" -> {"kind":"new","workflowId":"commander","targetHint":"work"}
+"Move files in Desktop/agent-files, where agent-files is a directory of desktop" -> {"kind":"new","workflowId":"commander","targetHint":"desktop"}
 "Search the web for documentation" -> {"kind":"new","workflowId":"commander"}
 "Open the registered project Verbo" -> {"kind":"new","workflowId":"commander"}
 "Use the registered environment.platform command" -> {"kind":"new","workflowId":"commander"}

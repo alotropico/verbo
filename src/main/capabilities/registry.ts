@@ -38,6 +38,24 @@ const LIST_LIMIT = 20;
 const SEARCH_LIMIT = 20;
 const DESCRIBE_LIMIT = 8;
 const DETAIL_LIMIT = 4000;
+const SEARCH_STOP = new Set([
+  "a",
+  "an",
+  "and",
+  "at",
+  "for",
+  "from",
+  "in",
+  "into",
+  "of",
+  "on",
+  "or",
+  "the",
+  "to",
+  "under",
+  "with",
+  "within",
+]);
 
 export type ActionContext = {
   actor: ActorKind;
@@ -92,7 +110,7 @@ export type CapabilityRegistry = {
   ) => ActionResult;
   nodes: () => CommandNode[];
   resolve: (name: string) => CommandResolution;
-  list: (path?: string) => ListResult;
+  list: (category?: string) => ListResult;
   search: (query: string) => SearchResult;
   describe: (ids: string[]) => DescribeResult;
   invoke: (
@@ -114,6 +132,7 @@ export type SearchMatch = {
   description: string;
   kind: "read" | "mutation" | "command";
   syntax?: string;
+  example?: Record<string, unknown>;
   aliases?: string[];
   reasons?: string[];
 };
@@ -128,11 +147,11 @@ export type SearchResult = {
 };
 
 export type ListResult = {
-  path: string;
+  category: string;
   children: Child[];
   more: boolean;
   status?: "error";
-  code?: "unknown_path" | "not_a_category";
+  code?: "unknown_category" | "not_a_category";
   summary?: string;
 };
 
@@ -152,9 +171,56 @@ export type DescribeResult = {
 
 const listArgsSchema = z
   .object({
+    category: z.string().max(128).optional(),
+    // Legacy input only. The model schema advertises category.
     path: z.string().max(128).optional(),
   })
   .strict();
+
+export function canonicalListArguments(args: unknown): { category?: string } {
+  if (typeof args !== "object" || args === null || Array.isArray(args))
+    return {};
+  const record = args as Record<string, unknown>;
+  const category = trimmedText(record.category) ?? trimmedText(record.path);
+  return category ? { category } : {};
+}
+
+function trimmedText(value: unknown): string | undefined {
+  if (typeof value !== "string") return;
+  const text = value.trim();
+  return text.length > 0 ? text : undefined;
+}
+
+function categoryLooksLikeLocation(category: string): boolean {
+  return /[\\/:]/.test(category);
+}
+
+function unknownCategorySummary(category: string): string {
+  return categoryLooksLikeLocation(category)
+    ? `No command category named ${category}. category lists command definitions, such as "files". It is not a folder.`
+    : `No command category named ${category}. category is a command-category id such as "files". Omit it to list root categories.`;
+}
+
+function commandListSummary(category: string, shortened: boolean): string {
+  const subject = category
+    ? `Listed command definitions in category '${category}'.`
+    : "Listed root command categories.";
+  return shortened
+    ? `${subject} Syntax is complete. Descriptions were shortened or omitted.`
+    : subject;
+}
+
+function listDetail(
+  listed: ListResult,
+  children: unknown,
+  more = listed.more,
+): { category?: string; children: unknown; more: boolean } {
+  return {
+    ...(listed.category ? { category: listed.category } : {}),
+    children,
+    more,
+  };
+}
 
 const searchArgsSchema = z
   .object({
@@ -182,11 +248,22 @@ const invokeArgsSchema = z
 const categoryDescriptions: Record<string, string> = {
   ags: "Registered AGS hosts and bounded checks",
   environment: "Platform facts and well-known paths",
-  files: "Scoped file queries and mutations",
+  files:
+    "Queries page (files.list, files.search). Mutations (files.move, files.copy, files.trash, files.batch) take a folder selection before a path list.",
   memory: "Saved notes for later turns",
   projects: "Registered project summaries",
   software: "Installed program lookups",
 };
+
+function omitNulls(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map((item) => omitNulls(item));
+  if (!value || typeof value !== "object") return value;
+  return Object.fromEntries(
+    Object.entries(value)
+      .filter(([, item]) => item !== null)
+      .map(([key, item]) => [key, omitNulls(item)]),
+  );
+}
 
 function errorResult(
   action: string,
@@ -297,32 +374,31 @@ function fitListDetail(listed: ListResult): {
   detail: string;
   detailsAvailable?: true;
 } {
-  const full = jsonWithin({
-    path: listed.path,
-    children: listed.children,
-    more: listed.more,
-  });
+  const full = jsonWithin(listDetail(listed, listed.children));
   if (full) return { detail: full };
 
   const longest = listed.children.reduce(
     (max, child) => Math.max(max, child.description.length),
     0,
   );
-  let low = 0;
+  // Below this, a clipped description is noise. Keep syntax and drop the prose.
+  const minimumDescription = 80;
+  let low = minimumDescription;
   let high = longest;
   let fitted: string | undefined;
   while (low <= high) {
     const cap = Math.floor((low + high) / 2);
-    const detail = jsonWithin({
-      path: listed.path,
-      children: listed.children.map((child) => ({
-        id: child.id,
-        kind: child.kind,
-        ...(child.syntax ? { syntax: child.syntax } : {}),
-        description: clip(child.description, cap),
-      })),
-      more: listed.more,
-    });
+    const detail = jsonWithin(
+      listDetail(
+        listed,
+        listed.children.map((child) => ({
+          id: child.id,
+          kind: child.kind,
+          ...(child.syntax ? { syntax: child.syntax } : {}),
+          description: clip(child.description, cap),
+        })),
+      ),
+    );
     if (detail) {
       fitted = detail;
       low = cap + 1;
@@ -339,16 +415,18 @@ function fitListDetail(listed: ListResult): {
   }));
   let count = ids.length;
   while (count > 0) {
-    const detail = jsonWithin({
-      path: listed.path,
-      children: ids.slice(0, count),
-      more: listed.more || count < ids.length,
-    });
+    const detail = jsonWithin(
+      listDetail(
+        listed,
+        ids.slice(0, count),
+        listed.more || count < ids.length,
+      ),
+    );
     if (detail) return { detail, detailsAvailable: true };
     count -= 1;
   }
   return {
-    detail: JSON.stringify({ path: listed.path, children: [], more: true }),
+    detail: JSON.stringify(listDetail(listed, [], true)),
     detailsAvailable: true,
   };
 }
@@ -369,6 +447,7 @@ function fitSearchDetail(found: SearchResult): {
       id: match.id,
       kind: match.kind,
       ...(match.syntax ? { syntax: match.syntax } : {}),
+      ...(match.example ? { example: match.example } : {}),
       ...(match.aliases ? { aliases: match.aliases } : {}),
       description: clip(match.description, 160),
     })),
@@ -382,6 +461,7 @@ function fitSearchDetail(found: SearchResult): {
         id: match.id,
         kind: match.kind,
         ...(match.syntax ? { syntax: match.syntax } : {}),
+        ...(match.example ? { example: match.example } : {}),
         ...(match.aliases ? { aliases: match.aliases } : {}),
       })),
       more: true,
@@ -401,11 +481,11 @@ function fitDescribeDetail(described: DescribeResult): {
     entries: described.entries.map(
       ({ id, description, kind, approval, syntax, example, code }) => ({
         id,
-        ...(description ? { description } : {}),
         ...(kind ? { kind } : {}),
         ...(approval ? { approval } : {}),
         ...(syntax ? { syntax } : {}),
         ...(example ? { example } : {}),
+        ...(description ? { description } : {}),
         ...(code ? { code } : {}),
       }),
     ),
@@ -418,7 +498,7 @@ function fitDescribeDetail(described: DescribeResult): {
     (max, entry) => Math.max(max, entry.description?.length ?? 0),
     0,
   );
-  let low = 0;
+  let low = 80;
   let high = longest;
   let fitted: string | undefined;
   while (low <= high) {
@@ -506,13 +586,13 @@ export function createRegistry(
             action.startsWith(`${id}.`) && permitsCommand(action, true),
         );
 
-  function list(path?: string): ListResult {
-    const requested = path?.trim() ?? "";
+  function list(category?: string): ListResult {
+    const requested = category?.trim() ?? "";
     const resolved = requested ? resolve(requested) : undefined;
     const normalized = resolved?.ok ? resolved.id : requested;
     if (byId.has(normalized)) {
       return {
-        path: normalized,
+        category: normalized,
         children: [],
         more: false,
         status: "error",
@@ -529,23 +609,23 @@ export function createRegistry(
       .sort((left, right) => left.id.localeCompare(right.id));
     if (children.length === 0 && normalized && !byNode.has(normalized)) {
       return {
-        path: normalized,
+        category: normalized,
         children: [],
         more: false,
         status: "error",
-        code: "unknown_path",
-        summary: `No capability category named ${normalized}.`,
+        code: "unknown_category",
+        summary: unknownCategorySummary(normalized),
       };
     }
     return {
-      path: normalized,
+      category: normalized,
       children: children.slice(0, LIST_LIMIT).map((node) => {
         const capability = byId.get(node.id);
         return {
           id: node.id,
-          description: node.description,
           kind: capability?.kind ?? "category",
           ...(capability ? { syntax: shownSyntax(capability) } : {}),
+          description: node.description,
         };
       }),
       more: children.length > LIST_LIMIT,
@@ -571,12 +651,12 @@ export function createRegistry(
       }
       return {
         id: canonical,
-        description: capability.description,
         kind: capability.kind,
         approval: capability.approval,
-        args: z.toJSONSchema(capability.args),
         syntax: shownSyntax(capability),
         example: capability.example,
+        description: capability.description,
+        args: z.toJSONSchema(capability.args),
       };
     });
     return { entries, truncated: ids.length > DESCRIBE_LIMIT };
@@ -662,6 +742,7 @@ export function createRegistry(
       );
     }
     name = capability.id;
+    args = omitNulls(args) as Record<string, unknown>;
     if (!permitsCommand(name, false, args))
       return settle({
         action: name,
@@ -812,34 +893,51 @@ export function createRegistry(
         .join("\n")
         .toLowerCase();
       const terms = needle.split(/\s+/).filter(Boolean);
-      if (
-        !reasons.length &&
-        !aliasPath &&
-        !terms.every((term) => haystack.includes(term))
-      )
-        continue;
+      const contentTerms = terms.filter(
+        (term) => term.length > 2 && !SEARCH_STOP.has(term),
+      );
+      const matchedTerms = contentTerms.filter(
+        (term) =>
+          haystack.includes(term) ||
+          (term.length > 6 &&
+            term.endsWith("s") &&
+            haystack.includes(term.slice(0, -1))),
+      );
+      const allTerms = terms.every((term) => haystack.includes(term));
+      const partial =
+        matchedTerms.length >= 2 &&
+        matchedTerms.length >= Math.ceil(contentTerms.length * 0.5);
+      if (!reasons.length && !aliasPath && !allTerms && !partial) continue;
       const exactId = capability.id === needle;
       const exactAlias = aliases.some(
         (alias) => alias.toLowerCase() === needle,
       );
+      const idHit = contentTerms.includes(capability.id.split(".").at(-1) ?? "")
+        ? 40
+        : 0;
       scores.set(
         capability.id,
-        exactId
+        (exactId
           ? 100
           : exactAlias
             ? 95
             : aliasPath
               ? 92
-              : Math.max(10, ...reasons.map((reason) => reason.weight)),
+              : Math.max(
+                  10,
+                  ...reasons.map((reason) => reason.weight),
+                  matchedTerms.length * 12,
+                )) + idHit,
       );
       const hitAliases = aliases.filter((alias) =>
         alias.toLowerCase().includes(needle),
       );
       matches.push({
         id: capability.id,
-        description: capability.description,
         kind: capability.kind,
         syntax,
+        example: capability.example,
+        description: capability.description,
         reasons: (aliasPath
           ? ["alias path"]
           : reasons.length
@@ -858,9 +956,9 @@ export function createRegistry(
       if (!haystack.includes(needle)) continue;
       matches.push({
         id: `/${command.name}`,
-        description: command.blurb,
         kind: "command",
         syntax: command.syntax,
+        description: command.blurb,
         reasons: ["local command"],
       });
       scores.set(`/${command.name}`, command.name === needle ? 100 : 15);
@@ -891,10 +989,13 @@ export function createRegistry(
       const resolution = resolve(name);
       const canonical = resolution.ok ? resolution.id : name;
       const capability = byId.get(canonical);
-      const parsed = capability?.args.safeParse(args);
+      const cleaned = omitNulls(args) as Record<string, unknown>;
+      const parsed = capability?.args.safeParse(cleaned);
       return {
         name: canonical,
-        args: parsed?.success ? (parsed.data as Record<string, unknown>) : args,
+        args: parsed?.success
+          ? (parsed.data as Record<string, unknown>)
+          : cleaned,
       };
     },
   };
@@ -930,10 +1031,10 @@ async function dispatchAuthorizedModelTool(
       return errorResult(
         name,
         "invalid_args",
-        "List accepts an optional path.",
+        'List accepts an optional category id such as "files".',
       );
     }
-    const listed = registry.list(parsed.data.path);
+    const listed = registry.list(canonicalListArguments(parsed.data).category);
     const packed = fitListDetail(listed);
     return contractResult({
       action: name,
@@ -942,9 +1043,10 @@ async function dispatchAuthorizedModelTool(
       summary:
         listed.status === "error"
           ? (listed.summary ?? "List failed.")
-          : packed.detailsAvailable
-            ? `Listed ${listed.path || "catalog"}. Descriptions were shortened. Syntax remains.`
-            : (listed.summary ?? `Listed ${listed.path || "catalog"}.`),
+          : commandListSummary(
+              listed.category,
+              packed.detailsAvailable === true,
+            ),
       detail: packed.detail,
       ...(packed.detailsAvailable ? { detailsAvailable: true } : {}),
     });
@@ -998,7 +1100,7 @@ async function dispatchAuthorizedModelTool(
       summary: described.truncated
         ? `Described the first ${DESCRIBE_LIMIT} ids.`
         : packed.detailsAvailable
-          ? `Described ${described.entries.length} ids. Full schemas were omitted; syntax remains.`
+          ? `Described ${described.entries.length} ids. Syntax and examples remain. Schemas or long descriptions were omitted.`
           : `Described ${described.entries.length} ids.`,
       detail: packed.detail,
       ...(packed.detailsAvailable ? { detailsAvailable: true } : {}),

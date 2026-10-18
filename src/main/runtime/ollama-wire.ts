@@ -22,7 +22,7 @@ const toolParameters: Record<
 > = {
   "capabilities.search": {
     description:
-      "Search every command and alias for one string. Returns matching action ids, syntax, and aliases. Use this instead of listing each category to find a name.",
+      "Search ids, descriptions, syntax, and aliases. Returns id, kind, syntax, example, description. example is a valid invoke. If one match syntax covers the target, invoke it next. Do not describe or list first.",
     parameters: {
       type: "object",
       properties: {
@@ -37,20 +37,21 @@ const toolParameters: Record<
   },
   "capabilities.list": {
     description:
-      "List capability categories, or the actions in one category. Each action includes syntax with required fields and allowed values.",
+      "List registered command definitions in one category. Not a folder listing. Omit category to list root categories.",
     parameters: {
       type: "object",
       properties: {
-        path: {
+        category: {
           type: "string",
-          description: "Category id. Omit it to list the root.",
+          description:
+            'Command category id, such as "files". Not a filesystem path.',
         },
       },
     },
   },
   "capabilities.describe": {
     description:
-      "Describe registered capability ids. Each entry includes syntax and an example. Match syntax when invoking.",
+      "Ids in. Each entry: id, kind, approval, syntax, example, description, args. syntax forms are widest-target first. example is a valid invoke. Match one form. Quoted values are the only allowed values.",
     parameters: {
       type: "object",
       properties: {
@@ -61,7 +62,7 @@ const toolParameters: Record<
   },
   "actions.invoke": {
     description:
-      "Invoke one registered action by id. args must match the syntax from list or describe.",
+      "Invoke one registered action. args must match one syntax form from search, list, or describe. Use the form that covers the whole target in this call.",
     parameters: {
       type: "object",
       properties: {

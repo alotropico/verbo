@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import type { ChatSettings } from "../../shared/config";
 import type { ExecutionSummary } from "../../shared/workflows";
-import type { RoutingInventory } from "../files/routing-inventory";
+import type { FolderCard, RoutingInventory } from "../files/routing-inventory";
 import type { CapabilityRegistry } from "../capabilities/registry";
 import type { RequestGate } from "../runtime/request-gate";
 import type { createWorkflowRegistry } from "../workflows/registry";
@@ -40,6 +40,109 @@ export function bindVaultRouting(
         kind: "clarify",
         question: `Which vault should I use? Available vaults: ${vaults.map((vault) => vault.aliases[0] ?? vault.id).join(", ")}.`,
       };
+}
+
+function mentions(text: string, token: string): boolean {
+  if (!token) return false;
+  const escaped = token.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
+  return new RegExp(
+    `(?:^|[^\\p{L}\\p{N}_-])${escaped}(?=$|[^\\p{L}\\p{N}_-])`,
+    "iu",
+  ).test(text);
+}
+
+function uniqueFolders(folders: FolderCard[]): FolderCard | undefined {
+  const unique = [
+    ...new Map(folders.map((folder) => [folder.id, folder])).values(),
+  ];
+  return unique.length === 1 ? unique[0] : undefined;
+}
+
+function foldersNamedByAliases(
+  text: string,
+  folders: readonly FolderCard[],
+): FolderCard[] {
+  return folders.filter((folder) =>
+    [folder.id, ...folder.aliases].some((alias) => mentions(text, alias)),
+  );
+}
+
+/** Directory names that are also folder aliases stay alias destinations. */
+function foldersNamedByDirectories(
+  text: string,
+  folders: readonly FolderCard[],
+): FolderCard[] {
+  const aliasTokens = new Set(
+    folders.flatMap((folder) =>
+      [folder.id, ...folder.aliases].map((alias) => alias.toLowerCase()),
+    ),
+  );
+  return folders.filter((folder) =>
+    folder.directories.some((directory) => {
+      const normalized = directory.replace(/\\/gu, "/").toLowerCase();
+      const base = normalized.split("/").at(-1) ?? normalized;
+      return [normalized, base].some(
+        (token) => !aliasTokens.has(token) && mentions(text, token),
+      );
+    }),
+  );
+}
+
+export function resolveFolderHint(
+  hint: string,
+  folders: readonly FolderCard[],
+): string | undefined {
+  const text = hint.trim().toLowerCase().replace(/:$/u, "");
+  const exact = folders.find(
+    (folder) =>
+      folder.id.toLowerCase() === text ||
+      folder.aliases.some((alias) => alias.toLowerCase() === text),
+  );
+  if (exact) return exact.id;
+  return uniqueFolders([
+    ...foldersNamedByAliases(hint, folders),
+    ...foldersNamedByDirectories(hint, folders),
+  ])?.id;
+}
+
+function directoryDestination(
+  request: string,
+  folders: readonly FolderCard[],
+): FolderCard | undefined {
+  const directoryFolder = uniqueFolders(
+    foldersNamedByDirectories(request, folders),
+  );
+  if (!directoryFolder) return undefined;
+  const aliasConflict = foldersNamedByAliases(request, folders).some(
+    (folder) => folder.id !== directoryFolder.id,
+  );
+  return aliasConflict ? undefined : directoryFolder;
+}
+
+/** Bind a listed subdirectory to its parent folder, then apply vault rules. */
+export function bindFolderDecision(
+  value: import("./decision").GlobalDecision,
+  request: string,
+  inventory: RoutingInventory,
+): import("./decision").GlobalDecision {
+  let output = value;
+  if (output.kind === "new" && output.targetHint) {
+    const resolved = resolveFolderHint(output.targetHint, inventory.folders);
+    if (!resolved)
+      throw new Error(
+        "The target hint does not match a configured folder ID or alias.",
+      );
+    output = { ...output, targetHint: resolved };
+  }
+  output = bindVaultRouting(output, request, inventory);
+  if (output.kind !== "clarify") return output;
+  const folder = directoryDestination(request, inventory.folders);
+  if (!folder) return output;
+  return {
+    kind: "new",
+    workflowId: folder.kind === "obsidian" ? "obsidian" : "commander",
+    targetHint: folder.id,
+  };
 }
 
 export async function routeGlobalRequest(input: {
@@ -173,20 +276,7 @@ export async function routeGlobalRequest(input: {
             "The selected execution/revision is not in the current thread/branch's pending cards.",
           );
       }
-      if (result.output.kind === "new" && result.output.targetHint) {
-        const hint = result.output.targetHint.toLowerCase();
-        if (
-          !input.inventory.folders.some(
-            (folder) =>
-              folder.id.toLowerCase() === hint ||
-              folder.aliases.some((alias) => alias.toLowerCase() === hint),
-          )
-        )
-          throw new Error(
-            "The target hint does not match a configured folder ID or alias.",
-          );
-      }
-      return bindVaultRouting(result.output, input.request, input.inventory);
+      return bindFolderDecision(result.output, input.request, input.inventory);
     },
   });
 }

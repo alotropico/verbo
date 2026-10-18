@@ -5,6 +5,7 @@ import {
 } from "../../shared/action-contract";
 import { createProductionRegistry } from "../capabilities/catalog";
 import {
+  canonicalListArguments,
   dispatchModelTool,
   type ActionContext,
   type CapabilityRegistry,
@@ -18,6 +19,7 @@ import type { MemorySnapshot } from "../../shared/memory";
 import {
   buildTurnContext,
   contextTokens,
+  fitToolMessages,
   type ContextMessage,
   type ContextToolCall,
   type ContextToolMessage,
@@ -102,7 +104,29 @@ function toolKey(
     ) ?? { name: args.name, args: args.args ?? {} };
     return `${name}:${stableCommandJson(normalized)}`;
   }
+  if (name === "capabilities.list")
+    return `${name}:${stableCommandJson(canonicalListArguments(args))}`;
   return `${name}:${stableCommandJson(args)}`;
+}
+
+function stalledSummary(results: readonly ActionResult[]): string {
+  let blocker: string | undefined;
+  for (const result of results) {
+    if (result.action.startsWith("capabilities.")) continue;
+    if (result.code === "duplicate_feedback" || result.code === "unattempted")
+      continue;
+    if (result.status === "success" || result.status === "partial") {
+      blocker = undefined;
+      continue;
+    }
+    if (
+      result.status === "error" ||
+      result.status === "denied" ||
+      result.status === "not_supported"
+    )
+      blocker = result.summary;
+  }
+  return blocker ?? "The same tool request was repeated without new work.";
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -199,6 +223,8 @@ export async function runTurn(input: {
   const results: ActionResult[] = [];
   let previousKey: string | undefined;
   let previousResult: ActionResult | undefined;
+  const seenDiscovery = new Set<string>();
+  const failedInvokes = new Set<string>();
   let repeats = 0;
   let rounds = 0;
   let toolRequests = 0;
@@ -326,6 +352,7 @@ export async function runTurn(input: {
         result,
         call,
       });
+      fitToolMessages(messages, budget);
       return contextTokens(messages) > budget;
     };
     const closed = (call: ContextToolCall, summary: string): ActionResult =>
@@ -356,13 +383,17 @@ export async function runTurn(input: {
       }
       const key = toolKey(registry, call.name, call.arguments);
       repeats = key === previousKey ? repeats + 1 : 1;
-      if (repeats >= 3) {
+      const repeatedDiscovery =
+        repeats === 1 &&
+        call.name.startsWith("capabilities.") &&
+        seenDiscovery.has(key);
+      const repeatedFailure =
+        repeats === 1 &&
+        call.name === "actions.invoke" &&
+        failedInvokes.has(key);
+      if (repeats >= 3 || repeatedDiscovery || repeatedFailure) {
         settleRemaining(index, "The repeated request was not attempted again.");
-        return finish(
-          "no_progress",
-          "",
-          "The same tool request was repeated without new work.",
-        );
+        return finish("no_progress", "", stalledSummary(results));
       }
       toolRequests += 1;
       if (repeats === 2 && previousResult) {
@@ -390,6 +421,7 @@ export async function runTurn(input: {
         continue;
       }
       previousKey = key;
+      if (call.name.startsWith("capabilities.")) seenDiscovery.add(key);
       let result: ActionResult;
       try {
         input.budget?.tool();
@@ -484,6 +516,13 @@ export async function runTurn(input: {
           "The required instructions, user message, and tool results do not fit the context budget.",
         );
       }
+      if (
+        call.name === "actions.invoke" &&
+        (result.status === "error" ||
+          result.status === "denied" ||
+          result.status === "not_supported")
+      )
+        failedInvokes.add(key);
       previousResult = result;
       const terminal = input.terminalResult?.(result);
       if (terminal !== undefined) {

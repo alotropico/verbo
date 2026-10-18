@@ -108,56 +108,38 @@ export function freezeWorkflowOutcome(
 
 export const presentationSchema = z
   .object({
-    status: verifiedOutcomeSchema.shape.status,
-    receiptIds: z.array(z.string()).max(100),
-    sentences: z
-      .array(
-        z
-          .object({
-            text: z.string().min(1).max(1000),
-            findingIndex: z.number().int().nonnegative(),
-          })
-          .strict(),
-      )
-      .max(10),
-    question: z.string().max(2000).optional(),
+    text: z.string().trim().min(1).max(8_000),
   })
   .strict();
 export type WorkflowPresentation = z.infer<typeof presentationSchema>;
 
-/** Conservative prose admission: every statement must use a frozen finding verbatim. */
+export const PRESENTATION_INSTRUCTION =
+  "Write one chat reply that reports this frozen outcome in your own words. Use the status, findings, errors, and question together; do not paste them as separate paragraphs. Do not invent effects, paths, counts, or receipt ids. If question is present, ask it. If uncertainReceiptIds is non-empty, say those effects are uncertain and will not be replayed. Return JSON with only a text field.";
+
+/** Admit one composed reply. An invented receipt id falls back to the frozen stitch. */
 export function validatePresentation(
   outcome: VerifiedOutcome,
   candidate: unknown,
 ): string | undefined {
   const parsed = presentationSchema.safeParse(candidate);
   if (!parsed.success) return;
-  const value = parsed.data;
-  if (
-    value.status !== outcome.status ||
-    value.receiptIds.some((id) => !outcome.receiptIds.includes(id)) ||
-    new Set(value.receiptIds).size !== value.receiptIds.length
-  )
-    return;
-  if (outcome.question?.text !== value.question) return;
-  if (!value.sentences.length && !value.question) return;
-  if (
-    value.sentences.some(
-      (sentence) => outcome.findings[sentence.findingIndex] !== sentence.text,
-    )
-  )
-    return;
-  if (
-    outcome.errors.length &&
-    !value.sentences.some((sentence) =>
-      outcome.errors.some((error) => error.summary === sentence.text),
-    )
-  )
-    return;
-  if (outcome.uncertainReceiptIds.length) return;
-  return [...value.sentences.map((sentence) => sentence.text), value.question]
-    .filter(Boolean)
-    .join("\n\n");
+  const text = parsed.data.text;
+  const known = [
+    outcome.executionId,
+    ...outcome.receiptIds,
+    ...outcome.uncertainReceiptIds,
+    ...outcome.findings,
+    ...outcome.errors.map((error) => error.summary),
+    outcome.question?.text ?? "",
+  ]
+    .join("\n")
+    .toLowerCase();
+  const ids =
+    text.match(
+      /\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/gi,
+    ) ?? [];
+  if (ids.some((id) => !known.includes(id.toLowerCase()))) return;
+  return text;
 }
 
 export function deterministicPresentation(outcome: VerifiedOutcome): string {

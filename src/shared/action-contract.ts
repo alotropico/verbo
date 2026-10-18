@@ -13,7 +13,7 @@ export const actionStatuses = [
 export const actorKinds = ["user_command", "model", "ui"] as const;
 
 export const turnLimitsSchema = z.object({
-  maxRounds: z.number().int().positive().max(8).default(8),
+  maxRounds: z.number().int().positive().max(32).default(32),
   maxToolRequests: z.number().int().positive().max(20).default(20),
   maxPendingMutationApprovals: z.literal(1).default(1),
 });

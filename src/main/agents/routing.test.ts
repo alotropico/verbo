@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { RoutingInventory, FolderCard } from "../files/routing-inventory";
-import { bindVaultRouting } from "./routing";
+import { bindFolderDecision, bindVaultRouting } from "./routing";
 const garden: FolderCard = {
   id: "garden-id",
   aliases: ["garden"],
@@ -60,5 +60,83 @@ describe("trusted vault routing binding", () => {
         inventory,
       ),
     ).toEqual({ kind: "new", workflowId: "commander" });
+  });
+});
+
+const desktop: FolderCard = {
+  ...garden,
+  id: "desktop-id",
+  aliases: ["desktop"],
+  kind: "none",
+  description: "",
+  directories: ["agent-files"],
+};
+const desktopInventory: RoutingInventory = {
+  folders: [desktop, garden],
+  generation: 1,
+  refreshedAt: 1,
+  truncated: false,
+};
+describe("listed directory destinations", () => {
+  it("binds a subdirectory hint to the parent folder", () => {
+    expect(
+      bindFolderDecision(
+        { kind: "new", workflowId: "commander", targetHint: "agent-files" },
+        "agent-files",
+        desktopInventory,
+      ),
+    ).toMatchObject({ workflowId: "commander", targetHint: "desktop-id" });
+    expect(
+      bindFolderDecision(
+        {
+          kind: "new",
+          workflowId: "commander",
+          targetHint: "the 'agent-files' subfolder within it",
+        },
+        "the 'agent-files' subfolder within it",
+        desktopInventory,
+      ),
+    ).toMatchObject({ targetHint: "desktop-id" });
+  });
+  it("selects the parent folder instead of asking folder versus subdirectory", () => {
+    expect(
+      bindFolderDecision(
+        {
+          kind: "clarify",
+          question:
+            "Which folder should I use for this operation: the 'desktop' folder or the 'agent-files' subfolder within it?",
+        },
+        "Move all files nested within subfolders on C:\\Users\\Leandro\\Desktop\\agent-files to the root of it",
+        desktopInventory,
+      ),
+    ).toEqual({
+      kind: "new",
+      workflowId: "commander",
+      targetHint: "desktop-id",
+    });
+  });
+  it("keeps an alias and a different folder's directory ambiguous", () => {
+    expect(
+      bindFolderDecision(
+        { kind: "clarify", question: "Which folder?" },
+        "Save in office:/Inbox/Note.md",
+        {
+          ...inventory,
+          folders: [
+            ...inventory.folders,
+            { ...desktop, directories: ["Inbox"] },
+          ],
+        },
+      ),
+    ).toMatchObject({ kind: "clarify" });
+  });
+  it("still rejects a hint that names no folder or listed directory", () => {
+    expect(() =>
+      bindFolderDecision(
+        { kind: "new", workflowId: "commander", targetHint: "missing" },
+        "missing",
+        desktopInventory,
+      ),
+    ).toThrow(/target hint/u);
   });
 });

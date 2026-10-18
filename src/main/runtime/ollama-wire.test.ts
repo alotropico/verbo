@@ -39,6 +39,19 @@ describe("Ollama wire messages", () => {
     expect(PERMANENT_OLLAMA_TOOLS.map((tool) => tool.function.name)).toEqual([
       ...PERMANENT_MODEL_TOOLS,
     ]);
+    const list = PERMANENT_OLLAMA_TOOLS.find(
+      (tool) => tool.function.name === "capabilities.list",
+    );
+    expect(list?.function.description).toContain("command definitions");
+    expect(list?.function.parameters).toMatchObject({
+      properties: {
+        category: {
+          description:
+            'Command category id, such as "files". Not a filesystem path.',
+        },
+      },
+    });
+    expect(JSON.stringify(list?.function.parameters)).not.toContain('"path"');
   });
 
   it("attaches images to the latest user message", () => {

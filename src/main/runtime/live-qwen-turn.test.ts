@@ -1,7 +1,23 @@
-import { platform } from "node:os";
-import { resolve } from "node:path";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
+import { tmpdir, platform } from "node:os";
+import { join, resolve } from "node:path";
+import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it } from "vitest";
 import { DEFAULT_CHAT_SETTINGS } from "../../shared/config";
+import { FILE_MUTATION_LIMITS } from "../../shared/file-mutation";
+import {
+  AGENT_PROFILES,
+  IMMUTABLE_AGENT_INSTRUCTIONS,
+} from "../agents/profiles";
+import { registryForDatabase } from "../capabilities/catalog";
+import { migrateDatabase, VERBO_MIGRATIONS } from "../db/migrate";
+import { createScopeStore } from "../db/scopes";
 import { fetchOllamaStatus } from "../services/ollama";
 import { streamOllamaTurn } from "../services/ollama-turn-stream";
 import { toOllamaMessages } from "./ollama-wire";
@@ -92,7 +108,7 @@ describe.skipIf(!live)("live Qwen tool turn", () => {
 
     const outcome = await runTurn({
       userText:
-        'Use the registered tools. Call capabilities.list with {"path":"environment"}. Then capabilities.describe with {"ids":["environment.platform"]}. Then actions.invoke with {"name":"environment.platform","args":{}}. Reply with the platform from the invoke result.',
+        'Use the registered tools. Call capabilities.list with {"category":"environment"}. Then capabilities.describe with {"ids":["environment.platform"]}. Then actions.invoke with {"name":"environment.platform","args":{}}. Reply with the platform from the invoke result.',
       history: [],
       numCtx: 8192,
       context: { actor: "model", threadId: "live-thread" },
@@ -116,4 +132,92 @@ describe.skipIf(!live)("live Qwen tool turn", () => {
     expect(outcome.results[2]?.detail).toContain(`"platform":"${platform()}"`);
     expect(outcome.content.toLowerCase()).toContain(platform());
   }, 180_000);
+
+  it("reaches flatten execution and stops on the size rejection", async () => {
+    const status = await fetchOllamaStatus(3000);
+    expect(status.ok).toBe(true);
+    if (!status.ok) return;
+    expect(status.models).toContain(DEFAULT_CHAT_SETTINGS.model);
+
+    const root = mkdtempSync(join(tmpdir(), "verbo-qwen-flatten-"));
+    const nested = join(root, "nested");
+    mkdirSync(nested);
+    for (let index = 0; index < FILE_MUTATION_LIMITS.maxItems + 1; index += 1)
+      writeFileSync(join(nested, `n${index}.txt`), "x");
+    const dbDirectory = mkdtempSync(join(tmpdir(), "verbo-qwen-db-"));
+    const db = new DatabaseSync(join(dbDirectory, "verbo.sqlite"));
+    const calls: string[] = [];
+    try {
+      migrateDatabase(db, VERBO_MIGRATIONS);
+      const saved = createScopeStore(db).apply({
+        removeIds: [],
+        updates: [],
+        additions: [
+          {
+            alias: "agent",
+            path: root,
+            read: true,
+            write: true,
+            defaultSave: false,
+          },
+        ],
+      });
+      expect(saved.ok).toBe(true);
+      const outcome = await runTurn({
+        userText: `Move all files nested within subfolders on ${root} to the root of it, to ${root} itself`,
+        history: [],
+        numCtx: 8192,
+        registry: registryForDatabase(db),
+        instructions: [
+          IMMUTABLE_AGENT_INSTRUCTIONS,
+          AGENT_PROFILES.commander.instructions,
+        ].join("\n\n"),
+        context: { actor: "model", threadId: "live-flatten" },
+        gate: createRequestGate(),
+        onUpdate: (update) => {
+          if (update.type === "assistant_tools") {
+            for (const call of update.toolCalls)
+              calls.push(`${call.name} ${JSON.stringify(call.arguments)}`);
+          }
+        },
+        model: (messages, hooks) =>
+          streamOllamaTurn(
+            toOllamaMessages(messages),
+            { ...DEFAULT_CHAT_SETTINGS, think: false, temperature: 0.1 },
+            hooks.signal ?? AbortSignal.timeout(180_000),
+            hooks.onText,
+          ),
+      });
+      console.info(
+        "Qwen flatten replay",
+        JSON.stringify({
+          stop: outcome.stop,
+          summary: outcome.summary,
+          rounds: outcome.rounds,
+          toolRequests: outcome.toolRequests,
+          results: outcome.results.map((result) => ({
+            action: result.action,
+            status: result.status,
+            code: result.code,
+            summary: result.summary.slice(0, 180),
+          })),
+          calls,
+        }),
+      );
+      const move = outcome.results.find(
+        (result) => result.action === "files.move",
+      );
+      expect(move?.code).toBe("too_large");
+      expect(existsSync(join(nested, "n0.txt"))).toBe(true);
+      expect(existsSync(join(root, "n0.txt"))).toBe(false);
+      expect(["completed", "no_progress"]).toContain(outcome.stop);
+      expect(outcome.toolRequests).toBeLessThan(16);
+      if (outcome.stop === "no_progress")
+        expect(outcome.summary).toContain("nothing changed");
+    } finally {
+      db.close();
+      rmSync(root, { recursive: true, force: true });
+      rmSync(dbDirectory, { recursive: true, force: true });
+    }
+  }, 240_000);
 });
