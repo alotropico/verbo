@@ -20,6 +20,7 @@ import {
   useSettingsDraft,
   useSettingsRef,
 } from "@/hooks/use-settings-draft";
+import { notify } from "@/lib/notify";
 import { SettingsLabel } from "./SettingsLabel";
 import { SettingsSection } from "./SettingsSection";
 import { AutosaveStatus } from "./AutosaveStatus";
@@ -231,7 +232,6 @@ export function FileSettings(): ReactElement {
   );
   const [busy, setBusy] = useSettingsDraft("files/busy", false);
   const [error, setError] = useSettingsDraft("files/error", "");
-  const [notice, setNotice] = useSettingsDraft("files/notice", "");
   const load = useCallback((): void => {
     void window.verbo.files
       .list()
@@ -273,7 +273,7 @@ export function FileSettings(): ReactElement {
       });
       if (!result.ok) throw new Error(result.summary);
       setScopes(result.scopes);
-      setNotice(result.summary);
+      notify({ message: result.summary, tone: "success" });
       window.dispatchEvent(new Event("verbo:entities-changed"));
     } catch (cause) {
       setError(
@@ -293,11 +293,6 @@ export function FileSettings(): ReactElement {
           {error}
         </StatusMessage>
       ) : null}
-      {notice ? (
-        <StatusMessage display="plain" tone="info">
-          {notice}
-        </StatusMessage>
-      ) : null}
       <Group>
         <Button
           variant="subtle"
@@ -307,7 +302,12 @@ export function FileSettings(): ReactElement {
             setBusy(true);
             void window.verbo.files
               .refreshRouting()
-              .then(() => setNotice("Folder routing inventory refreshed."))
+              .then(() =>
+                notify({
+                  message: "Folder routing inventory refreshed.",
+                  tone: "success",
+                }),
+              )
               .catch(() =>
                 setError("Routing inventory could not be refreshed."),
               )

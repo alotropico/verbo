@@ -29,6 +29,7 @@ import {
   type RegisteredApplication,
   type RegisteredProject,
 } from "@shared/application-registration";
+import { notify } from "@/lib/notify";
 import { StatusMessage, type StatusFeedback } from "./StatusMessage";
 import { SettingsDisclosure } from "./SettingsDisclosure";
 import { SettingsSection } from "./SettingsSection";
@@ -126,11 +127,11 @@ function ApplicationEditor({
     setBusy(true);
     try {
       const result = await window.verbo.commands.saveApplication(parsed.data);
-      setNotice({
-        text: result.summary,
-        tone: result.ok ? "success" : "error",
-      });
-      if (result.ok) reload();
+      if (result.ok) {
+        setNotice(null);
+        notify({ message: result.summary, tone: "success" });
+        reload();
+      } else setNotice({ text: result.summary, tone: "error" });
     } catch {
       setNotice({
         text: "The application could not be registered.",

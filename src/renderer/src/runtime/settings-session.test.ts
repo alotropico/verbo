@@ -68,4 +68,22 @@ describe("settings session ownership", () => {
         .status,
     ).toBe("idle");
   });
+
+  it("reports successful writes only, including after a view reconfigures the controller", async () => {
+    let saves = 0;
+    const session = new SettingsSession(() => saves++);
+    let fail = true;
+    const save = async (): Promise<void> => {
+      if (fail) throw new Error("offline");
+    };
+    const entry = session.autosave("web/save", save);
+    entry.controller.schedule("first");
+    await entry.controller.flush();
+    expect(saves).toBe(0);
+    fail = false;
+    entry.controller.configure(save, entry.notify);
+    entry.controller.retry();
+    await entry.controller.flush();
+    expect(saves).toBe(1);
+  });
 });

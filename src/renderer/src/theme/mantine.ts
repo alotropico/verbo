@@ -10,6 +10,7 @@ import {
   Input,
   InputWrapper,
   Modal,
+  Notification,
   Slider,
   Switch,
   Tooltip,
@@ -176,5 +177,8 @@ export const theme = createTheme({
       classNames: { dropdown: styles.dropdown, option: styles.option },
     }),
     Tooltip: Tooltip.extend({ classNames: { tooltip: styles.tooltip } }),
+    Notification: Notification.extend({
+      classNames: { root: styles.notification },
+    }),
   },
 });

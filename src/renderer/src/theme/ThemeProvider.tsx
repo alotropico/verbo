@@ -1,4 +1,5 @@
 import { MantineProvider } from "@mantine/core";
+import { Notifications } from "@mantine/notifications";
 import type { ReactElement, ReactNode } from "react";
 import { cssVariablesResolver, theme } from "./mantine";
 
@@ -14,6 +15,7 @@ export function ThemeProvider({
       defaultColorScheme="dark"
       forceColorScheme="dark"
     >
+      <Notifications position="bottom-right" limit={3} />
       {children}
     </MantineProvider>
   );

@@ -36,6 +36,10 @@ import {
   useSettingsDraft,
   useSettingsRef,
 } from "@/hooks/use-settings-draft";
+import {
+  useAdvancedExport,
+  writeAdvancedExport,
+} from "@/runtime/advanced-export";
 import { SettingsSessionProvider } from "./SettingsSessionProvider";
 import { ChoiceInput } from "./ChoiceInput";
 import { SettingsLabel } from "./SettingsLabel";
@@ -225,6 +229,27 @@ function ModelSettings({ report }: { report: SettingsRecovery }): ReactElement {
   );
 }
 
+function ExportSettings(): ReactElement {
+  const enabled = useAdvancedExport();
+  return (
+    <SettingsSection
+      title="Copy and export"
+      description="Plain text is the default. Advanced format keeps every object in the message or chat."
+    >
+      <Switch
+        label={
+          <SettingsLabel
+            label="Advanced format"
+            tip="Copy and export of a message or a whole chat include parts, tool calls, results, attachments, and the latest turn's model objects as JSON."
+          />
+        }
+        checked={enabled}
+        onChange={(event) => writeAdvancedExport(event.currentTarget.checked)}
+      />
+    </SettingsSection>
+  );
+}
+
 export function SettingsPage(): ReactElement {
   return (
     <SettingsSessionProvider>
@@ -340,13 +365,16 @@ function SettingsWorkspace(): ReactElement {
           </Tabs.List>
           {navigation.tab === "model" ? (
             <Tabs.Panel value="model" className={styles.panel}>
-              {report ? (
-                <ModelSettings report={report} />
-              ) : (
-                <Text size="sm" c="dimmed">
-                  Loading model settings…
-                </Text>
-              )}
+              <Stack gap="xl">
+                {report ? (
+                  <ModelSettings report={report} />
+                ) : (
+                  <Text size="sm" c="dimmed">
+                    Loading model settings…
+                  </Text>
+                )}
+                <ExportSettings />
+              </Stack>
             </Tabs.Panel>
           ) : null}
           {navigation.tab === "memory" ? (

@@ -24,12 +24,15 @@ export class SettingsCell<Value> {
 type StoredAutosave<Value> = {
   controller: AutosaveController<Value>;
   state: SettingsCell<AutosaveState>;
+  notify: (state: AutosaveState) => void;
 };
 
 /** Settings data outlives its views; subscriptions exist only for active views. */
 export class SettingsSession {
   private cells = new Map<string, unknown>();
   private autosaves = new Map<string, unknown>();
+
+  constructor(private onSaved: () => void = () => undefined) {}
 
   cell<Value>(
     key: string,
@@ -53,8 +56,12 @@ export class SettingsSession {
         status: "idle",
         error: "",
       });
-      const controller = new AutosaveController(save, state.set, 350, merge);
-      this.autosaves.set(key, { controller, state });
+      const notify = (next: AutosaveState): void => {
+        state.set(next);
+        if (next.status === "saved") this.onSaved();
+      };
+      const controller = new AutosaveController(save, notify, 350, merge);
+      this.autosaves.set(key, { controller, state, notify });
     }
     return this.autosaves.get(key) as StoredAutosave<Value>;
   }

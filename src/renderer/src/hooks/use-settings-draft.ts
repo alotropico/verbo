@@ -44,7 +44,7 @@ export function useSettingsAutosave<Value>(
     entry.state.snapshot,
   );
   useLayoutEffect(() => {
-    entry.controller.configure(save, entry.state.set, merge);
+    entry.controller.configure(save, entry.notify, merge);
   }, [entry, save, merge]);
   useLayoutEffect(
     () => () => {

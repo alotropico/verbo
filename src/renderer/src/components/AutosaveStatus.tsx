@@ -9,35 +9,21 @@ export function AutosaveStatus({
 }: {
   state: AutosaveState;
   retry: () => void;
-}): ReactElement {
+}): ReactElement | null {
+  if (state.status !== "error") return null;
   return (
-    <Group gap="xs" role={state.status === "error" ? "alert" : "status"}>
-      <Text
-        size="xs"
-        c={state.status === "error" ? "var(--destructive)" : "dimmed"}
-      >
-        {state.status === "error"
-          ? state.error
-          : state.status === "saving"
-            ? "Saving…"
-            : state.status === "saved"
-              ? "Saved automatically"
-              : ""}
+    <Group gap="xs" role="alert">
+      <Text size="xs" c="var(--destructive)">
+        {state.error}
       </Text>
-      {state.status === "error" ? (
-        <Tooltip
-          label="Retry saving"
-          events={{ hover: true, focus: true, touch: false }}
-        >
-          <ActionIcon
-            variant="subtle"
-            aria-label="Retry saving"
-            onClick={retry}
-          >
-            <RotateCwIcon size={14} />
-          </ActionIcon>
-        </Tooltip>
-      ) : null}
+      <Tooltip
+        label="Retry saving"
+        events={{ hover: true, focus: true, touch: false }}
+      >
+        <ActionIcon variant="subtle" aria-label="Retry saving" onClick={retry}>
+          <RotateCwIcon size={14} />
+        </ActionIcon>
+      </Tooltip>
     </Group>
   );
 }

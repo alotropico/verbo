@@ -144,6 +144,7 @@
 }
 
 .dropdown,
+.notification,
 .tooltip {
   backdrop-filter: blur(rem(24px));
   background: var(--surface-raised);
