@@ -9,7 +9,9 @@ import {
   Skeleton,
   type ButtonProps,
 } from "@mantine/core";
+import { useAdvancedExport } from "@/runtime/advanced-export";
 import { publishCommandStatus } from "@/runtime/command-status";
+import { readThreadInteraction } from "@/runtime/latest-exchange";
 import {
   subscribeThreadActivity,
   threadActivity,
@@ -20,6 +22,7 @@ import { useChatSelection } from "@/components/chat-selection-context";
 import { cx } from "@/lib/cx";
 import a11y from "@/lib/a11y.module.css";
 import {
+  chatExportAdvanced,
   chatExportFilename,
   chatExportJson,
   chatExportMarkdown,
@@ -606,7 +609,7 @@ const downloadText = (filename: string, mime: string, text: string): void => {
 };
 
 const exportChatFile = async (
-  kind: "json" | "md",
+  kind: "json" | "md" | "advanced",
   item: {
     id: string;
     remoteId: string | undefined;
@@ -628,18 +631,27 @@ const exportChatFile = async (
     headId: loaded.headId,
     messages: readExportMessages(loaded.messages),
   };
-  const text =
-    kind === "json" ? chatExportJson(chat) : chatExportMarkdown(chat);
+  const advanced = kind === "advanced";
+  const interaction = advanced
+    ? (readThreadInteraction(chat.id) ?? readThreadInteraction(item.id))
+    : null;
+  const text = advanced
+    ? chatExportAdvanced(chat, interaction)
+    : kind === "json"
+      ? chatExportJson(chat)
+      : chatExportMarkdown(chat);
+  const extension = advanced || kind === "json" ? "json" : "md";
   const mime =
-    kind === "json" ? "application/json" : "text/markdown;charset=utf-8";
-  downloadText(chatExportFilename(title, kind), mime, text);
+    extension === "json" ? "application/json" : "text/markdown;charset=utf-8";
+  downloadText(chatExportFilename(title, extension), mime, text);
 };
 
 const ThreadListItemMore: FC<{ onRename: () => void }> = ({ onRename }) => {
   const aui = useAui();
   const confirm = useConfirmation();
+  const advanced = useAdvancedExport();
 
-  const exportAs = (kind: "json" | "md"): void => {
+  const exportAs = (kind: "json" | "md" | "advanced"): void => {
     const item = aui.threadListItem.getState();
     void exportChatFile(kind, item).catch((error: unknown) => {
       publishCommandStatus({
@@ -682,22 +694,35 @@ const ThreadListItemMore: FC<{ onRename: () => void }> = ({ onRename }) => {
           <PencilIcon className={styles.moreItemIcon} />
           Rename
         </ThreadListItemMorePrimitive.Item>
-        <ThreadListItemMorePrimitive.Item
-          data-slot="aui_thread-list-item-more-item"
-          className={styles.moreItem}
-          onSelect={() => exportAs("json")}
-        >
-          <FileJsonIcon className={styles.moreItemIcon} />
-          Export as JSON
-        </ThreadListItemMorePrimitive.Item>
-        <ThreadListItemMorePrimitive.Item
-          data-slot="aui_thread-list-item-more-item"
-          className={styles.moreItem}
-          onSelect={() => exportAs("md")}
-        >
-          <FileTextIcon className={styles.moreItemIcon} />
-          Export as MD
-        </ThreadListItemMorePrimitive.Item>
+        {advanced ? (
+          <ThreadListItemMorePrimitive.Item
+            data-slot="aui_thread-list-item-more-item"
+            className={styles.moreItem}
+            onSelect={() => exportAs("advanced")}
+          >
+            <FileJsonIcon className={styles.moreItemIcon} />
+            Export objects
+          </ThreadListItemMorePrimitive.Item>
+        ) : (
+          <ThreadListItemMorePrimitive.Item
+            data-slot="aui_thread-list-item-more-item"
+            className={styles.moreItem}
+            onSelect={() => exportAs("json")}
+          >
+            <FileJsonIcon className={styles.moreItemIcon} />
+            Export as JSON
+          </ThreadListItemMorePrimitive.Item>
+        )}
+        {advanced ? null : (
+          <ThreadListItemMorePrimitive.Item
+            data-slot="aui_thread-list-item-more-item"
+            className={styles.moreItem}
+            onSelect={() => exportAs("md")}
+          >
+            <FileTextIcon className={styles.moreItemIcon} />
+            Export as MD
+          </ThreadListItemMorePrimitive.Item>
+        )}
         <ThreadListItemPrimitive.Archive
           render={
             <ThreadListItemMorePrimitive.Item

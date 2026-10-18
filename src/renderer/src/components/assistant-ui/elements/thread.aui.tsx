@@ -49,9 +49,26 @@ import {
   subscribeLatestExchange,
 } from "@/runtime/latest-exchange";
 import { useLocalCommandGuard } from "@/runtime/use-local-command";
+import { useAdvancedExport } from "@/runtime/advanced-export";
+import {
+  chatExportAdvanced,
+  chatExportFilename,
+  chatExportMarkdown,
+  exportMessageRecord,
+  messageExportJson,
+  type ChatExport,
+} from "@shared/chat-export";
 import { USER_ABORT_NOTICE } from "@shared/chat-ipc";
+import { chatPlaceholderTitle } from "@shared/thread-title";
 import { isPendingApprovalResult } from "@shared/tool-result-label";
-import { ActionIcon, Button, Skeleton, Text, Tooltip } from "@mantine/core";
+import {
+  ActionIcon,
+  Button,
+  Menu,
+  Skeleton,
+  Text,
+  Tooltip,
+} from "@mantine/core";
 import { cx } from "@/lib/cx";
 import a11y from "@/lib/a11y.module.css";
 import {
@@ -65,6 +82,7 @@ import {
   groupPartByType,
   MessagePrimitive,
   ThreadPrimitive,
+  useAui,
   type FileMessagePartComponent,
   type ImageMessagePartComponent,
   type TextMessagePartComponent,
@@ -295,7 +313,10 @@ const ThreadRoot: FC<{ isEmpty: boolean; autoFocus: boolean }> = ({
               <QueueRows />
               <VoiceOrb />
               <Composer autoFocus={autoFocus} />
-              <ContextMeters />
+              <div className={styles.composerMeta}>
+                <ContextMeters />
+                <ComposerChatMenu />
+              </div>
             </div>
             <AuiIf condition={(s) => isNewChatView(s) && s.composer.isEmpty}>
               <ThreadSuggestions />
@@ -400,20 +421,30 @@ const SpokenMessage: FC = () => {
   );
 };
 
-const SpokenActionBar: FC = () => {
-  return (
-    <ActionBarPrimitive.Root
-      hideWhenRunning
-      autohide="always"
-      className={cx("aui-spoken-action-bar", styles.spokenActionBar)}
-    >
+const MessageCopyButton: FC<{ className?: string }> = ({ className }) => {
+  const advanced = useAdvancedExport();
+  const aui = useAui();
+  const running = useAuiState(
+    (state) =>
+      state.message.role === "assistant" &&
+      state.message.status?.type === "running",
+  );
+  const messageId = useAuiState((state) => state.message.id);
+  const messageIdRef = useRef(messageId);
+  messageIdRef.current = messageId;
+  const copiedTimer = useRef<ReturnType<typeof setTimeout> | undefined>(
+    undefined,
+  );
+  useEffect(
+    () => () => {
+      if (copiedTimer.current) clearTimeout(copiedTimer.current);
+    },
+    [],
+  );
+  if (!advanced) {
+    return (
       <ActionBarPrimitive.Copy
-        render={
-          <TooltipIconButton
-            tooltip="Copy"
-            className={styles.spokenCopyButton}
-          />
-        }
+        render={<TooltipIconButton tooltip="Copy" className={className} />}
       >
         <AuiIf condition={(s) => s.message.isCopied}>
           <CheckIcon className={styles.copyIconCheck} size={14} />
@@ -422,6 +453,48 @@ const SpokenActionBar: FC = () => {
           <CopyIcon className={styles.copyIconCopy} size={14} />
         </AuiIf>
       </ActionBarPrimitive.Copy>
+    );
+  }
+  const copy = (): void => {
+    if (running) return;
+    const message = aui.message().getState();
+    const threadId = aui.threads().getState().mainThreadId;
+    window.verbo.clipboard.writeText(
+      messageExportJson(message, readThreadInteraction(threadId)),
+    );
+    const copiedId = message.id;
+    aui.message().setIsCopied(true);
+    if (copiedTimer.current) clearTimeout(copiedTimer.current);
+    copiedTimer.current = setTimeout(() => {
+      if (messageIdRef.current !== copiedId) return;
+      aui.message().setIsCopied(false);
+    }, 3000);
+  };
+  return (
+    <TooltipIconButton
+      tooltip="Copy"
+      className={className}
+      disabled={running}
+      onClick={copy}
+    >
+      <AuiIf condition={(s) => s.message.isCopied}>
+        <CheckIcon className={styles.copyIconCheck} size={14} />
+      </AuiIf>
+      <AuiIf condition={(s) => !s.message.isCopied}>
+        <CopyIcon className={styles.copyIconCopy} size={14} />
+      </AuiIf>
+    </TooltipIconButton>
+  );
+};
+
+const SpokenActionBar: FC = () => {
+  return (
+    <ActionBarPrimitive.Root
+      hideWhenRunning
+      autohide="always"
+      className={cx("aui-spoken-action-bar", styles.spokenActionBar)}
+    >
+      <MessageCopyButton className={styles.spokenCopyButton} />
     </ActionBarPrimitive.Root>
   );
 };
@@ -771,6 +844,154 @@ const STARTER_PROMPTS = [
     Icon: OrbitIcon,
   },
 ] as const;
+
+type VisibleChatMessage = {
+  id: string;
+  role: string;
+  content: readonly unknown[];
+  attachments?: readonly { content?: readonly unknown[] }[];
+};
+
+function visibleChatExport(
+  id: string,
+  title: string,
+  messages: readonly VisibleChatMessage[],
+  advanced: boolean,
+): ChatExport | null {
+  const visible = messages.filter(
+    (message) => message.role === "user" || message.role === "assistant",
+  );
+  if (visible.length === 0) return null;
+  return {
+    id,
+    title,
+    headId: visible.at(-1)?.id ?? null,
+    messages: visible.map((message, index) => {
+      const parentId = index === 0 ? null : (visible[index - 1]?.id ?? null);
+      if (!advanced) {
+        return {
+          id: message.id,
+          parentId,
+          role: message.role,
+          content: [
+            ...message.content,
+            ...(message.attachments ?? []).flatMap(
+              (attachment) => attachment.content ?? [],
+            ),
+          ],
+        };
+      }
+      const record = exportMessageRecord(message) ?? {};
+      return {
+        ...record,
+        id: message.id,
+        parentId,
+        role: message.role,
+        content: record.content ?? message.content,
+      };
+    }),
+  };
+}
+
+type ChatMenuAction = {
+  id: string;
+  label: string;
+  Icon: typeof CopyIcon;
+  run: () => void;
+};
+
+const ComposerChatMenu: FC = () => {
+  const aui = useAui();
+  const advanced = useAdvancedExport();
+  const hasChat = useAuiState((state) =>
+    state.thread.messages.some(
+      (message) => message.role === "user" || message.role === "assistant",
+    ),
+  );
+  const readTranscript = (): {
+    title: string;
+    text: string;
+    extension: "json" | "md";
+  } | null => {
+    const thread = aui.thread().getState();
+    const threads = aui.threads().getState();
+    const title =
+      threads.threadItems.find((item) => item.id === threads.mainThreadId)
+        ?.title || chatPlaceholderTitle(threads.mainThreadId);
+    const chat = visibleChatExport(
+      threads.mainThreadId,
+      title,
+      thread.messages,
+      advanced,
+    );
+    if (!chat) return null;
+    return {
+      title,
+      extension: advanced ? "json" : "md",
+      text: advanced
+        ? chatExportAdvanced(chat, readThreadInteraction(threads.mainThreadId))
+        : chatExportMarkdown(chat),
+    };
+  };
+  const actions: ChatMenuAction[] = [];
+  if (hasChat) {
+    actions.push(
+      {
+        id: "copy",
+        label: advanced ? "Copy chat objects" : "Copy full chat",
+        Icon: CopyIcon,
+        run: () => {
+          const transcript = readTranscript();
+          if (!transcript) return;
+          window.verbo.clipboard.writeText(transcript.text);
+        },
+      },
+      {
+        id: "download",
+        label: advanced ? "Download chat objects" : "Download whole chat",
+        Icon: DownloadIcon,
+        run: () => {
+          const transcript = readTranscript();
+          if (!transcript) return;
+          downloadText(
+            chatExportFilename(transcript.title, transcript.extension),
+            transcript.text,
+            transcript.extension === "json"
+              ? "application/json"
+              : "text/markdown;charset=utf-8",
+          );
+        },
+      },
+    );
+  }
+  if (actions.length === 0) return null;
+  return (
+    <Menu position="top-end" offset={6} withinPortal>
+      <Menu.Target>
+        <TooltipIconButton
+          tooltip="Chat actions"
+          type="button"
+          className={styles.composerMetaTrigger}
+          aria-label="Chat actions"
+        >
+          <MoreHorizontalIcon size={12} />
+        </TooltipIconButton>
+      </Menu.Target>
+      <Menu.Dropdown className={styles.composerMenu}>
+        {actions.map((action) => (
+          <Menu.Item
+            key={action.id}
+            className={styles.composerMenuItem}
+            leftSection={<action.Icon className={styles.iconSize4} />}
+            onClick={action.run}
+          >
+            {action.label}
+          </Menu.Item>
+        ))}
+      </Menu.Dropdown>
+    </Menu>
+  );
+};
 
 const Composer: FC<{ autoFocus: boolean }> = ({ autoFocus }) => {
   const command = useLocalCommandGuard();
@@ -1146,8 +1367,12 @@ const AssistantMessage: FC = () => {
   );
 };
 
-function downloadText(filename: string, text: string): void {
-  const blob = new Blob([text], { type: "application/json" });
+function downloadText(
+  filename: string,
+  text: string,
+  mime = "application/json",
+): void {
+  const blob = new Blob([text], { type: mime });
   const url = URL.createObjectURL(blob);
   const anchor = document.createElement("a");
   anchor.href = url;
@@ -1158,6 +1383,39 @@ function downloadText(filename: string, text: string): void {
   anchor.remove();
   setTimeout(() => URL.revokeObjectURL(url), 40_000);
 }
+
+const MessageExportItem: FC = () => {
+  const advanced = useAdvancedExport();
+  const aui = useAui();
+  const itemClass = cx("aui-action-bar-more-item", styles.actionBarMoreItem);
+  if (!advanced) {
+    return (
+      <ActionBarPrimitive.ExportMarkdown
+        render={<ActionBarMorePrimitive.Item className={itemClass} />}
+      >
+        <DownloadIcon className={styles.iconSize4} />
+        Export as Markdown
+      </ActionBarPrimitive.ExportMarkdown>
+    );
+  }
+  return (
+    <ActionBarMorePrimitive.Item
+      className={itemClass}
+      onClick={() => {
+        const message = aui.message().getState();
+        const threadId = aui.threads().getState().mainThreadId;
+        downloadText(
+          `message-${message.id}.json`,
+          messageExportJson(message, readThreadInteraction(threadId)),
+          "application/json",
+        );
+      }}
+    >
+      <DownloadIcon className={styles.iconSize4} />
+      Export objects
+    </ActionBarMorePrimitive.Item>
+  );
+};
 
 const AssistantActionBar: FC = () => {
   const messageId = useAuiState((state) => state.message.id);
@@ -1191,18 +1449,7 @@ const AssistantActionBar: FC = () => {
       autohideFloat="single-branch"
       className={cx("aui-assistant-action-bar-root", styles.assistantActionBar)}
     >
-      <ActionBarPrimitive.Copy
-        render={
-          <TooltipIconButton tooltip="Copy" className={styles.compactAction} />
-        }
-      >
-        <AuiIf condition={(s) => s.message.isCopied}>
-          <CheckIcon className={styles.copyIconCheck} size={14} />
-        </AuiIf>
-        <AuiIf condition={(s) => !s.message.isCopied}>
-          <CopyIcon className={styles.copyIconCopy} size={14} />
-        </AuiIf>
-      </ActionBarPrimitive.Copy>
+      <MessageCopyButton className={styles.compactAction} />
       <AuiIf condition={(s) => s.thread.capabilities.feedback}>
         <ActionBarPrimitive.FeedbackPositive
           render={
@@ -1255,19 +1502,7 @@ const AssistantActionBar: FC = () => {
             styles.actionBarMoreContent,
           )}
         >
-          <ActionBarPrimitive.ExportMarkdown
-            render={
-              <ActionBarMorePrimitive.Item
-                className={cx(
-                  "aui-action-bar-more-item",
-                  styles.actionBarMoreItem,
-                )}
-              />
-            }
-          >
-            <DownloadIcon className={styles.iconSize4} />
-            Export as Markdown
-          </ActionBarPrimitive.ExportMarkdown>
+          <MessageExportItem />
           {exchange ? (
             <ActionBarMorePrimitive.Item
               className={cx(

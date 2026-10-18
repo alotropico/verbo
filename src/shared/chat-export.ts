@@ -3,7 +3,95 @@ export type ChatExportMessage = {
   parentId: string | null;
   role: string;
   content: unknown;
+  [key: string]: unknown;
 };
+
+const MESSAGE_RUNTIME_KEYS = [
+  "branchCount",
+  "branchNumber",
+  "composer",
+  "dataRendererUI",
+  "index",
+  "isCopied",
+  "isHovering",
+  "isLast",
+  "parts",
+  "speech",
+  "submission",
+  "toolUI",
+] as const;
+
+function isBinary(value: object): boolean {
+  if (typeof ArrayBuffer !== "undefined" && value instanceof ArrayBuffer)
+    return true;
+  return typeof ArrayBuffer !== "undefined" && ArrayBuffer.isView(value);
+}
+
+/** JSON-safe copy. Drops functions, binary values, and React elements. */
+export function exportJsonValue(
+  value: unknown,
+  seen = new WeakSet<object>(),
+): unknown {
+  if (value === null) return null;
+  if (typeof value === "string" || typeof value === "boolean") return value;
+  if (typeof value === "number") return Number.isFinite(value) ? value : null;
+  if (typeof value === "bigint") return value.toString();
+  if (typeof value !== "object") return undefined;
+  if (value instanceof Date) return value.toISOString();
+  if (value instanceof Error)
+    return { name: value.name, message: value.message };
+  if (
+    seen.has(value) ||
+    isBinary(value) ||
+    ("nodeType" in value &&
+      typeof (value as { nodeType: unknown }).nodeType === "number")
+  )
+    return undefined;
+  if ("$$typeof" in value) return undefined;
+  seen.add(value);
+  if (Array.isArray(value)) {
+    return value.map((item) => {
+      const next = exportJsonValue(item, seen);
+      return next === undefined ? null : next;
+    });
+  }
+  const out: Record<string, unknown> = {};
+  for (const [key, child] of Object.entries(value)) {
+    if (key === "toolUI" || key === "dataRendererUI") continue;
+    const next = exportJsonValue(child, seen);
+    if (next !== undefined) out[key] = next;
+  }
+  return out;
+}
+
+export function exportMessageRecord(
+  message: unknown,
+): Record<string, unknown> | null {
+  const data = exportJsonValue(message);
+  if (typeof data !== "object" || data === null || Array.isArray(data))
+    return null;
+  const record = data as Record<string, unknown>;
+  for (const key of MESSAGE_RUNTIME_KEYS) delete record[key];
+  return record;
+}
+
+export function messageExportJson(
+  message: unknown,
+  interaction?: unknown,
+): string {
+  const record = exportMessageRecord(message) ?? {};
+  const assistantMessageId =
+    typeof interaction === "object" &&
+    interaction !== null &&
+    "assistantMessageId" in interaction
+      ? interaction.assistantMessageId
+      : undefined;
+  const body =
+    assistantMessageId !== undefined && assistantMessageId === record.id
+      ? { ...record, interaction: exportJsonValue(interaction) }
+      : record;
+  return `${JSON.stringify(body, null, 2)}\n`;
+}
 
 export type ChatExport = {
   id: string;
@@ -20,12 +108,14 @@ export function readExportMessages(
     const message = row.message as Record<string, unknown>;
     if (typeof message.id !== "string" || message.id.length === 0) return [];
     const role = typeof message.role === "string" ? message.role : "assistant";
+    const record = exportMessageRecord(message) ?? {};
     return [
       {
+        ...record,
         id: message.id,
         parentId: row.parentId,
         role,
-        content: message.content ?? [],
+        content: record.content ?? message.content ?? [],
       },
     ];
   });
@@ -49,6 +139,31 @@ export function activeBranch(
     current = current.parentId ? byId.get(current.parentId) : undefined;
   }
   return chain.reverse();
+}
+
+export function chatExportAdvanced(
+  chat: ChatExport,
+  interaction?: unknown,
+): string {
+  const messages = activeBranch(chat.messages, chat.headId).map((message) => {
+    const record = exportMessageRecord(message) ?? {};
+    return {
+      ...record,
+      id: message.id,
+      parentId: message.parentId,
+      role: message.role,
+      content: record.content ?? message.content,
+    };
+  });
+  const body: Record<string, unknown> = {
+    id: chat.id,
+    title: chat.title,
+    headId: chat.headId,
+    messages,
+  };
+  if (interaction !== undefined && interaction !== null)
+    body.interaction = exportJsonValue(interaction);
+  return `${JSON.stringify(body, null, 2)}\n`;
 }
 
 export function chatExportJson(chat: ChatExport): string {

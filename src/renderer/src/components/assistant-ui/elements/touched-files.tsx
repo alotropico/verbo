@@ -15,7 +15,8 @@ import {
   touchedFilesFromParts,
   touchedFilesFromItems,
 } from "@shared/touched-files";
-import { StatusMessage, type StatusFeedback } from "@/components/StatusMessage";
+import { StatusMessage } from "@/components/StatusMessage";
+import { notify } from "@/lib/notify";
 import {
   CollapsibleRoot,
   CollapsibleTrigger,
@@ -103,7 +104,6 @@ export function TouchedFiles(): ReactElement | null {
     error?: string;
   } | null>(null);
   const [showAll, setShowAll] = useState(false);
-  const [notice, setNotice] = useState<StatusFeedback | null>(null);
   useEffect(() => {
     let cancelled = false;
     const load = async (): Promise<void> => {
@@ -181,15 +181,14 @@ export function TouchedFiles(): ReactElement | null {
   const files = [...resources.values()];
   if (!receiptKey && files.length === 0 && !current?.error) return null;
   const onIntent = (intent: FileSurfaceIntent, path: string): void => {
-    setNotice(null);
     void window.verbo.files
       .surface({ path, intent })
       .then((result) => {
-        if (!result.ok) setNotice({ text: result.summary, tone: "error" });
+        if (!result.ok) notify({ message: result.summary, tone: "error" });
         else if (intent === "copy")
-          setNotice({ text: "Copied.", tone: "success" });
+          notify({ id: "file-copied", message: "Copied.", tone: "success" });
       })
-      .catch(() => setNotice({ text: "File action failed.", tone: "error" }));
+      .catch(() => notify({ message: "File action failed.", tone: "error" }));
   };
   return (
     <div className={styles.row} role="group" aria-label="Operation results">
@@ -243,13 +242,9 @@ export function TouchedFiles(): ReactElement | null {
           {showAll ? "Show less" : `Show all (${files.length})`}
         </Button>
       ) : null}
-      {current?.error || notice ? (
-        <StatusMessage
-          display="plain"
-          size="xs"
-          tone={current?.error ? "error" : (notice?.tone ?? "info")}
-        >
-          {current?.error ?? notice?.text}
+      {current?.error ? (
+        <StatusMessage display="plain" size="xs" tone="error">
+          {current.error}
         </StatusMessage>
       ) : null}
     </div>

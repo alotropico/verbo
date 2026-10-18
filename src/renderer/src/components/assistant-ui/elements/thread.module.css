@@ -378,6 +378,22 @@
   z-index: 1;
 }
 
+.composerMeta {
+  align-items: center;
+  display: flex;
+  justify-content: space-between;
+  padding-inline-end: rem(8px);
+}
+
+.composerMetaTrigger {
+  color: var(--muted-foreground);
+  height: rem(16px);
+  min-height: 0;
+  min-width: 0;
+  padding: 0;
+  width: rem(16px);
+}
+
 .composerRoot {
   display: flex;
   flex-direction: column;
@@ -462,6 +478,28 @@
   align-items: center;
   display: flex;
   gap: rem(6px);
+}
+
+.composerMenu {
+  backdrop-filter: blur(rem(24px));
+  background: var(--surface-raised);
+  border: rem(1px) solid var(--surface-edge);
+  border-radius: calc(var(--radius) + rem(4px));
+  box-shadow: var(--shadow-floating);
+  color: var(--foreground);
+  min-width: rem(180px);
+  padding: rem(6px);
+}
+
+.composerMenuItem {
+  border-radius: var(--radius);
+  font-size: rem(14px);
+}
+
+.composerMenuItem:hover,
+.composerMenuItem[data-hovered] {
+  background: var(--accent);
+  color: var(--accent-foreground);
 }
 
 .composerIconButton {
