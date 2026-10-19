@@ -4,6 +4,7 @@ import {
   activitySummaryText,
   classifyActionResult,
   evaluateTrace,
+  normalizeTracePresentation,
   fileResultRows,
   reportParagraphs,
   type TraceCallInput,
@@ -89,6 +90,189 @@ describe("action classification", () => {
 });
 
 describe("trace evaluation", () => {
+  it("presents turn phases as peers and preserves steps and their tool attribution", () => {
+    const trace = evaluateTrace({
+      turnId: "hierarchy",
+      stages: [
+        {
+          id: "decision",
+          kind: "routing",
+          label: "Decision",
+          order: 0,
+          state: "succeeded",
+        },
+        {
+          id: "workflow",
+          kind: "workflow",
+          label: "commander",
+          parentId: "decision",
+          order: 1,
+          state: "succeeded",
+        },
+        {
+          id: "operate",
+          kind: "step",
+          label: "operate",
+          parentId: "workflow",
+          order: 2,
+          state: "succeeded",
+        },
+      ],
+      calls: [call("read", result("success"), { parentId: "operate" })],
+      workflow: {
+        executionId: "workflow",
+        workflowId: "commander",
+        status: "completed",
+      },
+      clock: { assumeReady: true },
+    });
+    const phases = trace.nodes.filter((node) =>
+      ["routing", "workflow", "reply"].includes(node.kind),
+    );
+    expect(phases.map((node) => node.label)).toEqual([
+      "Decision",
+      "Commands",
+      "Reply",
+    ]);
+    expect(phases.every((node) => node.parentId === undefined)).toBe(true);
+    expect(trace.nodes.find((node) => node.id === "operate")).toMatchObject({
+      label: "Operate",
+      parentId: "workflow",
+    });
+    expect(trace.nodes.find((node) => node.id === "read")?.parentId).toBe(
+      "operate",
+    );
+
+    const saved = {
+      ...trace,
+      nodes: trace.nodes.map((node) =>
+        node.id === "workflow"
+          ? { ...node, label: "commander", parentId: "decision" }
+          : node.id === "operate"
+            ? { ...node, label: "operate" }
+            : node,
+      ),
+    };
+    expect(normalizeTracePresentation(saved)).toEqual(trace);
+    expect(saved.nodes.find((node) => node.id === "workflow")?.parentId).toBe(
+      "decision",
+    );
+  });
+
+  it.each(["success", "error"] as const)(
+    "keeps a running workflow and step active after a %s tool result",
+    (status) => {
+      const trace = evaluateTrace({
+        turnId: "active",
+        stages: [
+          {
+            id: "operate",
+            kind: "step",
+            label: "Operate",
+            order: 1,
+            state: "started",
+            parentId: "workflow",
+          },
+        ],
+        workflow: {
+          executionId: "workflow",
+          workflowId: "commander",
+          status: "running",
+        },
+        calls: [call("one", result(status), { parentId: "operate" })],
+      });
+      expect(trace.nodes.find((node) => node.id === "one")?.lifecycle).toBe(
+        "finished",
+      );
+      expect(trace.nodes.find((node) => node.id === "operate")?.lifecycle).toBe(
+        "running",
+      );
+      expect(
+        trace.nodes.find((node) => node.id === "workflow")?.lifecycle,
+      ).toBe("running");
+      expect(trace.nodes.some((node) => node.id === "active:handoff")).toBe(
+        false,
+      );
+    },
+  );
+
+  it("bridges Decision into the selected workflow until execution starts", () => {
+    const stages = [
+      {
+        id: "decision",
+        kind: "routing" as const,
+        label: "Decision",
+        order: 0,
+        state: "succeeded",
+        workflowId: "commander",
+      },
+    ];
+    const handoff = evaluateTrace({ turnId: "turn", stages });
+    expect(handoff.nodes.at(-1)).toMatchObject({
+      id: "turn:handoff",
+      label: "Commands",
+      lifecycle: "running",
+    });
+    const started = evaluateTrace({
+      turnId: "turn",
+      stages,
+      workflow: {
+        executionId: "workflow",
+        workflowId: "commander",
+        status: "running",
+      },
+    });
+    expect(started.nodes.some((node) => node.id === "turn:handoff")).toBe(
+      false,
+    );
+    expect(started.nodes.at(-1)?.lifecycle).toBe("running");
+  });
+
+  it("bridges a settled workflow into Reply and retires the handoff when ready", () => {
+    const workflow = {
+      executionId: "workflow",
+      workflowId: "conversational",
+      status: "completed",
+    };
+    const handoff = evaluateTrace({ turnId: "turn", workflow });
+    expect(handoff.nodes.at(-1)).toMatchObject({
+      label: "Reply",
+      lifecycle: "running",
+    });
+    const reporting = evaluateTrace({
+      turnId: "turn",
+      workflow,
+      clock: { reporting: true },
+    });
+    expect(
+      reporting.nodes.filter((node) => node.kind === "reply"),
+    ).toHaveLength(1);
+    const ready = evaluateTrace({
+      turnId: "turn",
+      workflow,
+      clock: { assumeReady: true },
+    });
+    expect(ready.nodes.some((node) => node.id === "turn:handoff")).toBe(false);
+    expect(ready.nodes.every((node) => node.lifecycle === "finished")).toBe(
+      true,
+    );
+  });
+
+  it("retains the reporting phase when the trace reaches its node bound", () => {
+    const trace = evaluateTrace({
+      turnId: "long",
+      calls: Array.from({ length: 90 }, (_, index) =>
+        call(`call-${index}`, result("success")),
+      ),
+      clock: { reporting: true },
+    });
+    expect(trace.nodes).toHaveLength(80);
+    expect(trace.nodes.at(-1)).toMatchObject({
+      kind: "reply",
+      lifecycle: "running",
+    });
+  });
+
   it("counts a logical attempt once and ignores reuse, skips, and composite children", () => {
     const trace = evaluateTrace({
       turnId: "turn-1",
@@ -185,7 +369,7 @@ describe("trace evaluation", () => {
     const workflow = trace.nodes.find((node) => node.kind === "workflow");
     const step = trace.nodes.find((node) => node.kind === "step");
     expect(workflow?.outcome).toBe("blocked");
-    expect(step?.label).toBe("operate");
+    expect(step?.label).toBe("Operate");
     expect(step?.outcome).toBe("blocked");
     expect(trace.nodes.some((node) => node.kind === "reply")).toBe(true);
   });

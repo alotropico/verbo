@@ -1,28 +1,32 @@
 import { useAuiState } from "@assistant-ui/react";
+import { UnstyledButton } from "@mantine/core";
 import {
   CheckIcon,
-  ChevronDownIcon,
+  ChevronRightIcon,
   CircleHelpIcon,
   CircleStopIcon,
   ClockIcon,
+  CopyIcon,
   MinusIcon,
   TriangleAlertIcon,
   CircleAlertIcon,
 } from "lucide-react";
 import {
   useEffect,
+  useId,
   useMemo,
   useRef,
   useState,
   useSyncExternalStore,
-  type CSSProperties,
   type ReactElement,
+  type ReactNode,
 } from "react";
 import {
   activitySummaryText,
   executionTraceSchema,
   formatWorkDuration,
   liveWorkMs,
+  normalizeTracePresentation,
   type ExecutionTrace,
   type TraceNode,
   type TraceOutcome,
@@ -30,6 +34,13 @@ import {
 import { cx } from "@/lib/cx";
 import { readClock, subscribeClock } from "@/runtime/relative-time";
 import { PendingIndicator } from "./pending-indicator";
+import { TooltipIconButton } from "./tooltip-icon-button";
+import { ApprovalRequests } from "./approval-region";
+import {
+  CollapsibleRoot,
+  CollapsibleTrigger,
+  CollapsibleContent,
+} from "./collapsible-root";
 import styles from "./execution-trace-view.module.css";
 
 const OUTCOME_LABEL: Record<TraceOutcome, string> = {
@@ -52,7 +63,7 @@ export function traceFromParts(
     if (!("name" in part) || part.name !== "execution-trace") continue;
     if (!("data" in part)) continue;
     const parsed = executionTraceSchema.safeParse(part.data);
-    if (parsed.success) return parsed.data;
+    if (parsed.success) return normalizeTracePresentation(parsed.data);
   }
   return undefined;
 }
@@ -67,7 +78,7 @@ export function useMessageTrace(): ExecutionTrace | undefined {
   });
   return useMemo(() => {
     const parsed = executionTraceSchema.safeParse(data);
-    return parsed.success ? parsed.data : undefined;
+    return parsed.success ? normalizeTracePresentation(parsed.data) : undefined;
   }, [data]);
 }
 
@@ -106,7 +117,7 @@ export function OutcomeMark({ node }: { node: TraceNode }): ReactElement {
       aria-label={label}
     >
       {node.lifecycle === "running" ? (
-        <PendingIndicator />
+        <PendingIndicator size="compact" />
       ) : node.lifecycle === "waiting" ? (
         <ClockIcon size={14} aria-hidden />
       ) : node.outcome === "succeeded" ? (
@@ -131,7 +142,7 @@ export function OutcomeMark({ node }: { node: TraceNode }): ReactElement {
 function subjectLines(node: TraceNode): string[] {
   const subjects = node.subjects ?? [];
   if (subjects.length === 0) {
-    if (node.kind !== "call") return [];
+    if (node.kind !== "call") return node.summary ? [node.summary] : [];
     if (node.activity === "change" || node.activity === "read")
       return ["No trustworthy path was recorded for this operation."];
     return node.summary ? [node.summary] : [];
@@ -153,83 +164,119 @@ function subjectLines(node: TraceNode): string[] {
 
 function TraceRow({
   node,
-  depth,
-  focused,
+  call,
+  children,
+  highlight,
+  onHighlightEnd,
 }: {
   node: TraceNode;
-  depth: number;
-  focused: boolean;
+  call?: ReactNode;
+  children?: ReactNode;
+  highlight?: number;
+  onHighlightEnd: () => void;
 }): ReactElement {
   return (
-    <li
-      id={`trace-node-${node.id}`}
-      className={cx(styles.row, focused && styles.focused)}
-      style={{ "--trace-depth": depth } as CSSProperties}
-    >
-      <OutcomeMark node={node} />
-      <div className={styles.rowBody}>
-        <span className={styles.rowLabel}>
-          {node.label}
-          {node.disposition === "reused" ? " · reused" : ""}
-          {node.superseded ? " · superseded" : ""}
-        </span>
-        {subjectLines(node).map((line) => (
-          <span className={styles.subject} key={line}>
-            {line}
-          </span>
-        ))}
-        {node.technical?.length ? (
-          <div className={styles.technical}>
-            {node.technical.map((field) => (
-              <p className={styles.detail} key={field.label}>
-                <span>
-                  {field.label}: {field.value}
-                </span>
-                <button
-                  type="button"
-                  className={styles.copy}
-                  onClick={() => {
-                    void window.verbo.clipboard.writeText(field.value);
-                  }}
-                >
-                  Copy
-                </button>
-              </p>
-            ))}
-          </div>
+    <li id={`trace-node-${node.id}`} className={styles.row}>
+      <div className={cx(styles.entry, call && styles.toolEntry)}>
+        {highlight !== undefined ? (
+          <span
+            key={highlight}
+            className={styles.highlight}
+            aria-hidden
+            onAnimationEnd={onHighlightEnd}
+          />
         ) : null}
+        {call || (
+          <div className={styles.rowHeader}>
+            <OutcomeMark node={node} />
+            <div className={styles.rowBody}>
+              <span className={styles.rowLabel}>
+                {node.label}
+                {node.disposition === "reused" ? " · reused" : ""}
+                {node.superseded ? " · superseded" : ""}
+              </span>
+              {subjectLines(node).map((line) => (
+                <span className={styles.subject} key={line}>
+                  {line}
+                </span>
+              ))}
+              {node.technical?.length ? (
+                <CollapsibleRoot className={styles.technical}>
+                  <CollapsibleTrigger className={styles.technicalTrigger}>
+                    <ChevronRightIcon
+                      className={styles.chevron}
+                      size={12}
+                      aria-hidden
+                    />
+                    Technical details
+                  </CollapsibleTrigger>
+                  <CollapsibleContent>
+                    {node.technical.map((field) => (
+                      <p className={styles.detail} key={field.label}>
+                        <span>
+                          {field.label}: {field.value}
+                        </span>
+                        <TooltipIconButton
+                          size="xs"
+                          tooltip={`Copy ${field.label.toLowerCase()}`}
+                          aria-label={`Copy ${field.label}`}
+                          onClick={() => {
+                            void window.verbo.clipboard.writeText(field.value);
+                          }}
+                        >
+                          <CopyIcon size={12} aria-hidden />
+                        </TooltipIconButton>
+                      </p>
+                    ))}
+                  </CollapsibleContent>
+                </CollapsibleRoot>
+              ) : null}
+            </div>
+          </div>
+        )}
       </div>
+      {children}
     </li>
   );
 }
 
 export function ExecutionTraceView({
   trace,
+  active = false,
+  renderCall,
 }: {
   trace: ExecutionTrace;
+  active?: boolean;
+  renderCall?: (node: TraceNode) => ReactNode;
 }): ReactElement {
   const [expanded, setExpanded] = useState(false);
-  const [focusId, setFocusId] = useState<string | undefined>();
+  const detailsId = useId();
+  const [reveal, setReveal] = useState<{ id: string; sequence: number }>();
   const scrollTo = useRef<string | undefined>(undefined);
   const waitingKey = trace.nodes
     .filter((node) => node.lifecycle === "waiting")
     .map((node) => node.id)
     .join("|");
-  const [seenWaiting, setSeenWaiting] = useState(waitingKey);
+  const [seenWaiting, setSeenWaiting] = useState("");
   if (waitingKey !== seenWaiting) {
     setSeenWaiting(waitingKey);
     if (waitingKey) {
       setExpanded(true);
-      setFocusId(waitingKey.split("|")[0]);
+      setReveal((previous) => ({
+        id: waitingKey.split("|")[0],
+        sequence: (previous?.sequence ?? 0) + 1,
+      }));
     }
   }
   const now = useSyncExternalStore(subscribeClock, readClock, () => Date.now());
-  const phases = trace.nodes.filter(
-    (node) =>
-      node.kind === "routing" ||
-      node.kind === "workflow" ||
-      node.kind === "reply",
-  );
+  const phases = trace.nodes
+    .filter(
+      (node) =>
+        node.kind === "routing" ||
+        node.kind === "workflow" ||
+        node.kind === "reply",
+    )
+    .sort((left, right) => left.order - right.order);
   const roots =
     phases.length > 0
       ? phases
@@ -251,11 +298,11 @@ export function ExecutionTraceView({
     document.getElementById(`trace-node-${id}`)?.scrollIntoView({
       block: "nearest",
     });
-  }, [expanded, focusId]);
+  }, [expanded, reveal]);
 
   const focusPhase = (id: string): void => {
     scrollTo.current = id;
-    setFocusId(id);
+    setReveal((previous) => ({ id, sequence: (previous?.sequence ?? 0) + 1 }));
     setExpanded(true);
   };
 
@@ -264,52 +311,82 @@ export function ExecutionTraceView({
       .filter((node) => node.parentId === id)
       .sort((left, right) => left.order - right.order);
 
-  const renderTree = (nodes: TraceNode[], depth: number): ReactElement[] =>
-    nodes.flatMap((node) => [
-      <TraceRow
-        key={node.id}
-        node={node}
-        depth={depth}
-        focused={focusId === node.id}
-      />,
-      ...renderTree(childrenOf(node.id), depth + 1),
-    ]);
+  const renderTree = (nodes: TraceNode[]): ReactElement[] =>
+    nodes.map((node) => {
+      const call = node.kind === "call" ? renderCall?.(node) : null;
+      const children = childrenOf(node.id);
+      return (
+        <TraceRow
+          key={node.id}
+          node={node}
+          call={call}
+          highlight={reveal?.id === node.id ? reveal.sequence : undefined}
+          onHighlightEnd={() => {
+            setReveal((current) => (current === reveal ? undefined : current));
+          }}
+        >
+          {children.length > 0 ? (
+            <ol className={styles.children}>{renderTree(children)}</ol>
+          ) : null}
+        </TraceRow>
+      );
+    });
 
   const logNodes = trace.nodes
-    .filter((node) => !node.parentId)
+    .filter(
+      (node) => !trace.nodes.some((parent) => parent.id === node.parentId),
+    )
     .sort((left, right) => left.order - right.order);
 
   return (
-    <section className={styles.activity} aria-label="Activity">
-      <div className={styles.path}>
+    <CollapsibleRoot
+      className={styles.activity}
+      open={expanded}
+      onOpenChange={(open) => {
+        setExpanded(open);
+        if (!open) setReveal(undefined);
+      }}
+      render={<section aria-label="Activity" />}
+    >
+      <div
+        className={styles.path}
+        aria-label={active ? "Turn in progress" : "Turn activity"}
+      >
         {roots.map((node) => (
-          <button
+          <UnstyledButton
             key={node.id}
             type="button"
             className={styles.phase}
+            data-active={
+              node.lifecycle === "running" || node.lifecycle === "waiting"
+            }
             aria-expanded={expanded}
+            aria-controls={detailsId}
             onClick={() => focusPhase(node.id)}
           >
             <span>{node.label}</span>
             <OutcomeMark node={node} />
-          </button>
+          </UnstyledButton>
         ))}
+        {active && trace.readiness === "ready" ? (
+          <span className={styles.phase} data-active="true">
+            <span>Finishing</span>
+            <PendingIndicator size="compact" />
+          </span>
+        ) : null}
       </div>
-      <button
-        type="button"
-        className={styles.summary}
-        aria-expanded={expanded}
-        onClick={() => setExpanded((value) => !value)}
-      >
-        <ChevronDownIcon size={14} aria-hidden />
-        <span>{summary || "Activity"}</span>
-      </button>
-      {expanded ? (
-        <div className={styles.details}>
+      <CollapsibleTrigger className={styles.summary}>
+        <ChevronRightIcon className={styles.chevron} size={14} aria-hidden />
+        <span>
+          {waitingKey ? `Approval needed · ${summary}` : summary || "Activity"}
+        </span>
+      </CollapsibleTrigger>
+      <CollapsibleContent id={detailsId} className={styles.details}>
+        <ApprovalRequests>
           {wait ? <p className={styles.detail}>{wait}</p> : null}
-          <ol className={styles.log}>{renderTree(logNodes, 0)}</ol>
-        </div>
-      ) : null}
-    </section>
+          <ol className={styles.log}>{renderTree(logNodes)}</ol>
+        </ApprovalRequests>
+      </CollapsibleContent>
+    </CollapsibleRoot>
   );
 }

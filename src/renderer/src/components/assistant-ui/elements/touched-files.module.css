@@ -1,15 +1,27 @@
 .row {
-  display: grid;
-  gap: rem(6px);
-  padding-block: rem(8px) rem(2px);
-}
-
-.resource,
-.receipt {
   border: rem(1px) solid var(--border);
   border-radius: var(--radius-md);
+  margin-block-start: rem(12px);
   min-inline-size: 0;
-  padding: rem(4px) rem(8px);
+  overflow: hidden;
+}
+
+.resource {
+  border-block-start: rem(1px) solid var(--border);
+  min-inline-size: 0;
+  padding: rem(2px) rem(8px);
+}
+
+.heading {
+  min-block-size: rem(32px);
+  padding: rem(4px) rem(10px);
+}
+
+.fileList {
+  border: rem(1px) solid var(--border);
+  border-block-start: 0;
+  border-radius: var(--radius-md);
+  overflow: hidden;
 }
 
 .trigger {
@@ -69,11 +81,6 @@
   color: var(--muted-foreground);
   overflow-wrap: anywhere;
   padding-block: rem(6px);
-}
-
-.facts {
-  font-size: rem(12px);
-  white-space: pre-wrap;
 }
 
 @media (prefers-reduced-motion: reduce) {

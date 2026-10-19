@@ -149,6 +149,42 @@ export const executionTraceSchema = z
   .strict();
 export type ExecutionTrace = z.infer<typeof executionTraceSchema>;
 
+function reportLabel(label: string): string {
+  const words = label.replace(/[-_]+/g, " ");
+  return words.charAt(0).toUpperCase() + words.slice(1);
+}
+
+/** Keep turn phases as peers, including traces saved before this presentation. */
+export function normalizeTracePresentation(
+  trace: ExecutionTrace,
+): ExecutionTrace {
+  const workflowLabels: Record<string, string> = {
+    commander: "Commands",
+    conversational: "Conversation",
+    obsidian: "Notes",
+  };
+  return {
+    ...trace,
+    nodes: trace.nodes.map((node) => {
+      if (node.kind === "step")
+        return { ...node, label: reportLabel(node.label) };
+      if (node.kind === "call") return node;
+      const phase = { ...node };
+      delete phase.parentId;
+      return {
+        ...phase,
+        label:
+          node.kind === "routing"
+            ? "Decision"
+            : node.kind === "reply"
+              ? "Reply"
+              : (workflowLabels[node.label.toLowerCase()] ??
+                reportLabel(node.label)),
+      };
+    }),
+  };
+}
+
 export type TraceClock = {
   turnId?: string;
   workStartedAt?: number;
@@ -569,7 +605,7 @@ function applyWorkflowStatus(
     return { lifecycle: "finished", outcome: "failed" };
   if (status === "running")
     return {
-      lifecycle: outcome === "unverified" ? "running" : "finished",
+      lifecycle: "running",
       outcome,
     };
   return { lifecycle: "finished", outcome };
@@ -670,10 +706,8 @@ export function evaluateTrace(input: {
         node.kind === "workflow" && node.id === input.workflow?.executionId,
     )
   ) {
-    const routing = nodes.find((node) => node.kind === "routing");
     nodes.push({
       id: input.workflow.executionId,
-      ...(routing ? { parentId: routing.id } : {}),
       kind: "workflow",
       label: input.workflow.workflowId,
       order: nodes.length,
@@ -783,7 +817,7 @@ export function evaluateTrace(input: {
       ...step,
       outcome,
       severity: severityFor(outcome),
-      lifecycle: waiting ? "waiting" : running ? "running" : "finished",
+      lifecycle: waiting ? "waiting" : running ? "running" : step.lifecycle,
       effect: children.some((node) => node.effect === "uncertain")
         ? "uncertain"
         : children.some((node) => node.effect === "completed")
@@ -852,6 +886,32 @@ export function evaluateTrace(input: {
     });
   }
 
+  // A completed decision or operation does not complete the turn. Bridge the
+  // handoff until the next execution event (or reporting clock) arrives.
+  const lastPhase = nodes
+    .filter((node) => ["routing", "workflow", "reply"].includes(node.kind))
+    .sort((left, right) => left.order - right.order)
+    .at(-1);
+  if (
+    readiness !== "ready" &&
+    nodes.length > 0 &&
+    lastPhase?.lifecycle !== "running" &&
+    lastPhase?.lifecycle !== "waiting"
+  ) {
+    const routing = stages.findLast((stage) => stage.kind === "routing");
+    nodes.push({
+      id: `${input.turnId}:handoff`,
+      kind: workflowNode ? "reply" : "workflow",
+      label: workflowNode ? "Reply" : (routing?.workflowId ?? "Continuing"),
+      order: 9_999,
+      lifecycle: "running",
+      outcome: "unverified",
+      severity: "info",
+      disposition: "executed",
+      effect: "none",
+    });
+  }
+
   const incidents: TraceIncident[] = [];
   for (const node of nodes) {
     if (
@@ -912,25 +972,31 @@ export function evaluateTrace(input: {
       workMs !== undefined ||
       (clock.workStartedAt !== undefined && readiness !== "ready"),
   };
-  return executionTraceSchema.parse({
-    version: EXECUTION_TRACE_VERSION,
-    turnId: input.turnId,
-    revision: input.revision ?? nodes.length,
-    readiness,
-    nodes: nodes.slice(0, 80),
-    incidents: incidents.slice(0, 30),
-    summary,
-    timing: {
-      ...(clock.workStartedAt !== undefined
-        ? { workStartedAt: clock.workStartedAt }
-        : {}),
-      ...(clock.resultReadyAt !== undefined
-        ? { resultReadyAt: clock.resultReadyAt }
-        : {}),
-      ...(waitMs > 0 ? { approvalWaitMs: waitMs } : {}),
-    },
-    ...(input.question ? { question: input.question } : {}),
-  });
+  return normalizeTracePresentation(
+    executionTraceSchema.parse({
+      version: EXECUTION_TRACE_VERSION,
+      turnId: input.turnId,
+      revision: input.revision ?? nodes.length,
+      readiness,
+      // Preserve the active/reporting tail even for long bounded traces.
+      nodes:
+        nodes.length > 80
+          ? [...nodes.slice(0, 79), nodes[nodes.length - 1]]
+          : nodes,
+      incidents: incidents.slice(0, 30),
+      summary,
+      timing: {
+        ...(clock.workStartedAt !== undefined
+          ? { workStartedAt: clock.workStartedAt }
+          : {}),
+        ...(clock.resultReadyAt !== undefined
+          ? { resultReadyAt: clock.resultReadyAt }
+          : {}),
+        ...(waitMs > 0 ? { approvalWaitMs: waitMs } : {}),
+      },
+      ...(input.question ? { question: input.question } : {}),
+    }),
+  );
 }
 
 export type RecordedPart = {
@@ -1042,11 +1108,6 @@ export function evaluateRecordedParts(input: {
               : status,
         executionId: id,
         workflowId,
-        ...(stages.some((stage) => stage.kind === "routing")
-          ? {
-              parentId: stages.find((stage) => stage.kind === "routing")?.id,
-            }
-          : {}),
       });
       order += 1;
       continue;

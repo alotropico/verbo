@@ -5,8 +5,8 @@ import {
   XIcon,
   PlusIcon,
   FileText,
-  Loader2Icon,
   AlertCircleIcon,
+  ImageIcon,
 } from "lucide-react";
 import {
   AttachmentPrimitive,
@@ -14,10 +14,23 @@ import {
   MessagePrimitive,
   useAuiState,
   useAui,
+  type FileMessagePartComponent,
+  type ImageMessagePartComponent,
 } from "@assistant-ui/react";
-import { Avatar, Modal, Tooltip } from "@mantine/core";
+import {
+  Avatar,
+  Button,
+  Group,
+  Modal,
+  ScrollArea,
+  Text,
+  Tooltip,
+  UnstyledButton,
+} from "@mantine/core";
 import { useDisclosure } from "@mantine/hooks";
 import { TooltipIconButton } from "./tooltip-icon-button";
+import { PendingIndicator } from "./pending-indicator";
+import { File, getFileHref } from "./file";
 import { StatusMessage } from "@/components/StatusMessage";
 import { useAttachmentSrc } from "@/hooks/use-attachment-src";
 import { cx } from "@/lib/cx";
@@ -84,7 +97,8 @@ const AttachmentThumb: FC<{ src: string | undefined }> = ({ src }) => {
     <Avatar
       src={src}
       alt=""
-      radius={0}
+      radius="sm"
+      size={24}
       className={cx("aui-attachment-tile-avatar", styles.avatar)}
       classNames={{ image: cx("aui-attachment-tile-image", styles.tileImage) }}
     >
@@ -152,7 +166,6 @@ const AttachmentUI: FC = () => {
         "aui-attachment-root",
         styles.root,
         isComposer && styles.rootComposerEnter,
-        isImage && !isComposer && styles.rootMessageOnly,
         isImage && !isComposer && "aui-attachment-root-message",
       )}
     >
@@ -180,7 +193,7 @@ const AttachmentUI: FC = () => {
             isError && styles.tileError,
           )}
           role={src ? "button" : "group"}
-          tabIndex={0}
+          tabIndex={src ? 0 : undefined}
           aria-label={`${src ? `Preview ${name}` : `${typeLabel} attachment ${name}`}${
             isError ? ", upload failed" : isUploading ? ", uploading" : ""
           }`}
@@ -188,25 +201,14 @@ const AttachmentUI: FC = () => {
           onKeyDown={openPreviewOnKey}
         >
           <AttachmentThumb src={src} />
-          {isUploading && (
-            <div
-              aria-hidden="true"
-              className={cx(
-                "aui-attachment-tile-uploading",
-                styles.overlayUploading,
-              )}
-            >
-              <Loader2Icon className={styles.loaderIcon} />
-            </div>
-          )}
-          {isError && (
-            <div
-              aria-hidden="true"
-              className={cx("aui-attachment-tile-error", styles.overlayError)}
-            >
-              <AlertCircleIcon className={styles.errorIcon} />
-            </div>
-          )}
+          <span className={styles.fileName}>
+            <AttachmentPrimitive.Name />
+          </span>
+          <span className={styles.fileType}>{typeLabel}</span>
+          {isUploading ? <PendingIndicator size="compact" /> : null}
+          {isError ? (
+            <AlertCircleIcon className={styles.errorIcon} aria-hidden />
+          ) : null}
         </div>
       </Tooltip>
       <AttachmentPreviewDialog
@@ -236,27 +238,191 @@ const AttachmentRemove: FC<{ name: string }> = ({ name }) => {
   );
 };
 
-export const UserMessageAttachments: FC = () => {
+export const MessageFileAttachment: FileMessagePartComponent = (part) => {
+  const [opened, { open, close }] = useDisclosure(false);
+  const href = getFileHref(part.data, part.mimeType, part.sourceType);
+  const name = part.filename || "File";
+  const image = part.mimeType.startsWith("image/") ? href : undefined;
+  const media =
+    part.mimeType.startsWith("audio/") || part.mimeType.startsWith("video/");
   return (
-    <div
-      className={cx("aui-user-message-attachments-end", styles.userAttachments)}
-    >
-      <MessagePrimitive.Attachments>
-        {() => <AttachmentUI />}
-      </MessagePrimitive.Attachments>
+    <div className={styles.root}>
+      <File.Icon mimeType={part.mimeType} />
+      {href && (image || media) ? (
+        <UnstyledButton
+          className={styles.fileName}
+          onClick={open}
+          aria-label={`Preview ${name}`}
+        >
+          {name}
+        </UnstyledButton>
+      ) : (
+        <span className={styles.fileName}>{name}</span>
+      )}
+      <File.Download
+        data={part.data}
+        mimeType={part.mimeType}
+        sourceType={part.sourceType}
+        filename={name}
+      />
+      {image ? (
+        <AttachmentPreviewDialog
+          src={image}
+          name={name}
+          opened={opened}
+          onClose={close}
+        />
+      ) : null}
+      {media && href ? (
+        <Modal opened={opened} onClose={close} title={name} size="lg" centered>
+          <File.Player
+            data={part.data}
+            mimeType={part.mimeType}
+            sourceType={part.sourceType}
+            filename={name}
+          />
+        </Modal>
+      ) : null}
     </div>
   );
 };
 
-export const ComposerAttachments: FC = () => {
+export const MessageImageAttachment: ImageMessagePartComponent = ({
+  image,
+  filename,
+}) => {
+  const [opened, { open, close }] = useDisclosure(false);
+  const name = filename || "Image";
   return (
-    <div className={cx("aui-composer-attachments", styles.composerAttachments)}>
-      <ComposerPrimitive.Attachments>
-        {() => <AttachmentUI />}
-      </ComposerPrimitive.Attachments>
+    <div className={styles.root}>
+      <ImageIcon size={16} aria-hidden />
+      <UnstyledButton
+        className={styles.fileName}
+        onClick={open}
+        aria-label={`Preview ${name}`}
+      >
+        {name}
+      </UnstyledButton>
+      <File.Download
+        data={image}
+        mimeType="image/png"
+        sourceType="url"
+        filename={name}
+      />
+      <AttachmentPreviewDialog
+        src={image}
+        name={name}
+        opened={opened}
+        onClose={close}
+      />
     </div>
   );
 };
+
+function AttachmentCollection({ source }: { source: "message" | "composer" }) {
+  const attachments = useAuiState((state) =>
+    source === "message"
+      ? state.message.attachments
+      : state.composer.attachments,
+  );
+  const parts = useAuiState((state) =>
+    source === "message" ? state.message.parts : undefined,
+  );
+  const [opened, { open, close }] = useDisclosure(false);
+  const Iterator =
+    source === "message"
+      ? MessagePrimitive.Attachments
+      : ComposerPrimitive.Attachments;
+  const represented = new Set(
+    (attachments ?? []).flatMap((attachment) =>
+      (attachment.content ?? []).flatMap((part) =>
+        part.type === "file"
+          ? [part.data]
+          : part.type === "image"
+            ? [part.image]
+            : [],
+      ),
+    ),
+  );
+  const mediaParts = (parts ?? []).flatMap((part, index) =>
+    (part.type === "file" || part.type === "image") &&
+    !represented.has(part.type === "file" ? part.data : part.image)
+      ? [{ index, key: part.type === "file" ? part.data : part.image }]
+      : [],
+  );
+  const count = (attachments?.length ?? 0) + mediaParts.length;
+  if (count === 0) return null;
+  const visibleIds = new Set(
+    (attachments ?? []).slice(0, 4).map((attachment) => attachment.id),
+  );
+  const renderParts = (limit: number) =>
+    mediaParts.slice(0, limit).map(({ index, key }) => (
+      <MessagePrimitive.PartByIndex
+        key={key}
+        index={index}
+        components={{
+          File: MessageFileAttachment,
+          Image: MessageImageAttachment,
+        }}
+      />
+    ));
+  return (
+    <div
+      className={cx(
+        styles.collection,
+        source === "message"
+          ? styles.userAttachments
+          : styles.composerAttachments,
+      )}
+      role="group"
+      aria-label="Attachments"
+    >
+      <Group className={styles.heading} justify="space-between" gap="xs">
+        <Text size="xs" fw={500} c="dimmed">
+          Attachments · {count}
+        </Text>
+        {count > 4 ? (
+          <Button
+            size="compact-xs"
+            variant="subtle"
+            aria-haspopup="dialog"
+            onClick={open}
+          >
+            See all ({count})
+          </Button>
+        ) : null}
+      </Group>
+      <Iterator>
+        {({ attachment }) =>
+          visibleIds.has(attachment.id) ? <AttachmentUI /> : null
+        }
+      </Iterator>
+      {renderParts(Math.max(0, 4 - (attachments?.length ?? 0)))}
+      <Modal
+        opened={opened}
+        onClose={close}
+        title={`Attachments (${count})`}
+        size="lg"
+        centered
+      >
+        <ScrollArea.Autosize mah="60dvh" type="auto" scrollbars="y">
+          <div className={styles.collection}>
+            <Iterator>{() => <AttachmentUI />}</Iterator>
+            {renderParts(mediaParts.length)}
+          </div>
+        </ScrollArea.Autosize>
+      </Modal>
+    </div>
+  );
+}
+
+export const UserMessageAttachments: FC = () => (
+  <AttachmentCollection source="message" />
+);
+
+export const ComposerAttachments: FC = () => (
+  <AttachmentCollection source="composer" />
+);
 
 export const ComposerAddAttachment: FC = () => {
   return (

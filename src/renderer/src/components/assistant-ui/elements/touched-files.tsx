@@ -1,6 +1,14 @@
 import { useEffect, useState, type ReactElement } from "react";
-import { ActionIcon, Button, Group, Text } from "@mantine/core";
-import { useAuiState } from "@assistant-ui/react";
+import {
+  ActionIcon,
+  Button,
+  Group,
+  Modal,
+  Pagination,
+  ScrollArea,
+  Text,
+} from "@mantine/core";
+import { MessagePrimitive, useAuiState } from "@assistant-ui/react";
 import {
   ChevronRightIcon,
   CopyIcon,
@@ -14,6 +22,7 @@ import {
   touchedFileName,
   touchedFilesFromParts,
   touchedFilesFromItems,
+  type TouchedFileReview,
 } from "@shared/touched-files";
 import { StatusMessage } from "@/components/StatusMessage";
 import { notify } from "@/lib/notify";
@@ -23,7 +32,10 @@ import {
   CollapsibleContent,
 } from "./collapsible-root";
 import styles from "./touched-files.module.css";
-import { OutcomeMark, useMessageTrace } from "./execution-trace-view";
+import {
+  MessageFileAttachment,
+  MessageImageAttachment,
+} from "./attachment.aui";
 
 function ResourceRow({
   resource,
@@ -93,7 +105,6 @@ function ResourceRow({
 
 export function TouchedFiles(): ReactElement | null {
   const parts = useAuiState((state) => state.message.parts);
-  const trace = useMessageTrace();
   const threadId = useAuiState((state) => state.threads.mainThreadId);
   const receiptKey = commandReceiptIdsFromParts(parts).join("|");
   const scan = touchedFilesFromParts(parts);
@@ -106,6 +117,7 @@ export function TouchedFiles(): ReactElement | null {
     error?: string;
   } | null>(null);
   const [showAll, setShowAll] = useState(false);
+  const [page, setPage] = useState(1);
   useEffect(() => {
     let cancelled = false;
     const load = async (): Promise<void> => {
@@ -135,7 +147,7 @@ export function TouchedFiles(): ReactElement | null {
         }
         const legacy: CommandResource[] = [];
         if (!receiptKey) {
-          const reviews = JSON.parse(reviewKey) as typeof scan.reviews;
+          const reviews = JSON.parse(reviewKey) as TouchedFileReview[];
           for (const review of reviews) {
             const result = await window.verbo.operations.review(review);
             if (result.ok)
@@ -181,7 +193,20 @@ export function TouchedFiles(): ReactElement | null {
       resources.set(resource.path, resource);
   }
   const files = [...resources.values()];
-  if (!receiptKey && files.length === 0 && !current?.error) return null;
+  const mediaParts = parts.flatMap((part, index) =>
+    part.type === "file" || part.type === "image"
+      ? [{ index, key: `part:${index}` }]
+      : [],
+  );
+  const entries = [
+    ...files.map((resource) => ({
+      resource,
+      key: `resource:${resource.path}`,
+    })),
+    ...mediaParts,
+  ];
+  if (entries.length === 0 && (!receiptKey || current) && !current?.error)
+    return null;
   const onIntent = (intent: FileSurfaceIntent, path: string): void => {
     void window.verbo.files
       .surface({ path, intent })
@@ -192,67 +217,81 @@ export function TouchedFiles(): ReactElement | null {
       })
       .catch(() => notify({ message: "File action failed.", tone: "error" }));
   };
+  const renderRows = (start: number, end: number): ReactElement[] =>
+    entries.slice(start, end).map((entry) =>
+      "resource" in entry ? (
+        <ResourceRow
+          key={entry.key}
+          resource={entry.resource}
+          onIntent={onIntent}
+        />
+      ) : (
+        <MessagePrimitive.PartByIndex
+          key={entry.key}
+          index={entry.index}
+          components={{
+            File: MessageFileAttachment,
+            Image: MessageImageAttachment,
+          }}
+        />
+      ),
+    );
   return (
-    <div className={styles.row} role="group" aria-label="Operation results">
-      {current?.receipts.map((receipt) => (
-        <CollapsibleRoot key={receipt.id} className={styles.receipt}>
-          <CollapsibleTrigger className={styles.trigger}>
-            <ChevronRightIcon
-              className={styles.chevron}
-              size={14}
-              aria-hidden
-            />
-            {(() => {
-              const node = trace?.nodes.find(
-                (item) => item.correlation?.receiptId === receipt.id,
-              );
-              return node ? <OutcomeMark node={node} /> : null;
-            })()}
-            <span>{receipt.result.summary}</span>
-          </CollapsibleTrigger>
-          <CollapsibleContent className={styles.details}>
-            <Text size="xs">
-              {receipt.action} · {receipt.durationMs} ms
-            </Text>
-            {receipt.result.detail ? (
-              <Text size="xs" className={styles.facts}>
-                {receipt.result.detail}
-              </Text>
-            ) : null}
-            {receipt.children.length ? (
-              <pre className={styles.facts}>
-                {JSON.stringify(receipt.children, null, 2)}
-              </pre>
-            ) : null}
-          </CollapsibleContent>
-        </CollapsibleRoot>
-      ))}
+    <section className={styles.row} aria-label="Attachments">
+      {entries.length > 0 ? (
+        <Group className={styles.heading} justify="space-between" gap="xs">
+          <Text size="xs" fw={500} c="dimmed">
+            Attachments · {entries.length}
+          </Text>
+          {entries.length > 4 ? (
+            <Button
+              size="compact-xs"
+              variant="subtle"
+              aria-haspopup="dialog"
+              onClick={() => {
+                setPage(1);
+                setShowAll(true);
+              }}
+            >
+              See all ({entries.length})
+            </Button>
+          ) : null}
+        </Group>
+      ) : null}
       {!current && receiptKey ? (
         <StatusMessage display="plain" size="xs" tone="info">
           Loading operation details…
         </StatusMessage>
       ) : null}
-      {(showAll ? files : files.slice(0, 4)).map((resource) => (
-        <ResourceRow
-          resource={resource}
-          onIntent={onIntent}
-          key={resource.path}
-        />
-      ))}
-      {files.length > 4 ? (
-        <Button
-          size="compact-xs"
-          variant="subtle"
-          onClick={() => setShowAll((value) => !value)}
-        >
-          {showAll ? "Show less" : `Show all (${files.length})`}
-        </Button>
-      ) : null}
+      {renderRows(0, 4)}
+      <Modal
+        opened={showAll}
+        onClose={() => setShowAll(false)}
+        title={`Attachments (${entries.length})`}
+        size="lg"
+        centered
+      >
+        <ScrollArea.Autosize mah="60dvh" type="auto" scrollbars="y">
+          <div className={styles.fileList}>
+            {renderRows((page - 1) * 40, page * 40)}
+          </div>
+        </ScrollArea.Autosize>
+        {entries.length > 40 ? (
+          <Group justify="center" mt="sm">
+            <Pagination
+              total={Math.ceil(entries.length / 40)}
+              value={page}
+              onChange={setPage}
+              size="sm"
+            />
+          </Group>
+        ) : null}
+      </Modal>
       {current?.error ? (
         <StatusMessage display="plain" size="xs" tone="error">
           {current.error}
         </StatusMessage>
       ) : null}
-    </div>
+    </section>
   );
 }

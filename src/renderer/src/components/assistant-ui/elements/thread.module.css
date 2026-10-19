@@ -694,40 +694,30 @@
   padding-inline: rem(8px);
 }
 
-.partPadding {
-  padding-block: rem(4px);
-}
-
 .workingIndicator {
   align-items: center;
   color: var(--primary);
-  display: inline-flex;
-  min-block-size: 1lh;
+  display: flex;
+  min-block-size: rem(28px);
+  padding-block: rem(4px);
 }
 
 .assistantFooter {
   align-items: center;
   display: flex;
+  gap: rem(8px);
   margin-inline-start: rem(8px);
-  min-height: rem(30px);
-  padding-block-start: var(--mantine-spacing-xs);
+  min-block-size: rem(28px);
+  padding-block-start: rem(4px);
 }
 
 .assistantActionBar {
+  align-items: center;
   animation: enterFade var(--duration-normal) both;
   color: var(--muted-foreground);
   display: flex;
   gap: rem(4px);
-  grid-column-start: 3;
-  grid-row-start: 2;
-  margin-inline-start: -rem(4px);
-}
-
-.assistantActionBar[data-floating="true"] {
-  bottom: rem(30px);
-  inset-inline-start: rem(4px);
-  margin-inline-start: 0;
-  position: absolute;
+  min-block-size: rem(24px);
 }
 
 .feedbackButton[data-submitted="true"] {
@@ -780,9 +770,10 @@
 }
 
 .compactAction {
-  height: rem(20px);
+  flex: none;
+  height: rem(24px);
   padding: rem(2px);
-  width: rem(20px);
+  width: rem(24px);
 }
 
 .userMessageRoot {
@@ -847,6 +838,7 @@
 }
 
 .userActionBarWrapper {
+  align-items: center;
   display: flex;
   justify-content: flex-end;
   margin-block-start: rem(4px);
@@ -861,10 +853,12 @@
 }
 
 .messageTime {
+  align-items: center;
   color: color-mix(in oklab, var(--muted-foreground) 72%, transparent);
-  font-size: rem(11px);
-  line-height: 1;
-  min-inline-size: rem(52px);
+  display: inline-flex;
+  font-size: var(--mantine-font-size-xs);
+  line-height: rem(24px);
+  margin-inline-end: rem(4px);
   white-space: nowrap;
 }
 

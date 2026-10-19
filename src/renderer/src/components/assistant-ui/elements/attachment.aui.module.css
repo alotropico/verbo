@@ -1,69 +1,58 @@
 .previewImage {
-  border-radius: var(--radius-sm, rem(2px));
+  border-radius: var(--radius-sm);
   display: block;
-  height: auto;
-  max-height: 80vh;
-  max-width: 100%;
+  max-block-size: 80dvh;
+  max-inline-size: 100%;
   object-fit: contain;
   transition: opacity var(--duration-slow);
-  width: auto;
 }
 
 .previewImageLoaded {
   opacity: 1;
 }
-
 .previewImageLoading {
   opacity: 0;
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .previewImage {
-    transition: none;
-  }
-}
-
-.previewTrigger {
-  cursor: zoom-in;
-}
-
 .previewWrap {
   align-items: center;
-  background: var(--background);
-  border-radius: var(--radius-sm, rem(2px));
   display: flex;
   justify-content: center;
-  margin-inline: auto;
-  max-height: 80dvh;
-  overflow: hidden;
-  position: relative;
-  width: 100%;
 }
 
 .avatar {
-  border-radius: 0;
-  height: 100%;
-  width: 100%;
-}
-
-.avatar::after {
-  display: none;
+  flex: none;
 }
 
 .tileImage {
-  border-radius: 0;
   object-fit: cover;
 }
 
 .fallbackIcon {
-  color: color-mix(in oklab, var(--muted-foreground) 80%, transparent);
-  height: rem(24px);
-  stroke-width: 1.5;
-  width: rem(24px);
+  block-size: rem(16px);
+  color: var(--muted-foreground);
+  inline-size: rem(16px);
+}
+
+.collection {
+  border: rem(1px) solid var(--border);
+  border-radius: var(--radius-md);
+  min-inline-size: 0;
+  overflow: hidden;
+}
+
+.heading {
+  min-block-size: rem(32px);
+  padding: rem(4px) rem(10px);
 }
 
 .root {
-  position: relative;
+  align-items: center;
+  border-block-start: rem(1px) solid var(--border);
+  display: flex;
+  gap: rem(6px);
+  min-inline-size: 0;
+  padding: rem(4px) rem(8px);
 }
 
 .rootComposerEnter {
@@ -73,173 +62,99 @@
 @keyframes attachmentEnter {
   from {
     opacity: 0;
-    transform: scale(0.95);
   }
   to {
     opacity: 1;
-    transform: scale(1);
   }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .rootComposerEnter {
-    animation: none;
-  }
-}
-
-.rootMessageOnly:only-child > :first-child {
-  height: rem(96px);
-  width: rem(96px);
 }
 
 .tile {
-  background: var(--muted);
-  border-radius: calc(
-    var(--composer-radius, rem(16px)) - var(--composer-padding, rem(8px))
-  );
-  height: rem(56px);
-  outline: none;
-  overflow: hidden;
-  position: relative;
-  transition: transform var(--duration-fast);
-  width: rem(56px);
-}
-
-.tile::after {
-  border-radius: inherit;
-  box-shadow: inset 0 0 0 rem(1px) var(--border);
-  content: "";
-  inset: 0;
-  pointer-events: none;
-  position: absolute;
-  transition: background-color var(--duration-fast);
+  align-items: center;
+  border-radius: var(--radius-sm);
+  display: flex;
+  flex: 1;
+  gap: rem(8px);
+  min-inline-size: 0;
 }
 
 .tile:focus-visible {
-  box-shadow: 0 0 0 rem(1px) color-mix(in oklab, var(--ring) 50%, transparent);
+  outline: rem(2px) solid var(--ring);
+  outline-offset: rem(2px);
 }
 
-.tileHasSrc {
+.tileHasSrc,
+.previewTrigger {
   cursor: zoom-in;
 }
-
-.tileHasSrc:active {
-  transform: scale(0.96);
+.tileHasSrc:hover {
+  background: var(--accent);
 }
-
 .tileDefaultCursor {
   cursor: default;
 }
-
-.tileError::after {
-  box-shadow: inset 0 0 0 rem(1px)
-    color-mix(in oklab, var(--destructive) 60%, transparent);
+.tileError {
+  color: var(--destructive);
 }
 
-.tile:hover::after {
-  background: color-mix(in oklab, var(--foreground) 10%, transparent);
+.fileName {
+  flex: 1;
+  font-size: var(--mantine-font-size-xs);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .tile {
-    transition: none;
-  }
-}
-
-.overlayUploading,
-.overlayError {
-  align-items: center;
-  animation: fade-in var(--duration-normal) ease-out;
-  backdrop-filter: blur(rem(2px));
-  display: flex;
-  inset: 0;
-  justify-content: center;
-  position: absolute;
-}
-
-.overlayUploading {
-  background: color-mix(in oklab, var(--background) 60%, transparent);
-}
-
-.overlayError {
-  background: color-mix(in oklab, var(--background) 70%, transparent);
-}
-
-.loaderIcon {
-  animation: spin 1s linear infinite;
+.fileType {
   color: var(--muted-foreground);
-  height: rem(16px);
-  width: rem(16px);
+  flex: none;
+  font-size: var(--mantine-font-size-xs);
 }
 
 .errorIcon {
+  block-size: rem(14px);
   color: var(--destructive);
-  height: rem(16px);
-  width: rem(16px);
+  flex: none;
+  inline-size: rem(14px);
 }
 
 .removeButton {
-  inset-inline-end: rem(4px);
-  position: absolute;
-  top: rem(4px);
-}
-
-.removeButton::after {
-  content: "";
-  inset: -rem(6px);
-  position: absolute;
-}
-
-.removeButton:active {
-  transform: scale(0.96);
+  block-size: rem(24px);
+  flex: none;
+  inline-size: rem(24px);
 }
 
 .removeIcon {
-  height: rem(12px);
-  stroke-width: 2.5;
-  width: rem(12px);
+  block-size: rem(12px);
+  inline-size: rem(12px);
 }
 
 .userAttachments {
-  display: flex;
-  flex-direction: row;
-  gap: rem(8px);
   grid-column: 1 / -1;
   grid-row-start: 1;
-  justify-content: flex-end;
-  width: 100%;
-}
-
-.userAttachments:empty {
-  display: none;
+  inline-size: min(100%, rem(420px));
+  justify-self: end;
 }
 
 .composerAttachments {
-  align-items: center;
-  display: flex;
-  flex-direction: row;
-  flex-wrap: wrap;
-  gap: rem(8px);
-  width: 100%;
+  inline-size: 100%;
 }
-
-.composerAttachments:empty {
-  display: none;
-}
-
 .addAttachment {
   color: var(--muted-foreground);
 }
-
 .addAttachment:hover {
   color: var(--foreground);
 }
 
-.addAttachment:active {
-  transform: scale(0.96);
+.addIcon {
+  block-size: rem(16px);
+  inline-size: rem(16px);
 }
 
-.addIcon {
-  height: rem(16px);
-  width: rem(16px);
+@media (prefers-reduced-motion: reduce) {
+  .previewImage {
+    transition: none;
+  }
+  .rootComposerEnter {
+    animation: none;
+  }
 }

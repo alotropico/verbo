@@ -5,9 +5,7 @@ import {
   ComposerAttachments,
   UserMessageAttachments,
 } from "@/components/assistant-ui/elements/attachment.aui";
-import { File, getFileHref } from "./file";
 import { ThreadFollowupSuggestions } from "./follow-up-suggestions.aui";
-import { Image } from "./image";
 import { SpeechSyncedText } from "./speech-synced-text";
 import {
   Reasoning,
@@ -87,8 +85,6 @@ import {
   MessagePrimitive,
   ThreadPrimitive,
   useAui,
-  type FileMessagePartComponent,
-  type ImageMessagePartComponent,
   type TextMessagePartComponent,
   type ToolCallMessagePartComponent,
   useAuiState,
@@ -118,6 +114,7 @@ import {
 } from "lucide-react";
 import {
   createContext,
+  Fragment,
   useContext,
   useEffect,
   useId,
@@ -1240,6 +1237,7 @@ const AssistantMessage: FC = () => {
         ? taskAwareGroupBy(part, context)
         : messageGroupBy(part, context);
   const status = useAuiState((state) => state.message.status?.type);
+  const parts = useAuiState((state) => state.message.parts);
   const trace = useMessageTrace();
   const pendingApproval = useAuiState((state) =>
     state.message.content.some(
@@ -1248,6 +1246,7 @@ const AssistantMessage: FC = () => {
     ),
   );
   const ready = trace?.readiness === "ready" || status !== "running";
+  const ApprovalBoundary = trace ? Fragment : ApprovalRequests;
 
   return (
     <MessagePrimitive.Root
@@ -1259,8 +1258,26 @@ const AssistantMessage: FC = () => {
         data-slot="aui_assistant-message-content"
         className={styles.assistantMessageContent}
       >
-        <ApprovalRequests>
-          {trace ? <ExecutionTraceView trace={trace} /> : null}
+        <ApprovalBoundary>
+          {trace ? (
+            <ExecutionTraceView
+              trace={trace}
+              active={status === "running"}
+              renderCall={(node) => {
+                const index = parts.findIndex(
+                  (part) =>
+                    part.type === "tool-call" &&
+                    part.toolCallId === node.correlation?.toolCallId,
+                );
+                return index < 0 ? null : (
+                  <MessagePrimitive.PartByIndex
+                    index={index}
+                    components={{ tools: { Fallback: ToolFallbackComponent } }}
+                  />
+                );
+              }}
+            />
+          ) : null}
           <MessagePrimitive.GroupedParts groupBy={groupBy}>
             {({ part, children }) => {
               switch (part.type) {
@@ -1273,6 +1290,7 @@ const AssistantMessage: FC = () => {
                     <TaskGroupComponent group={part} />
                   ) : null;
                 case "group-tool":
+                  if (trace) return <></>;
                   if (!ready && !pendingApproval) return null;
                   if (ToolGroup) {
                     return <ToolGroup group={part}>{children}</ToolGroup>;
@@ -1318,6 +1336,7 @@ const AssistantMessage: FC = () => {
                   if (!ready) return null;
                   return <Reasoning {...part} />;
                 case "tool-call":
+                  if (trace) return <></>;
                   if (!ready && !approvalStaysOutsideGroups(part)) return null;
                   return part.toolUI ?? <ToolFallbackComponent {...part} />;
                 case "data":
@@ -1340,55 +1359,27 @@ const AssistantMessage: FC = () => {
                     part.dataRendererUI
                   );
                 case "file":
-                  if (!ready) return null;
-                  return (
-                    <div
-                      data-slot="aui_assistant-message-file"
-                      className={styles.partPadding}
-                    >
-                      <MessageFile {...part} />
-                    </div>
-                  );
                 case "image":
-                  if (!ready) return null;
-                  return (
-                    <div
-                      data-slot="aui_assistant-message-image"
-                      className={styles.partPadding}
-                    >
-                      <Image {...part} />
-                    </div>
-                  );
+                  return <></>;
                 case "indicator":
-                  if (trace) return null;
-                  return (
-                    <AuiIf
-                      condition={(state) =>
-                        !state.message.content.some(
-                          (part) =>
-                            part.type === "data" &&
-                            part.name === "finalization",
-                        )
-                      }
-                    >
-                      <span
-                        data-slot="aui_assistant-message-indicator"
-                        className={styles.workingIndicator}
-                        aria-label="Assistant is working"
-                      >
-                        <PendingIndicator />
-                      </span>
-                    </AuiIf>
-                  );
+                  return <></>;
                 default:
                   return null;
               }
             }}
           </MessagePrimitive.GroupedParts>
-        </ApprovalRequests>
+        </ApprovalBoundary>
         <MessageError />
         {ready ? <TouchedFiles /> : null}
         {ready ? <WebSources /> : null}
+        {status === "running" ? (
+          <div
+            data-slot="aui_assistant-message-indicator"
+            className={styles.workingIndicator}
+          >
+            <PendingIndicator label="Awaiting completion" />
+          </div>
+        ) : null}
       </div>
 
       <div
@@ -1481,7 +1472,6 @@ const AssistantActionBar: FC = () => {
     <ActionBarPrimitive.Root
       hideWhenRunning
       autohide="not-last"
-      autohideFloat="single-branch"
       className={cx("aui-assistant-action-bar-root", styles.assistantActionBar)}
     >
       <MessageTime />
@@ -1569,33 +1559,6 @@ const AssistantActionBar: FC = () => {
   );
 };
 
-const MessageFile: FileMessagePartComponent = (part) => {
-  const image = part.mimeType.toLowerCase().startsWith("image/")
-    ? getFileHref(part.data, part.mimeType, part.sourceType)
-    : null;
-  if (!image) return <File {...part} />;
-  return (
-    <Image
-      type="image"
-      image={image}
-      status={part.status}
-      {...(part.filename !== undefined && { filename: part.filename })}
-    />
-  );
-};
-
-const UserFilePart: FileMessagePartComponent = (part) => (
-  <div data-slot="aui_user-message-file" className={styles.partPadding}>
-    <MessageFile {...part} />
-  </div>
-);
-
-const UserImagePart: ImageMessagePartComponent = (part) => (
-  <div data-slot="aui_user-message-image" className={styles.partPadding}>
-    <Image {...part} />
-  </div>
-);
-
 const CollapsibleUserText: TextMessagePartComponent = ({ text }) => {
   const [expanded, setExpanded] = useState(false);
   const [overflowing, setOverflowing] = useState(false);
@@ -1671,13 +1634,11 @@ const UserMessage: FC = () => {
         <div
           className={cx("aui-user-message-content", styles.userMessageContent)}
         >
-          <MessagePrimitive.Parts
-            components={{
-              Text: CollapsibleUserText,
-              File: UserFilePart,
-              Image: UserImagePart,
-            }}
-          />
+          <MessagePrimitive.Parts>
+            {({ part }) =>
+              part.type === "text" ? <CollapsibleUserText {...part} /> : <></>
+            }
+          </MessagePrimitive.Parts>
         </div>
         <div
           className={cx(

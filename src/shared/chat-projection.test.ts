@@ -20,6 +20,56 @@ const listed: ActionResult = {
 };
 
 describe("chat projection", () => {
+  it("keeps the last phase active through Decision, execution, and reporting handoffs", () => {
+    let state = projectChatEvent(emptyChatProjection(), {
+      type: "routing_stage",
+      stage: {
+        invocationId: "00000000-0000-4000-8000-000000000001",
+        agentId: "decision",
+        modelProfileId: "decision",
+        state: "succeeded",
+        workflowId: "conversational",
+      },
+    });
+    expect(state.trace?.nodes.at(-1)).toMatchObject({
+      label: "Conversation",
+      lifecycle: "running",
+    });
+    state = projectChatEvent(state, {
+      type: "execution",
+      execution: {
+        id: "00000000-0000-4000-8000-000000000002",
+        workflowId: "conversational",
+        definitionVersion: 1,
+        revision: 1,
+        status: "completed",
+        branchAnchorId: null,
+        currentStepId: null,
+      },
+    });
+    expect(state.trace?.nodes.at(-1)).toMatchObject({
+      label: "Reply",
+      lifecycle: "running",
+    });
+    state = projectChatEvent(state, { type: "trace_clock", reporting: true });
+    expect(state.trace?.nodes.at(-1)).toMatchObject({
+      kind: "reply",
+      lifecycle: "running",
+    });
+    state = projectChatEvent(state, {
+      type: "trace_clock",
+      resultReadyAt: 100,
+    });
+    expect(
+      state.trace?.nodes.every((node) => node.lifecycle === "finished"),
+    ).toBe(true);
+    expect(
+      visibleProjection(state).filter(
+        (part) => part.type === "data" && part.name === "execution-trace",
+      ),
+    ).toHaveLength(1);
+  });
+
   it("keeps backend progress distinct, updates it in place and avoids repeating a terminal notice as model text", () => {
     let state = emptyChatProjection();
     const notice = {

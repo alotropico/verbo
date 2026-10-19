@@ -1292,8 +1292,9 @@ const ToolFallbackImpl: ToolCallMessagePartComponent = ({
   const isRequiresAction =
     status?.type === "requires-action" || isPendingApprovalResult(result);
   const shouldRenderApproval =
-    approval != null ||
-    (isRequiresAction && offersInterruptAction(status, approval, interrupt));
+    !isPendingApprovalResult(result) &&
+    (approval != null ||
+      (isRequiresAction && offersInterruptAction(status, approval, interrupt)));
 
   const settledApproval = approval != null && isSettled(approval);
   const hiddenPending =
