@@ -83,6 +83,7 @@ export function registerAssistantStreamIpc(mainWindow: BrowserWindow): void {
           text: item.text,
           ...(item.branchAnchor ? { branchAnchor: item.branchAnchor } : {}),
           attachmentIds: item.attachmentRefs.map((ref) => ref.id),
+          userSentAt: item.createdAt,
         },
         send,
       );

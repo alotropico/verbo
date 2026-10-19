@@ -847,25 +847,25 @@
 }
 
 .userActionBarWrapper {
-  inset-inline-start: 0;
-  padding-inline-end: rem(8px);
-  position: absolute;
-  top: 50%;
-  transform: translate(-100%, -50%);
-}
-
-:global([dir="rtl"]) .userActionBarWrapper {
-  transform: translate(100%, -50%);
-}
-
-.userMessageContent:empty ~ .userActionBarWrapper {
-  display: none;
+  display: flex;
+  justify-content: flex-end;
+  margin-block-start: rem(4px);
+  min-block-size: rem(28px);
 }
 
 .userActionBarRoot {
-  align-items: flex-end;
+  align-items: center;
   display: flex;
-  flex-direction: column;
+  flex-direction: row;
+  gap: rem(4px);
+}
+
+.messageTime {
+  color: color-mix(in oklab, var(--muted-foreground) 72%, transparent);
+  font-size: rem(11px);
+  line-height: 1;
+  min-inline-size: rem(52px);
+  white-space: nowrap;
 }
 
 .userBranchPicker {

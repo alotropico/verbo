@@ -1,0 +1,13 @@
+.requests {
+  display: grid;
+  gap: rem(8px);
+  margin-block-end: rem(8px);
+}
+
+.requestsIdle {
+  display: none;
+}
+
+.host:empty {
+  display: none;
+}

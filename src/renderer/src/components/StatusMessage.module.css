@@ -55,7 +55,7 @@
 }
 
 .warning {
-  --status-color: var(--insight);
+  --status-color: var(--warning);
 }
 
 .xs {

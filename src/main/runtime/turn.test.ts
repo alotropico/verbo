@@ -9,6 +9,7 @@ import {
   composeSystemPrompt,
   CORE_INSTRUCTIONS,
   contextTokens,
+  type ContextMessage,
 } from "./context-builder";
 import {
   BACKGROUND_REQUEST_PRIORITY,
@@ -138,18 +139,17 @@ describe("turn context", () => {
           ],
         },
       });
-    const call = (id: string, n: number) =>
-      ({
-        role: "assistant",
-        content: "",
-        toolCalls: [
-          {
-            id,
-            name: "actions.invoke",
-            arguments: { name: "files.fixture", args: { n } },
-          },
-        ],
-      }) as const;
+    const call = (id: string, n: number): ContextMessage => ({
+      role: "assistant",
+      content: "",
+      toolCalls: [
+        {
+          id,
+          name: "actions.invoke",
+          arguments: { name: "files.fixture", args: { n } },
+        },
+      ],
+    });
     const fullPair = contextTokens([
       { role: "system", content: CORE_INSTRUCTIONS },
       { role: "user", content: "List" },
@@ -188,7 +188,13 @@ describe("turn context", () => {
                 path: "desktop:/agent-files/note.md",
                 type: "file",
                 modified: payload,
-                n: args.n,
+                n:
+                  typeof args === "object" &&
+                  args !== null &&
+                  "n" in args &&
+                  typeof args.n === "number"
+                    ? args.n
+                    : 0,
               },
             ],
           },

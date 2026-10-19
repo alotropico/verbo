@@ -29,6 +29,7 @@ import {
   backendNoticeSchema,
   type BackendNotice,
 } from "../../shared/backend-notice";
+import { turnStopNotice } from "./turn-report";
 import { CHAT_REQUEST_PRIORITY, type RequestGate } from "./request-gate";
 import { stableCommandJson } from "../capabilities/preparation";
 import type { InferenceSource } from "../../shared/inference-metrics";
@@ -245,22 +246,12 @@ export async function runTurn(input: {
       summary,
       removedCount: built.removedCount,
     };
-    if (summary)
-      input.onUpdate?.({
-        type: "notice",
-        notice: backendNoticeSchema.parse({
-          id: `turn:${input.context.turnId ?? input.context.threadId}:${stop}`,
-          origin: "backend",
-          severity:
-            stop === "completed"
-              ? "info"
-              : stop === "cancelled" || stop === "paused"
-                ? "warning"
-                : "error",
-          code: `turn_${stop}`,
-          message: summary.slice(0, 500),
-        }),
-      });
+    const notice = turnStopNotice({
+      stop,
+      summary,
+      turnId: input.context.turnId ?? input.context.threadId,
+    });
+    if (notice) input.onUpdate?.({ type: "notice", notice });
     input.onUpdate?.({ type: "stop", stop, content, summary });
     return outcome;
   };
@@ -430,24 +421,6 @@ export async function runTurn(input: {
             ? await dispatchModelTool(registry, call.name, call.arguments, {
                 ...input.context,
                 signal: input.signal,
-                onProgress: (message) =>
-                  input.onUpdate?.({
-                    type: "notice",
-                    notice: backendNoticeSchema.parse({
-                      id: `progress:${call.id}`,
-                      origin: "backend",
-                      severity: "info",
-                      code: "command_progress",
-                      message: message.slice(0, 500),
-                      commandId:
-                        typeof call.arguments === "object" &&
-                        call.arguments !== null &&
-                        "name" in call.arguments &&
-                        typeof call.arguments.name === "string"
-                          ? call.arguments.name.slice(0, 128)
-                          : call.name,
-                    }),
-                  }),
               })
             : malformedCall(call.name);
       } catch (error) {

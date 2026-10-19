@@ -133,6 +133,10 @@ export function loadThreadHistory(
           id: row.id,
           role: row.role,
           content: parsed.content ?? [],
+          createdAt:
+            typeof parsed.createdAt === "number"
+              ? parsed.createdAt
+              : row.created_at,
         },
       };
     }),

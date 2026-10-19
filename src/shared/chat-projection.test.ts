@@ -4,7 +4,14 @@ import {
   emptyChatProjection,
   projectChatEvent,
   visibleProjection,
+  type ProjectedPart,
 } from "./chat-projection";
+
+function withoutTrace(parts: ProjectedPart[]): ProjectedPart[] {
+  return parts.filter(
+    (part) => !(part.type === "data" && part.name === "execution-trace"),
+  );
+}
 
 const listed: ActionResult = {
   action: "capabilities.list",
@@ -78,7 +85,7 @@ describe("chat projection", () => {
       result: listed,
     });
     state = projectChatEvent(state, { type: "delta", text: "Windows." });
-    expect(visibleProjection(state)).toEqual([
+    expect(withoutTrace(visibleProjection(state))).toEqual([
       { type: "text", text: "Checking the platform" },
       {
         type: "tool-call",
@@ -107,7 +114,7 @@ describe("chat projection", () => {
       stop: "limit",
       summary: "The turn reached the tool request limit.",
     });
-    const visible = visibleProjection(state);
+    const visible = withoutTrace(visibleProjection(state));
     expect(visible[0]).toMatchObject({
       type: "tool-call",
       result: listed,
@@ -136,9 +143,77 @@ describe("chat projection", () => {
       stop: "completed",
       summary: "Ollama finished without a written reply.",
     });
-    expect(visibleProjection(state).at(-1)).toEqual({
+    expect(withoutTrace(visibleProjection(state)).at(-1)).toEqual({
       type: "text",
       text: "Ollama finished without a written reply.",
     });
+  });
+
+  it("keeps the written result visible when saving fails", () => {
+    let state = projectChatEvent(emptyChatProjection(), {
+      type: "trace_clock",
+      turnId: "turn-1",
+      workStartedAt: 1_000,
+    });
+    state = projectChatEvent(state, {
+      type: "delta",
+      text: "The file stayed put.",
+    });
+    state = projectChatEvent(state, {
+      type: "trace_clock",
+      resultReadyAt: 4_000,
+      stop: "completed",
+      reporting: false,
+    });
+    state = projectChatEvent(state, {
+      type: "finalization",
+      turnId: "turn-1",
+      threadId: "thread",
+      assistantMessageId: "assistant",
+      state: "failed",
+      message: "The message could not be saved.",
+    });
+    const visible = visibleProjection(state);
+    expect(
+      visible.some(
+        (part) => part.type === "text" && part.text === "The file stayed put.",
+      ),
+    ).toBe(true);
+    expect(visible).toContainEqual(
+      expect.objectContaining({
+        type: "data",
+        name: "execution-trace",
+        data: expect.objectContaining({ readiness: "ready" }),
+      }),
+    );
+    expect(visible).toContainEqual(
+      expect.objectContaining({ type: "data", name: "finalization" }),
+    );
+    expect(state.trace?.summary.workMs).toBe(3_000);
+  });
+
+  it("excludes approval wait from work time and releases a cancellation", () => {
+    const started = Date.now() - 1_000;
+    let state = projectChatEvent(emptyChatProjection(), {
+      type: "trace_clock",
+      workStartedAt: started,
+      approvalDeltaMs: 40,
+    });
+    expect(state.trace?.readiness).toBe("working");
+    state = projectChatEvent(state, {
+      type: "trace_clock",
+      reporting: true,
+    });
+    expect(state.trace?.readiness).toBe("reporting");
+    state = projectChatEvent(state, {
+      type: "turn_status",
+      stop: "cancelled",
+      summary: "You stopped this reply.",
+    });
+    expect(state.trace?.readiness).toBe("ready");
+    expect(state.trace?.summary.waitMs).toBe(40);
+    expect(state.trace?.summary.workMs).toBe(
+      (state.trace?.timing.resultReadyAt ?? started) - started - 40,
+    );
   });
 });

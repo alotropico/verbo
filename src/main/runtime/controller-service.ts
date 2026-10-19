@@ -76,11 +76,16 @@ const work: TurnWork = async ({
         decision: "deny",
       }).then((expired) => resolveApproval(operationId, expired));
     }, FILE_MUTATION_LIMITS.planTtlMs + 50);
+    const approvalStarted = Date.now();
     try {
       return await pending;
     } finally {
       clearTimeout(timer);
       dispatcher.settleApproval(turnId);
+      emit({
+        type: "trace_clock",
+        approvalDeltaMs: Math.max(0, Date.now() - approvalStarted),
+      });
     }
   };
   if (routeUtterance(envelope.text, envelope.source).kind !== "model") {

@@ -263,6 +263,11 @@
   padding-block-start: rem(4px);
 }
 
+.toolFrame {
+  min-width: 0;
+  width: 100%;
+}
+
 .approvalStackLoose {
   gap: var(--mantine-spacing-sm);
 }

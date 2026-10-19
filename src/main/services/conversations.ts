@@ -6,6 +6,11 @@ import {
   type ThreadHistory,
 } from "../db/history";
 import type { RemoteThreadMetadata } from "../../shared/storage-ipc";
+import {
+  evaluateRecordedParts,
+  type RecordedPart,
+} from "../../shared/execution-trace";
+import type { ActionResult } from "../../shared/action-contract";
 import { chatPlaceholderTitle } from "../../shared/thread-title";
 
 export type StoredMessageRow = {
@@ -143,8 +148,72 @@ export function loadMessageRows(threadId: string): StoredMessageRow[] {
     .all(threadId) as StoredMessageRow[];
 }
 
+function withLegacyTrace(history: ThreadHistory): ThreadHistory {
+  return {
+    ...history,
+    messages: history.messages.map((item) => {
+      const content = item.message.content;
+      if (item.message.role !== "assistant" || !Array.isArray(content))
+        return item;
+      if (
+        content.some(
+          (part) =>
+            part &&
+            typeof part === "object" &&
+            "name" in part &&
+            part.name === "execution-trace",
+        )
+      )
+        return item;
+      const trace = evaluateRecordedParts({
+        turnId: item.message.id ?? "legacy",
+        parts: content.flatMap((part): RecordedPart[] => {
+          if (!part || typeof part !== "object") return [];
+          if (
+            "type" in part &&
+            part.type === "tool-call" &&
+            "toolCallId" in part
+          )
+            return [
+              {
+                type: "tool-call" as const,
+                toolCallId: String(part.toolCallId),
+                toolName: "toolName" in part ? String(part.toolName) : "tool",
+                ...("result" in part && part.result
+                  ? { result: part.result as ActionResult }
+                  : {}),
+              },
+            ];
+          if ("type" in part && part.type === "data" && "name" in part)
+            return [
+              {
+                type: "data" as const,
+                name: String(part.name),
+                data: "data" in part ? part.data : undefined,
+              },
+            ];
+          if ("type" in part && part.type === "text" && "text" in part)
+            return [{ type: "text" as const, text: String(part.text) }];
+          return [];
+        }),
+        clock: { assumeReady: true },
+      });
+      return {
+        ...item,
+        message: {
+          ...item.message,
+          content: [
+            ...content,
+            { type: "data", name: "execution-trace", data: trace },
+          ],
+        },
+      };
+    }),
+  };
+}
+
 export function loadHistory(threadId: string): ThreadHistory {
-  return loadThreadHistory(getDatabase(), threadId);
+  return withLegacyTrace(loadThreadHistory(getDatabase(), threadId));
 }
 
 export function appendMessage(

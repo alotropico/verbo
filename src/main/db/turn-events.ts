@@ -28,6 +28,8 @@ const toolResultPayload = z
   .object({
     toolName: z.string().min(1).max(128),
     content: z.string(),
+    toolCallId: z.string().min(1).max(128).optional(),
+    attribution: attributionSchema.optional(),
   })
   .strict();
 
@@ -60,12 +62,16 @@ type StoredEvent = {
   seq: number;
   kind: TurnEventKind;
   payload: unknown;
+  createdAt?: number;
+  attribution?: WorkflowAttribution;
 };
 
 type EventRow = {
   seq: number;
   kind: string;
   payload_json: string;
+  created_at: number;
+  attribution_json: string | null;
 };
 
 export function recordTurnEvent(
@@ -101,7 +107,7 @@ export function loadTurnEvents(
 ): StoredEvent[] {
   const rows = database
     .prepare(
-      `SELECT seq, kind, payload_json
+      `SELECT seq, kind, payload_json, created_at, attribution_json
        FROM turn_events WHERE message_id = ? ORDER BY seq ASC`,
     )
     .all(messageId) as EventRow[];
@@ -110,7 +116,16 @@ export function loadTurnEvents(
     if (!isKind(row.kind)) continue;
     const parsed = safePayload(row.kind, JSON.parse(row.payload_json));
     if (!parsed) continue;
-    events.push({ seq: row.seq, kind: row.kind, payload: parsed });
+    const attribution = row.attribution_json
+      ? attributionSchema.safeParse(JSON.parse(row.attribution_json))
+      : undefined;
+    events.push({
+      seq: row.seq,
+      kind: row.kind,
+      payload: parsed,
+      createdAt: row.created_at,
+      ...(attribution?.success ? { attribution: attribution.data } : {}),
+    });
   }
   return events;
 }

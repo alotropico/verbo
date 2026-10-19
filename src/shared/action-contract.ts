@@ -10,6 +10,22 @@ export const actionStatuses = [
   "not_supported",
 ] as const;
 
+export const activityCategories = [
+  "search",
+  "read",
+  "change",
+  "other",
+] as const;
+export type ActivityCategory = (typeof activityCategories)[number];
+
+export const actionSubjectSchema = z
+  .object({
+    role: z.enum(["source", "destination"]),
+    path: z.string().min(1).max(1024),
+  })
+  .strict();
+export type ActionSubject = z.infer<typeof actionSubjectSchema>;
+
 export const actorKinds = ["user_command", "model", "ui"] as const;
 
 export const turnLimitsSchema = z.object({
@@ -43,6 +59,8 @@ export const actionResultSchema = z
     detailsAvailable: z.boolean().optional(),
     receiptId: z.string().min(1).max(128).optional(),
     resourceCount: z.number().int().nonnegative().optional(),
+    activity: z.enum(activityCategories).optional(),
+    subjects: z.array(actionSubjectSchema).max(40).optional(),
     data: z
       .json()
       .refine(

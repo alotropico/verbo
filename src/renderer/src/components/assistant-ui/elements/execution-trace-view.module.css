@@ -1,0 +1,145 @@
+.activity {
+  display: flex;
+  flex-direction: column;
+  gap: rem(6px);
+  min-width: 0;
+}
+
+.copy {
+  background: transparent;
+  border: 0;
+  color: var(--muted-foreground);
+  font-size: var(--mantine-font-size-xs);
+  padding: 0;
+}
+
+.detail {
+  color: var(--muted-foreground);
+  display: flex;
+  flex-wrap: wrap;
+  font-size: var(--mantine-font-size-xs);
+  gap: rem(6px);
+  margin: 0;
+}
+
+.details {
+  display: flex;
+  flex-direction: column;
+  gap: rem(8px);
+  padding-inline-start: rem(8px);
+}
+
+.focused {
+  background: color-mix(in oklab, var(--foreground) 6%, transparent);
+}
+
+.log {
+  display: flex;
+  flex-direction: column;
+  gap: rem(2px);
+  margin: 0;
+  padding: 0;
+}
+
+.mark {
+  align-items: center;
+  block-size: rem(14px);
+  color: var(--muted-foreground);
+  display: inline-flex;
+  flex: none;
+  inline-size: rem(14px);
+  justify-content: center;
+}
+
+.mark[data-severity="error"] {
+  color: var(--destructive);
+}
+
+.mark[data-severity="success"] {
+  color: var(--success);
+}
+
+.mark[data-severity="warning"] {
+  color: var(--warning);
+}
+
+.path {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: rem(4px);
+  min-block-size: rem(24px);
+}
+
+.phase {
+  align-items: center;
+  background: transparent;
+  border: 0;
+  color: var(--foreground);
+  display: inline-flex;
+  font-size: var(--mantine-font-size-xs);
+  font-weight: 600;
+  gap: rem(4px);
+  letter-spacing: 0.04em;
+  min-block-size: rem(24px);
+  padding: 0;
+  text-transform: uppercase;
+}
+
+.phase:focus-visible,
+.summary:focus-visible,
+.copy:focus-visible {
+  outline: rem(1px) solid var(--ring);
+  outline-offset: rem(2px);
+}
+
+.row {
+  align-items: flex-start;
+  border-radius: var(--radius-sm);
+  display: flex;
+  gap: rem(6px);
+  min-width: 0;
+  padding-block: rem(2px);
+  padding-inline: rem(4px);
+  padding-inline-start: calc(0.25rem + (var(--trace-depth, 0) * 0.75rem));
+}
+
+.rowBody {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: rem(2px);
+  min-width: 0;
+}
+
+.rowLabel {
+  color: var(--foreground);
+  font-size: var(--mantine-font-size-sm);
+  overflow-wrap: anywhere;
+}
+
+.subject {
+  color: var(--muted-foreground);
+  font-size: var(--mantine-font-size-xs);
+  overflow-wrap: anywhere;
+}
+
+.summary {
+  align-items: center;
+  background: transparent;
+  border: 0;
+  color: var(--muted-foreground);
+  display: inline-flex;
+  font-size: var(--mantine-font-size-xs);
+  gap: rem(4px);
+  justify-content: flex-start;
+  min-block-size: rem(24px);
+  padding: 0;
+  text-align: start;
+}
+
+.technical {
+  display: flex;
+  flex-direction: column;
+  gap: rem(2px);
+}

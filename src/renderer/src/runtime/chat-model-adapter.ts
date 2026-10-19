@@ -13,6 +13,7 @@ import {
   visibleProjection,
 } from "../../../shared/chat-projection";
 import { rememberLatestExchange } from "./latest-exchange";
+import { rememberMessageTime } from "./message-time";
 import {
   canonicalMessageId,
   rememberMessageIdentity,
@@ -146,6 +147,11 @@ export function createChatModelAdapter(
             )?.id;
             if (localUserId)
               rememberMessageIdentity(localUserId, event.userMessageId);
+            if (event.userSentAt !== undefined) {
+              if (localUserId)
+                rememberMessageTime(localUserId, event.userSentAt);
+              rememberMessageTime(event.userMessageId, event.userSentAt);
+            }
             rememberMessageIdentity(
               unstable_assistantMessageId,
               event.assistantMessageId,

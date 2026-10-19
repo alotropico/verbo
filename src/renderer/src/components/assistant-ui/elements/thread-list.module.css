@@ -187,13 +187,13 @@
   box-shadow: 0 0 0 rem(1px) color-mix(in oklab, var(--ring) 50%, transparent);
 }
 
-.runningIcon {
-  animation: spin 1s linear infinite;
-  color: var(--muted-foreground);
+.runningSlot {
+  align-items: center;
+  display: inline-flex;
   flex-shrink: 0;
-  height: rem(14px);
+  inline-size: rem(22px);
+  justify-content: center;
   margin-inline-end: rem(6px);
-  width: rem(14px);
 }
 
 .itemBody {

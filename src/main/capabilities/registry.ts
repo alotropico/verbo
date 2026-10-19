@@ -18,6 +18,7 @@ import {
   type ActionResult,
   type ActorKind,
 } from "../../shared/action-contract";
+import { activityForCommand } from "../../shared/execution-trace";
 import { ACTION_ALIASES, LOCAL_COMMANDS } from "../../shared/local-commands";
 import {
   createCommandResolver,
@@ -76,6 +77,7 @@ export type Capability = {
   id: string;
   description: string;
   kind: "read" | "mutation";
+  effect?: "read" | "write" | "launch" | "process";
   args: z.ZodType;
   /** Call shape when the JSON schema hides required fields or allowed values. */
   syntax?: string;
@@ -687,11 +689,27 @@ export function createRegistry(
         ? undefined
         : activeInvocation()?.ledger;
     let claim: { id: string; receiptId: string } | undefined;
+    const activitySource: {
+      id?: string;
+      effect?: "read" | "write" | "launch" | "process";
+      kind?: "read" | "mutation";
+    } = {};
     const settle = (
       result: ActionResult,
       resources: CommandResource[] = [],
     ): ActionResult => {
-      const validated = contractResult(result);
+      const activity =
+        result.activity ??
+        (activitySource.id
+          ? activityForCommand({
+              id: activitySource.id,
+              effect: activitySource.effect,
+              kind: activitySource.kind,
+            })
+          : undefined);
+      const validated = contractResult(
+        activity && !result.activity ? { ...result, activity } : result,
+      );
       if (validated.status === "requires_confirmation" && validated.operationId)
         bindApprovalInvocation(validated.operationId, context.threadId);
       try {
@@ -742,6 +760,9 @@ export function createRegistry(
       );
     }
     name = capability.id;
+    activitySource.id = capability.id;
+    activitySource.effect = capability.effect;
+    activitySource.kind = capability.kind;
     args = omitNulls(args) as Record<string, unknown>;
     if (!permitsCommand(name, false, args))
       return settle({

@@ -40,7 +40,11 @@ The existing tool worker permits eight model rounds and twenty tool requests. A 
 
 Workflow invocations share a turn deadline, sixteen inference admissions with presentation capacity reserved, and twenty tool admissions. Each role also has a bounded model profile. Invalid Commander final JSON can receive one tool-free contract repair; completed effects cannot repeat during that repair. A domain `not_supported` receipt terminates its Obsidian step without another backend search.
 
-Operational presentation uses a frozen outcome from persisted execution and receipts. Writer/Responder must preserve status, receipt IDs, exact findings and required questions. Deterministic fallback handles invalid output, failure, deadlines or cancellation. Worker/decision prose is not final user text. Global routing and workflow stages remain in the durable timeline; newer execution revisions suppress old pending indicators.
+Operational presentation uses one pure trace evaluator and one reporting owner. Execute returns facts. Store and read evidence do not choose the UI. The controller is the only publisher of the execution trace, terminal notices, and fallback prose. The renderer presents that trace and does not classify domain severity.
+
+Writer/Responder receives readable evaluated facts, verified effect scope, and a required question. It phrases 1–3 paragraphs and repeats the question verbatim. Execution, receipt, step, and attempt identifiers stay in structured diagnostics and JSON export; they are excluded from the model report input. Deterministic fallback handles invalid output, model failure, deadlines, cancellation, and missing generated prose. The controller requests that report instead of joining raw receipt summaries. Worker/decision prose is not final user text.
+
+The final result — status callouts, prose, generated attachments, and result sources — stays hidden until this turn’s frozen report is ready. Clarification, failure, cancellation, and a suspended workflow still release. A failed save keeps the finished result visible and shows a separate retry-saving notice. Retry saving does not invoke the model or replay effects. Global routing and workflow stages remain in the durable timeline and in the activity report; they are not a second warning box. A pending approval request stays above the activity disclosure and outside every tool disclosure, and the renderer posts one operating-system notification for that request.
 
 ## Obsidian boundary and rollout
 

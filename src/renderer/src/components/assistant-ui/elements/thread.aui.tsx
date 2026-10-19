@@ -23,11 +23,14 @@ import {
   ToolGroupTrigger,
 } from "@/components/assistant-ui/elements/tool-group.aui";
 import { TouchedFiles } from "./touched-files";
+import { ApprovalRequests } from "./approval-region";
+import { ExecutionTraceView, useMessageTrace } from "./execution-trace-view";
+import { MessageTime } from "./message-time";
+import { PendingIndicator } from "./pending-indicator";
 import { TooltipIconButton } from "./tooltip-icon-button";
 import { BackendNotice, FinalizationNotice } from "@/components/BackendNotice";
 import {
   WorkflowStageNotice,
-  WorkflowExecutionNotice,
   WorkflowRoutingNotice,
 } from "@/components/WorkflowProgress";
 import { CommandNotice } from "@/components/CommandNotice";
@@ -61,6 +64,7 @@ import {
 import { USER_ABORT_NOTICE } from "@shared/chat-ipc";
 import { chatPlaceholderTitle } from "@shared/thread-title";
 import { isPendingApprovalResult } from "@shared/tool-result-label";
+import { approvalStaysOutsideGroups } from "@/runtime/approval-notice";
 import {
   ActionIcon,
   Button,
@@ -444,7 +448,12 @@ const MessageCopyButton: FC<{ className?: string }> = ({ className }) => {
   if (!advanced) {
     return (
       <ActionBarPrimitive.Copy
-        render={<TooltipIconButton tooltip="Copy" className={className} />}
+        render={
+          <TooltipIconButton
+            tooltip={advanced ? "Copy objects" : "Copy"}
+            className={className}
+          />
+        }
       >
         <AuiIf condition={(s) => s.message.isCopied}>
           <CheckIcon className={styles.copyIconCheck} size={14} />
@@ -472,7 +481,7 @@ const MessageCopyButton: FC<{ className?: string }> = ({ className }) => {
   };
   return (
     <TooltipIconButton
-      tooltip="Copy"
+      tooltip="Copy objects"
       className={className}
       disabled={running}
       onClick={copy}
@@ -490,10 +499,10 @@ const MessageCopyButton: FC<{ className?: string }> = ({ className }) => {
 const SpokenActionBar: FC = () => {
   return (
     <ActionBarPrimitive.Root
-      hideWhenRunning
       autohide="always"
       className={cx("aui-spoken-action-bar", styles.spokenActionBar)}
     >
+      <MessageTime />
       <MessageCopyButton className={styles.spokenCopyButton} />
     </ActionBarPrimitive.Root>
   );
@@ -728,19 +737,6 @@ const WELCOME_MODIFIERS: readonly WelcomePart[] = [
 const pickWelcomePart = (parts: readonly WelcomePart[]): WelcomePart =>
   parts[Math.floor(Math.random() * parts.length)] ?? parts[0]!;
 
-const TypingDots: FC<{ label?: string }> = ({ label }) => (
-  <span
-    className={styles.typingDots}
-    {...(label
-      ? { role: "status" as const, "aria-label": label }
-      : { "aria-hidden": true })}
-  >
-    <span className={styles.typingDot} />
-    <span className={cx(styles.typingDot, styles.typingDotSecond)} />
-    <span className={cx(styles.typingDot, styles.typingDotThird)} />
-  </span>
-);
-
 const ThreadWelcome: FC = () => {
   const [verb] = useState(() => pickWelcomePart(WELCOME_VERBS));
   const [modifier] = useState(() => pickWelcomePart(WELCOME_MODIFIERS));
@@ -781,7 +777,8 @@ const ThreadWelcome: FC = () => {
         </Tooltip>{" "}
       </h1>
       <p className={styles.welcomeDescription}>
-        {line ?? (linePending ? <TypingDots label="Writing a line" /> : null)}
+        {line ??
+          (linePending ? <PendingIndicator label="Writing a line" /> : null)}
       </p>
     </div>
   );
@@ -1231,7 +1228,24 @@ const AssistantMessage: FC = () => {
     ReasoningGroup,
     TaskGroup: TaskGroupComponent,
   } = useContext(ThreadComponentsContext);
-  const groupBy = TaskGroupComponent ? taskAwareGroupBy : messageGroupBy;
+  const groupBy = (
+    part: Parameters<typeof messageGroupBy>[0],
+    context?: Parameters<typeof messageGroupBy>[1],
+  ): readonly ThreadGroupKey[] =>
+    approvalStaysOutsideGroups(part)
+      ? []
+      : TaskGroupComponent
+        ? taskAwareGroupBy(part, context)
+        : messageGroupBy(part, context);
+  const status = useAuiState((state) => state.message.status?.type);
+  const trace = useMessageTrace();
+  const pendingApproval = useAuiState((state) =>
+    state.message.content.some(
+      (part) =>
+        part.type === "tool-call" && isPendingApprovalResult(part.result),
+    ),
+  );
+  const ready = trace?.readiness === "ready" || status !== "running";
 
   return (
     <MessagePrimitive.Root
@@ -1243,117 +1257,136 @@ const AssistantMessage: FC = () => {
         data-slot="aui_assistant-message-content"
         className={styles.assistantMessageContent}
       >
-        <MessagePrimitive.GroupedParts groupBy={groupBy}>
-          {({ part, children }) => {
-            switch (part.type) {
-              case "group-chainOfThought":
-                return <div data-slot="aui_chain-of-thought">{children}</div>;
-              case "group-task":
-                return TaskGroupComponent ? (
-                  <TaskGroupComponent group={part} />
-                ) : null;
-              case "group-tool":
-                if (ToolGroup) {
-                  return <ToolGroup group={part}>{children}</ToolGroup>;
-                }
-                return (
-                  <DefaultToolGroup
-                    count={part.indices.length}
-                    active={part.status.type === "running"}
-                  >
-                    {children}
-                  </DefaultToolGroup>
-                );
-              case "group-reasoning": {
-                if (ReasoningGroup) {
+        <ApprovalRequests>
+          {trace ? <ExecutionTraceView trace={trace} /> : null}
+          <MessagePrimitive.GroupedParts groupBy={groupBy}>
+            {({ part, children }) => {
+              switch (part.type) {
+                case "group-chainOfThought":
+                  if (!ready) return null;
+                  return <div data-slot="aui_chain-of-thought">{children}</div>;
+                case "group-task":
+                  if (!ready) return null;
+                  return TaskGroupComponent ? (
+                    <TaskGroupComponent group={part} />
+                  ) : null;
+                case "group-tool":
+                  if (!ready && !pendingApproval) return null;
+                  if (ToolGroup) {
+                    return <ToolGroup group={part}>{children}</ToolGroup>;
+                  }
                   return (
-                    <ReasoningGroup group={part}>{children}</ReasoningGroup>
+                    <DefaultToolGroup
+                      count={part.indices.length}
+                      active={part.status.type === "running"}
+                    >
+                      {children}
+                    </DefaultToolGroup>
+                  );
+                case "group-reasoning": {
+                  if (!ready) return null;
+                  if (ReasoningGroup) {
+                    return (
+                      <ReasoningGroup group={part}>{children}</ReasoningGroup>
+                    );
+                  }
+                  const running = part.status.type === "running";
+                  return (
+                    <ReasoningRoot streaming={running}>
+                      <ReasoningTrigger
+                        active={running}
+                        duration={reasoningDuration(part.timing)}
+                      />
+                      <ReasoningContent aria-busy={running}>
+                        <ReasoningText>{children}</ReasoningText>
+                      </ReasoningContent>
+                    </ReasoningRoot>
                   );
                 }
-                const running = part.status.type === "running";
-                return (
-                  <ReasoningRoot streaming={running}>
-                    <ReasoningTrigger
-                      active={running}
-                      duration={reasoningDuration(part.timing)}
-                    />
-                    <ReasoningContent aria-busy={running}>
-                      <ReasoningText>{children}</ReasoningText>
-                    </ReasoningContent>
-                  </ReasoningRoot>
-                );
-              }
-              case "text":
-                return part.text === USER_ABORT_NOTICE ? (
-                  <StatusMessage display="plain" size="sm" tone="warning">
-                    {USER_ABORT_NOTICE}
-                  </StatusMessage>
-                ) : (
-                  <SpeechSyncedText />
-                );
-              case "reasoning":
-                return <Reasoning {...part} />;
-              case "tool-call":
-                return part.toolUI ?? <ToolFallbackComponent {...part} />;
-              case "data":
-                if (part.name === "workflow-stage")
-                  return <WorkflowStageNotice data={part.data} />;
-                if (part.name === "workflow-execution")
-                  return <WorkflowExecutionNotice data={part.data} />;
-                if (part.name === "routing-stage")
-                  return <WorkflowRoutingNotice data={part.data} />;
-                if (part.name === "finalization")
-                  return <FinalizationNotice data={part.data} />;
-                return part.name === "backend-notice" ? (
-                  <BackendNotice data={part.data} />
-                ) : (
-                  part.dataRendererUI
-                );
-              case "file":
-                return (
-                  <div
-                    data-slot="aui_assistant-message-file"
-                    className={styles.partPadding}
-                  >
-                    <MessageFile {...part} />
-                  </div>
-                );
-              case "image":
-                return (
-                  <div
-                    data-slot="aui_assistant-message-image"
-                    className={styles.partPadding}
-                  >
-                    <Image {...part} />
-                  </div>
-                );
-              case "indicator":
-                return (
-                  <AuiIf
-                    condition={(state) =>
-                      !state.message.content.some(
-                        (part) =>
-                          part.type === "data" && part.name === "finalization",
-                      )
-                    }
-                  >
-                    <span
-                      data-slot="aui_assistant-message-indicator"
-                      className={styles.workingIndicator}
-                      aria-label="Assistant is working"
+                case "text":
+                  if (!ready) return null;
+                  return part.text === USER_ABORT_NOTICE ? (
+                    <StatusMessage display="plain" size="sm" tone="warning">
+                      {USER_ABORT_NOTICE}
+                    </StatusMessage>
+                  ) : (
+                    <SpeechSyncedText />
+                  );
+                case "reasoning":
+                  if (!ready) return null;
+                  return <Reasoning {...part} />;
+                case "tool-call":
+                  if (!ready && !approvalStaysOutsideGroups(part)) return null;
+                  return part.toolUI ?? <ToolFallbackComponent {...part} />;
+                case "data":
+                  if (part.name === "execution-trace") return null;
+                  if (part.name === "workflow-execution") return null;
+                  if (part.name === "workflow-stage")
+                    return trace ? null : (
+                      <WorkflowStageNotice data={part.data} />
+                    );
+                  if (part.name === "routing-stage")
+                    return trace ? null : (
+                      <WorkflowRoutingNotice data={part.data} />
+                    );
+                  if (part.name === "finalization")
+                    return <FinalizationNotice data={part.data} />;
+                  if (!ready) return null;
+                  return part.name === "backend-notice" ? (
+                    <BackendNotice data={part.data} />
+                  ) : (
+                    part.dataRendererUI
+                  );
+                case "file":
+                  if (!ready) return null;
+                  return (
+                    <div
+                      data-slot="aui_assistant-message-file"
+                      className={styles.partPadding}
                     >
-                      <TypingDots />
-                    </span>
-                  </AuiIf>
-                );
-              default:
-                return null;
-            }
-          }}
-        </MessagePrimitive.GroupedParts>
+                      <MessageFile {...part} />
+                    </div>
+                  );
+                case "image":
+                  if (!ready) return null;
+                  return (
+                    <div
+                      data-slot="aui_assistant-message-image"
+                      className={styles.partPadding}
+                    >
+                      <Image {...part} />
+                    </div>
+                  );
+                case "indicator":
+                  if (trace) return null;
+                  return (
+                    <AuiIf
+                      condition={(state) =>
+                        !state.message.content.some(
+                          (part) =>
+                            part.type === "data" &&
+                            part.name === "finalization",
+                        )
+                      }
+                    >
+                      <span
+                        data-slot="aui_assistant-message-indicator"
+                        className={styles.workingIndicator}
+                        aria-label="Assistant is working"
+                      >
+                        <PendingIndicator />
+                      </span>
+                    </AuiIf>
+                  );
+                default:
+                  return null;
+              }
+            }}
+          </MessagePrimitive.GroupedParts>
+        </ApprovalRequests>
         <MessageError />
-        <TouchedFiles />
-        <WebSources />
+        {ready ? <TouchedFiles /> : null}
+        {ready ? <WebSources /> : null}
       </div>
 
       <div
@@ -1449,6 +1482,7 @@ const AssistantActionBar: FC = () => {
       autohideFloat="single-branch"
       className={cx("aui-assistant-action-bar-root", styles.assistantActionBar)}
     >
+      <MessageTime />
       <MessageCopyButton className={styles.compactAction} />
       <AuiIf condition={(s) => s.thread.capabilities.feedback}>
         <ActionBarPrimitive.FeedbackPositive
@@ -1664,10 +1698,11 @@ const UserMessage: FC = () => {
 const UserActionBar: FC = () => {
   return (
     <ActionBarPrimitive.Root
-      hideWhenRunning
       autohide="not-last"
       className={cx("aui-user-action-bar-root", styles.userActionBarRoot)}
     >
+      <MessageTime />
+      <MessageCopyButton className={styles.compactAction} />
       <ActionBarPrimitive.Edit
         render={
           <TooltipIconButton

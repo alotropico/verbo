@@ -1111,6 +1111,10 @@ describe("file mutations", () => {
     expect(result.summary).toContain(
       `${FILE_MUTATION_LIMITS.maxFileBytes} bytes`,
     );
+    expect(result.subjects).toEqual([
+      { role: "source", path: join(root, "big.bin") },
+      { role: "destination", path: join(root, "out.bin") },
+    ]);
     expect(existsSync(join(root, "big.bin"))).toBe(true);
     expect(existsSync(join(root, "out.bin"))).toBe(false);
   });

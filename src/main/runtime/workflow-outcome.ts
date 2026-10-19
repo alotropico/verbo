@@ -1,6 +1,7 @@
 import type { DatabaseSync } from "node:sqlite";
 import { z } from "zod";
 import { actionResultSchema } from "../../shared/action-contract";
+import { evaluateTrace } from "../../shared/execution-trace";
 import {
   verifiedOutcomeSchema,
   type VerifiedOutcome,
@@ -37,11 +38,6 @@ export function freezeWorkflowOutcome(
         .map((attempt) => String(attempt.receipt_id)),
     ),
   ];
-  const successes = receipts.filter(
-    (receipt) =>
-      receipt.result.status === "success" ||
-      receipt.result.status === "partial",
-  );
   const failures = receipts.filter((receipt) =>
     ["error", "denied", "not_supported", "cancelled"].includes(
       receipt.result.status,
@@ -68,24 +64,40 @@ export function freezeWorkflowOutcome(
       code: "no_verified_results",
       summary: "No registered command has a verified receipt for this request.",
     });
+  const trace = evaluateTrace({
+    turnId: execution.id,
+    calls: receipts.map((receipt, order) => ({
+      id: receipt.id,
+      toolName: "actions.invoke",
+      order,
+      result: receipt.result,
+      uncertainAttempt:
+        uncertain.includes(receipt.id) &&
+        receipt.result.status !== "requires_confirmation",
+    })),
+    workflow: {
+      executionId: execution.id,
+      workflowId: execution.workflowId,
+      status: execution.status,
+    },
+    clock: { assumeReady: true },
+    ...(result?.status === "awaiting_input"
+      ? { question: result.question.text }
+      : {}),
+  });
+  const root = trace.nodes.find((node) => node.kind === "workflow");
   const status =
     execution.status === "awaiting_input"
       ? "awaiting_input"
-      : execution.status === "cancelled"
+      : execution.status === "cancelled" || root?.outcome === "cancelled"
         ? "cancelled"
-        : noEvidence
-          ? "blocked"
-          : uncertain.length || failures.length
-            ? successes.length
-              ? "partial"
-              : "blocked"
-            : execution.status === "completed"
-              ? "completed"
-              : execution.status === "failed"
-                ? successes.length
-                  ? "partial"
-                  : "failed"
-                : "blocked";
+        : root?.outcome === "succeeded"
+          ? "completed"
+          : root?.outcome === "partial"
+            ? "partial"
+            : root?.outcome === "failed"
+              ? "failed"
+              : "blocked";
   return Object.freeze(
     verifiedOutcomeSchema.parse({
       version: 1,
@@ -114,9 +126,9 @@ export const presentationSchema = z
 export type WorkflowPresentation = z.infer<typeof presentationSchema>;
 
 export const PRESENTATION_INSTRUCTION =
-  "Write one chat reply that reports this frozen outcome in your own words. Use the status, findings, errors, and question together; do not paste them as separate paragraphs. Do not invent effects, paths, counts, or receipt ids. If question is present, ask it. If uncertainReceiptIds is non-empty, say those effects are uncertain and will not be replayed. Return JSON with only a text field.";
+  "Write a short chat reply from this readable report. Use one to three paragraphs. Phrase the status, findings, errors, and question; do not invent effects, paths, or counts. If question is present, ask it verbatim. If uncertainty is true, say those effects are uncertain and will not be replayed. Do not include identifiers, receipt ids, execution ids, or step ids. Return JSON with only a text field.";
 
-/** Admit one composed reply. An invented receipt id falls back to the frozen stitch. */
+/** Admit phrasing that keeps the required question and leaks no diagnostic identifier. */
 export function validatePresentation(
   outcome: VerifiedOutcome,
   candidate: unknown,
@@ -124,22 +136,45 @@ export function validatePresentation(
   const parsed = presentationSchema.safeParse(candidate);
   if (!parsed.success) return;
   const text = parsed.data.text;
-  const known = [
+  if (
+    /\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/i.test(
+      text,
+    )
+  )
+    return;
+  const identifiers = [
     outcome.executionId,
     ...outcome.receiptIds,
     ...outcome.uncertainReceiptIds,
-    ...outcome.findings,
-    ...outcome.errors.map((error) => error.summary),
-    outcome.question?.text ?? "",
-  ]
-    .join("\n")
-    .toLowerCase();
-  const ids =
-    text.match(
-      /\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/gi,
-    ) ?? [];
-  if (ids.some((id) => !known.includes(id.toLowerCase()))) return;
+  ].filter((id) => id.length >= 8);
+  if (identifiers.some((id) => text.toLowerCase().includes(id.toLowerCase())))
+    return;
+  if (outcome.question && !text.includes(outcome.question.text)) return;
   return text;
+}
+
+/** Model-facing facts. Diagnostic identifiers stay out of this object. */
+export function readableReportInput(outcome: VerifiedOutcome): {
+  status: VerifiedOutcome["status"];
+  findings: string[];
+  errors: string[];
+  question?: string;
+  uncertainty: boolean;
+} {
+  const identifiers = [
+    outcome.executionId,
+    ...outcome.receiptIds,
+    ...outcome.uncertainReceiptIds,
+  ];
+  const visible = (value: string): boolean =>
+    !identifiers.some((id) => id.length >= 8 && value.includes(id));
+  return {
+    status: outcome.status,
+    findings: outcome.findings.filter(visible),
+    errors: outcome.errors.map((error) => error.summary).filter(visible),
+    ...(outcome.question ? { question: outcome.question.text } : {}),
+    uncertainty: outcome.uncertainReceiptIds.length > 0,
+  };
 }
 
 export function deterministicPresentation(outcome: VerifiedOutcome): string {

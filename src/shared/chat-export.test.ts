@@ -67,6 +67,20 @@ describe("chat export", () => {
     expect(markdown).not.toContain("Discarded.");
   });
 
+  it("keeps the full user text in an advanced message export", () => {
+    const text = [
+      "Move the example file into the destination folder.",
+      "Fourth line exists only to prove the collapsed text is not the clipboard.",
+    ].join("\n");
+    const exported = messageExportJson({
+      id: "user-1",
+      role: "user",
+      content: [{ type: "text", text }],
+    });
+    expect(exported).toContain("Fourth line exists only to prove");
+    expect(exported.trim().startsWith("{")).toBe(true);
+  });
+
   it("builds a safe download name", () => {
     expect(chatExportFilename('notes: "a"?', "md")).toBe("notes a.md");
     expect(chatExportFilename("   ", "json")).toBe("chat.json");

@@ -20,6 +20,7 @@ import {
   publishLive,
   subscribeLive,
 } from "./turn-session";
+import { fallbackProse, terminalNotices } from "./turn-report";
 
 export type TurnEnvelope = {
   turnId: string;
@@ -33,6 +34,9 @@ export type TurnEnvelope = {
   text: string;
   attachmentIds: string[];
   headAtAdmission?: string | null;
+  userSentAt?: number;
+  workStartedAt?: number;
+  assistantPublishedAt?: number;
 };
 
 export const finalizationSchema = z
@@ -50,6 +54,9 @@ export const finalizationSchema = z
         text: z.string(),
         attachmentIds: z.array(z.string()),
         headAtAdmission: z.string().nullable().optional(),
+        userSentAt: z.number().optional(),
+        workStartedAt: z.number().optional(),
+        assistantPublishedAt: z.number().optional(),
       })
       .strict(),
     content: z.array(z.unknown()),
@@ -149,6 +156,7 @@ export function createTurnController(input: {
           {
             id: final.envelope.userMessageId,
             role: "user",
+            createdAt: final.envelope.userSentAt ?? Date.now(),
             content: userContent(final.envelope),
           },
           "complete",
@@ -168,6 +176,13 @@ export function createTurnController(input: {
           {
             id: final.envelope.assistantMessageId,
             role: "assistant",
+            createdAt:
+              final.envelope.assistantPublishedAt ??
+              final.envelope.workStartedAt ??
+              Date.now(),
+            ...(final.envelope.workStartedAt
+              ? { startedAt: final.envelope.workStartedAt }
+              : {}),
             content: final.content,
           },
           "complete",
@@ -256,6 +271,13 @@ export function createTurnController(input: {
     };
     let stop: ChatTurnStop = "failed";
     try {
+      const workStartedAt = Date.now();
+      run.envelope = { ...run.envelope, workStartedAt };
+      run.emit({
+        type: "trace_clock",
+        turnId: run.envelope.turnId,
+        workStartedAt,
+      });
       appendStoredMessage(
         database,
         run.envelope.threadId,
@@ -263,6 +285,7 @@ export function createTurnController(input: {
         {
           id: run.envelope.userMessageId,
           role: "user",
+          createdAt: run.envelope.userSentAt ?? workStartedAt,
           content: userContent(run.envelope),
         },
       );
@@ -294,16 +317,27 @@ export function createTurnController(input: {
           });
       stop = result.stop;
       if (!visibleProjection(projection).some((part) => part.type === "text")) {
-        const receipts = projection.parts.flatMap((part) =>
-          part.type === "tool-call" && part.result ? [part.result.summary] : [],
-        );
         run.emit({
           type: "delta",
-          text:
-            result.summary ||
-            receipts.join("\n") ||
-            "The turn finished without a written response.",
+          text: result.summary || fallbackProse(projection.trace),
         });
+      }
+      const publishedAt = Date.now();
+      run.envelope = { ...run.envelope, assistantPublishedAt: publishedAt };
+      run.emit({
+        type: "trace_clock",
+        resultReadyAt: publishedAt,
+        stop,
+        reporting: false,
+      });
+      for (const notice of terminalNotices(projection.trace)) {
+        const exists = projection.parts.some(
+          (part) =>
+            part.type === "data" &&
+            part.name === "backend-notice" &&
+            part.data.id === notice.id,
+        );
+        if (!exists) run.emit({ type: "backend_notice", notice });
       }
       run.emit({ type: "turn_status", stop });
     } catch (error) {
@@ -319,6 +353,14 @@ export function createTurnController(input: {
                 ? error.message
                 : "The turn failed."
               ).slice(0, 500),
+      });
+      const publishedAt = Date.now();
+      run.envelope = { ...run.envelope, assistantPublishedAt: publishedAt };
+      run.emit({
+        type: "trace_clock",
+        resultReadyAt: publishedAt,
+        stop,
+        reporting: false,
       });
       run.emit({ type: "turn_status", stop });
     }
@@ -345,6 +387,7 @@ export function createTurnController(input: {
     const normalized: TurnEnvelope = {
       ...envelope,
       turnId: envelope.turnId ?? randomUUID(),
+      userSentAt: envelope.userSentAt ?? Date.now(),
     };
     if (normalized.admission === "promoted") {
       const head = database
@@ -497,6 +540,7 @@ export function createTurnController(input: {
       threadId: normalized.threadId,
       userMessageId: normalized.userMessageId,
       assistantMessageId: normalized.assistantMessageId,
+      ...(normalized.userSentAt ? { userSentAt: normalized.userSentAt } : {}),
     });
     const completion = runAdmittedTurn(run);
     return { turnId: normalized.turnId, detach, completion };
@@ -600,6 +644,8 @@ function replayFinal(
       observe({ type: "routing_stage", stage: part.data });
     if (part.type === "data" && part.name === "workflow-execution")
       observe({ type: "execution", execution: part.data });
+    if (part.type === "data" && part.name === "execution-trace")
+      observe({ type: "execution_trace", trace: part.data });
   }
   observe({ type: "done" });
 }

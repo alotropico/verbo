@@ -342,6 +342,7 @@ export function registerIpc(mainWindow: BrowserWindow): void {
             text: data.text,
             ...(head ? { branchAnchor: head } : {}),
             attachmentIds: [],
+            userSentAt: queued.item.createdAt,
           },
           send,
         );

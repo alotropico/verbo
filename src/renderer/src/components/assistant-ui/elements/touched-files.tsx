@@ -23,6 +23,7 @@ import {
   CollapsibleContent,
 } from "./collapsible-root";
 import styles from "./touched-files.module.css";
+import { OutcomeMark, useMessageTrace } from "./execution-trace-view";
 
 function ResourceRow({
   resource,
@@ -92,6 +93,7 @@ function ResourceRow({
 
 export function TouchedFiles(): ReactElement | null {
   const parts = useAuiState((state) => state.message.parts);
+  const trace = useMessageTrace();
   const threadId = useAuiState((state) => state.threads.mainThreadId);
   const receiptKey = commandReceiptIdsFromParts(parts).join("|");
   const scan = touchedFilesFromParts(parts);
@@ -200,9 +202,13 @@ export function TouchedFiles(): ReactElement | null {
               size={14}
               aria-hidden
             />
-            <span>
-              {receipt.result.summary} · {receipt.result.status}
-            </span>
+            {(() => {
+              const node = trace?.nodes.find(
+                (item) => item.correlation?.receiptId === receipt.id,
+              );
+              return node ? <OutcomeMark node={node} /> : null;
+            })()}
+            <span>{receipt.result.summary}</span>
           </CollapsibleTrigger>
           <CollapsibleContent className={styles.details}>
             <Text size="xs">

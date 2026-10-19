@@ -46,6 +46,7 @@ import {
   deterministicPresentation,
   freezeWorkflowOutcome,
   PRESENTATION_INSTRUCTION,
+  readableReportInput,
   presentationSchema,
   validatePresentation,
 } from "./workflow-outcome";
@@ -228,6 +229,7 @@ export async function runWorkflowTurn(
     stop: ChatTurnStop,
   ): Promise<string> => {
     const fallback = deterministicPresentation(outcome);
+    input.emit({ type: "trace_clock", reporting: true, stop });
     input.checkpointPresentation(fallback, stop);
     if (budget.signal.aborted) return fallback;
     try {
@@ -243,7 +245,7 @@ export async function runWorkflowTurn(
         modelProfileId: "responder",
         configured: input.settings,
         cts,
-        value: outcome,
+        value: readableReportInput(outcome),
         outputSchema: presentationSchema,
         outputJsonSchema: z.toJSONSchema(presentationSchema),
         registry: input.registry,
@@ -480,12 +482,19 @@ export async function runWorkflowTurn(
     }
     if (update.type === "assistant_tools") {
       persist("assistant_tools", { content: "", toolCalls: update.toolCalls });
-      emit({ type: "tools", content: "", calls: update.toolCalls });
+      emit({
+        type: "tools",
+        content: "",
+        calls: update.toolCalls,
+        ...(activeAttribution ? { attribution: activeAttribution } : {}),
+      });
     }
     if (update.type === "tool_result") {
       persist("tool_result", {
         toolName: update.toolName,
         content: update.content,
+        toolCallId: update.call.id,
+        ...(activeAttribution ? { attribution: activeAttribution } : {}),
       });
       emit({
         type: "tool_result",
@@ -493,6 +502,7 @@ export async function runWorkflowTurn(
         name: update.call.name,
         args: update.call.arguments,
         result: update.result,
+        ...(activeAttribution ? { attribution: activeAttribution } : {}),
       });
     }
     if (update.type === "approval")

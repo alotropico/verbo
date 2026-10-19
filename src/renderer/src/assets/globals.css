@@ -61,7 +61,8 @@
   --surface-edge: color-mix(in oklab, var(--foreground) 12%, transparent);
   --glow-primary: 0 0 rem(28px)
     color-mix(in oklab, var(--primary) 12%, transparent);
-  --success: var(--primary);
+  --success: var(--chart-2);
+  --warning: var(--chart-4);
   --creative: var(--chart-3);
   --insight: var(--chart-4);
   --overlay-scrim: rgb(0 0 0 / 80%);
@@ -125,6 +126,8 @@
   --chart-3: oklch(0.83 0.105 75);
   --chart-4: oklch(0.77 0.095 295);
   --chart-5: oklch(0.645 0.246 16.439);
+  --success: var(--chart-2);
+  --warning: var(--chart-3);
   --sidebar: color-mix(in oklab, var(--background) 28%, transparent);
   --sidebar-foreground: oklch(0.985 0 0);
   --sidebar-primary: var(--primary);

@@ -17,6 +17,7 @@ import type { DatabaseSync } from "node:sqlite";
 import {
   actionResultSchema,
   type ActionResult,
+  type ActionSubject,
   type ActorKind,
 } from "../../shared/action-contract";
 import {
@@ -79,7 +80,12 @@ type Located = {
   write: boolean;
 };
 
-type StepFailure = { ok: false; code: string; summary: string };
+type StepFailure = {
+  ok: false;
+  code: string;
+  summary: string;
+  subjects?: ActionSubject[];
+};
 
 type RawItem =
   | {
@@ -149,12 +155,44 @@ const BINARY = new Set([
   "bin",
 ]);
 
-function failure(action: string, code: string, summary: string): ActionResult {
+function pathSubjects(
+  source?: { absolute: string } | null,
+  destination?: { absolute: string } | null,
+): ActionSubject[] {
+  const subjects: ActionSubject[] = [];
+  if (source?.absolute)
+    subjects.push({ role: "source", path: source.absolute });
+  if (destination?.absolute)
+    subjects.push({ role: "destination", path: destination.absolute });
+  return subjects;
+}
+
+function subjectsFromPlanned(
+  items: Array<{ sourcePath: string | null; destinationPath: string | null }>,
+): ActionSubject[] {
+  const subjects: ActionSubject[] = [];
+  for (const item of items) {
+    if (item.sourcePath)
+      subjects.push({ role: "source", path: item.sourcePath });
+    if (item.destinationPath)
+      subjects.push({ role: "destination", path: item.destinationPath });
+    if (subjects.length >= 40) break;
+  }
+  return subjects.slice(0, 40);
+}
+
+function failure(
+  action: string,
+  code: string,
+  summary: string,
+  subjects?: ActionSubject[],
+): ActionResult {
   return actionResultSchema.parse({
     action,
     status: code === "vault_backend_required" ? "not_supported" : "error",
     code,
     summary,
+    ...(subjects?.length ? { subjects: subjects.slice(0, 40) } : {}),
   });
 }
 
@@ -860,9 +898,7 @@ function folderSelectionTooLarge(): string {
 function selectFolder(
   input: MutationSubmit,
   selection: FolderSelection,
-):
-  | { ok: true; paths: string[]; absolutes: Map<string, string> }
-  | StepFailure {
+): { ok: true; paths: string[]; absolutes: Map<string, string> } | StepFailure {
   const root = locate({
     reference: selection.in,
     purpose: "read",
@@ -1619,7 +1655,10 @@ function preflight(
         });
         continue;
       }
-      return planned;
+      return {
+        ...planned,
+        subjects: pathSubjects(source, destination),
+      };
     }
     if (dependency && source) {
       planned.item.expected.dependency = dependency.index;
@@ -2027,6 +2066,10 @@ function publish(
     preview: examples.slice(0, 20).map((line) => line.slice(0, 500)),
     totalItems: items.length,
     ...(fitted.trimmed ? { detailsAvailable: true } : {}),
+    ...(() => {
+      const subjects = subjectsFromPlanned(items);
+      return subjects.length ? { subjects } : {};
+    })(),
   });
 }
 
@@ -2579,7 +2622,12 @@ export async function submitFileMutation(
       input.database,
       input,
       requestSummary(input.action, []),
-      failure(input.action, plannedItems.code, plannedItems.summary),
+      failure(
+        input.action,
+        plannedItems.code,
+        plannedItems.summary,
+        plannedItems.subjects,
+      ),
     );
   }
   const executable = plannedItems.items.filter((item) => !item.rejection);
@@ -2600,6 +2648,7 @@ export async function submitFileMutation(
           0,
           4000,
         ),
+        subjectsFromPlanned(plannedItems.items),
       ),
     );
   }

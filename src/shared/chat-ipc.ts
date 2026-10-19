@@ -1,10 +1,12 @@
 import type { ActionResult } from "./action-contract";
 import type { ChatSettings } from "./config";
 import type { BackendNotice } from "./backend-notice";
+import type { ExecutionTrace } from "./execution-trace";
 import type {
   WorkflowStage,
   ExecutionSummary,
   RoutingStage,
+  WorkflowAttribution,
 } from "./workflows";
 
 export type ChatTurnStop =
@@ -51,6 +53,7 @@ export type ChatEvent = (
       threadId: string;
       userMessageId: string;
       assistantMessageId: string;
+      userSentAt?: number;
     }
   | { type: "stage"; stage: WorkflowStage }
   | { type: "routing_stage"; stage: RoutingStage }
@@ -69,6 +72,7 @@ export type ChatEvent = (
       type: "tools";
       content: string;
       calls: ChatToolCall[];
+      attribution?: WorkflowAttribution;
     }
   | {
       type: "tool_result";
@@ -76,6 +80,7 @@ export type ChatEvent = (
       name: string;
       args: unknown;
       result: ActionResult;
+      attribution?: WorkflowAttribution;
     }
   | {
       type: "approval";
@@ -83,8 +88,19 @@ export type ChatEvent = (
       name: string;
       args: unknown;
       result: ActionResult;
+      attribution?: WorkflowAttribution;
     }
   | { type: "turn_status"; stop: ChatTurnStop; summary?: string }
+  | {
+      type: "trace_clock";
+      turnId?: string;
+      workStartedAt?: number;
+      approvalDeltaMs?: number;
+      reporting?: boolean;
+      resultReadyAt?: number;
+      stop?: ChatTurnStop;
+    }
+  | { type: "execution_trace"; trace: ExecutionTrace }
   | { type: "local_command"; newThread?: boolean; openMemory?: boolean }
   | { type: "done" }
   | { type: "error"; message: string }

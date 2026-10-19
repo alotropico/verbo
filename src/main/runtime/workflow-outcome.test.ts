@@ -5,6 +5,7 @@ import {
 } from "../../shared/workflows";
 import {
   deterministicPresentation,
+  readableReportInput,
   validatePresentation,
 } from "./workflow-outcome";
 
@@ -44,13 +45,38 @@ describe("workflow presentation", () => {
       validatePresentation(frozen, {
         text: `See receipt ${receiptId} for the list.`,
       }),
-    ).toMatch(receiptId);
+    ).toBeUndefined();
     expect(
       validatePresentation(frozen, {
         text: "See receipt 11111111-1111-4111-8111-111111111111.",
       }),
     ).toBeUndefined();
     expect(validatePresentation(frozen, { text: "  " })).toBeUndefined();
+    const questioned = {
+      ...frozen,
+      question: {
+        text: "Which folder should be used?",
+        required: true as const,
+        expected: { type: "text" as const, maxLength: 200 },
+        binding: "folder",
+      },
+    };
+    expect(readableReportInput(questioned).question).toBe(
+      "Which folder should be used?",
+    );
+    expect(JSON.stringify(readableReportInput(questioned))).not.toContain(
+      receiptId,
+    );
+    expect(
+      validatePresentation(questioned, {
+        text: "The folder was too large. Which folder should be used?",
+      }),
+    ).toMatch(/Which folder/);
+    expect(
+      validatePresentation(questioned, {
+        text: "The folder was too large.",
+      }),
+    ).toBeUndefined();
     expect(validatePresentation(frozen, { sentences: [] })).toBeUndefined();
   });
 

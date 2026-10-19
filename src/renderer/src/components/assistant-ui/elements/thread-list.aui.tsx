@@ -31,6 +31,12 @@ import {
 } from "@shared/chat-export";
 import { chatPlaceholderTitle } from "@shared/thread-title";
 import { savedRemoteThreadId } from "@shared/thread-identity";
+import { PendingIndicator } from "./pending-indicator";
+import {
+  formatTimeAgo,
+  readClock,
+  subscribeClock,
+} from "@/runtime/relative-time";
 import {
   AuiIf,
   ThreadListItemMorePrimitive,
@@ -43,7 +49,6 @@ import {
   ArchiveIcon,
   FileJsonIcon,
   FileTextIcon,
-  Loader2Icon,
   MoreHorizontalIcon,
   PencilIcon,
   PlusIcon,
@@ -302,60 +307,6 @@ const ThreadListSkeleton: FC = () => {
   );
 };
 
-const MINUTE = 60_000;
-const HOUR = 60 * MINUTE;
-const DAY = 24 * HOUR;
-
-let clockNow = Date.now();
-const clockListeners = new Set<() => void>();
-let clockTimer: number | undefined;
-
-function subscribeClock(listener: () => void): () => void {
-  clockListeners.add(listener);
-  if (clockTimer === undefined) {
-    clockTimer = window.setInterval(() => {
-      clockNow = Date.now();
-      clockListeners.forEach((entry) => entry());
-    }, 15_000);
-  }
-  return () => {
-    clockListeners.delete(listener);
-    if (clockListeners.size === 0 && clockTimer !== undefined) {
-      window.clearInterval(clockTimer);
-      clockTimer = undefined;
-    }
-  };
-}
-
-function readClock(): number {
-  return clockNow;
-}
-
-function formatTimeAgo(at: number, now: number, long = false): string {
-  const delta = Math.max(0, now - at);
-  if (delta < 45_000) return "just now";
-  if (delta < HOUR) {
-    const minutes = Math.max(1, Math.round(delta / MINUTE));
-    return long
-      ? `${minutes} ${minutes === 1 ? "minute" : "minutes"} ago`
-      : `${minutes}m ago`;
-  }
-  if (delta < DAY) {
-    const hours = Math.round(delta / HOUR);
-    return long
-      ? `${hours} ${hours === 1 ? "hour" : "hours"} ago`
-      : `${hours}h ago`;
-  }
-  if (delta < 14 * DAY) {
-    const days = Math.round(delta / DAY);
-    return long ? `${days} ${days === 1 ? "day" : "days"} ago` : `${days}d ago`;
-  }
-  return new Intl.DateTimeFormat(undefined, {
-    day: "numeric",
-    month: "short",
-  }).format(at);
-}
-
 function readMessageCount(custom: Record<string, unknown> | undefined): number {
   const value = custom?.messageCount;
   return typeof value === "number" && Number.isFinite(value) ? value : 0;
@@ -490,11 +441,12 @@ export const ThreadListItem: FC = () => {
           }}
         >
           {isRunning && (
-            <Loader2Icon
-              aria-hidden
+            <span
               data-slot="aui_thread-list-item-running"
-              className={styles.runningIcon}
-            />
+              className={styles.runningSlot}
+            >
+              <PendingIndicator label="Working" />
+            </span>
           )}
           <span className={styles.itemBody}>
             <span

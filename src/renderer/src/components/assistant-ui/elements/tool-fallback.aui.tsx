@@ -8,11 +8,13 @@ import {
   useLayoutEffect,
   useRef,
   useState,
+  type FocusEvent,
 } from "react";
 import {
   AlertCircleIcon,
   CheckIcon,
   ChevronDownIcon,
+  CircleHelpIcon,
   CircleMinusIcon,
   LoaderIcon,
   XCircleIcon,
@@ -44,10 +46,15 @@ import { readFilePage, type FilePageView } from "@shared/file-page";
 import { isPersistedThreadId } from "@shared/thread-identity";
 import { OperationReviewCard } from "./operation-review";
 import { Button, Textarea } from "@mantine/core";
+import { isPendingApprovalResult } from "@shared/tool-result-label";
+import { describeApprovalRequest } from "@/runtime/approval-notice";
+import { ExternalApproval } from "./approval-region";
 import {
-  toolResultLabel,
-  isPendingApprovalResult,
-} from "@shared/tool-result-label";
+  OutcomeMark,
+  traceNodeLabel,
+  useTraceNode,
+} from "./execution-trace-view";
+import { PendingIndicator } from "./pending-indicator";
 
 const ANIMATION_DURATION = 200;
 
@@ -109,7 +116,7 @@ type ToolStatus = ToolCallMessagePartStatus["type"];
 
 const statusIconMap: Record<ToolStatus, LucideIcon> = {
   running: LoaderIcon,
-  complete: CheckIcon,
+  complete: CircleHelpIcon,
   incomplete: XCircleIcon,
   "requires-action": AlertCircleIcon,
 };
@@ -142,32 +149,33 @@ function ToolFallbackDuration({
 
 function ToolFallbackTrigger({
   toolName,
+  toolCallId,
   status,
   className,
-  result,
   ...props
 }: React.ComponentProps<typeof CollapsibleTrigger> & {
   toolName: string;
+  toolCallId?: string;
   status?: ToolCallMessagePartStatus;
-  result?: unknown;
 }) {
+  const node = useTraceNode(toolCallId);
   const statusType = status?.type ?? "complete";
   const isRunning = statusType === "running";
   const isCancelled =
     status?.type === "incomplete" && status.reason === "cancelled";
 
   const Icon = statusIconMap[statusType];
-  const label =
-    toolResultLabel(result) ??
-    (statusType === "running"
+  const label = node
+    ? traceNodeLabel(node)
+    : statusType === "running"
       ? "Running"
       : statusType === "requires-action"
-        ? "Awaiting input"
+        ? "Waiting for approval"
         : statusType === "incomplete"
           ? isCancelled
-            ? "Cancelled"
+            ? "Stopped"
             : "Failed"
-          : "No verified result");
+          : "Unverified";
 
   return (
     <CollapsibleTrigger
@@ -176,15 +184,21 @@ function ToolFallbackTrigger({
       className={cx("aui-tool-fallback-trigger", styles.trigger, className)}
       {...props}
     >
-      <Icon
-        data-slot="tool-fallback-trigger-icon"
-        className={cx(
-          "aui-tool-fallback-trigger-icon",
-          styles.triggerIcon,
-          isCancelled && styles.triggerIconCancelled,
-          isRunning && styles.triggerIconRunning,
-        )}
-      />
+      {node ? (
+        <OutcomeMark node={node} />
+      ) : isRunning ? (
+        <PendingIndicator label="Running" />
+      ) : (
+        <Icon
+          data-slot="tool-fallback-trigger-icon"
+          className={cx(
+            "aui-tool-fallback-trigger-icon",
+            styles.triggerIcon,
+            isCancelled && styles.triggerIconCancelled,
+            isRunning && styles.triggerIconRunning,
+          )}
+        />
+      )}
       <span
         data-slot="tool-fallback-trigger-label"
         className={cx(
@@ -285,7 +299,9 @@ function ToolFallbackResult({
       className={cx("aui-tool-fallback-result", className)}
       {...props}
     >
-      <OperationReviewCard result={result} />
+      {isPendingApprovalResult(result) ? null : (
+        <OperationReviewCard result={result} />
+      )}
       {shown ? (
         <FilePageTable
           page={shown}
@@ -1260,6 +1276,7 @@ function ToolFallbackApprovalImpl({
 }
 
 const ToolFallbackImpl: ToolCallMessagePartComponent = ({
+  toolCallId,
   toolName,
   argsText,
   result,
@@ -1278,6 +1295,21 @@ const ToolFallbackImpl: ToolCallMessagePartComponent = ({
     approval != null ||
     (isRequiresAction && offersInterruptAction(status, approval, interrupt));
 
+  const settledApproval = approval != null && isSettled(approval);
+  const hiddenPending =
+    approval != null &&
+    !settledApproval &&
+    status !== undefined &&
+    status.type !== "requires-action";
+  const externalApproval =
+    shouldRenderApproval && !settledApproval && !hiddenPending;
+  const request = describeApprovalRequest({
+    type: "tool-call",
+    toolCallId,
+    result,
+    status,
+    approval,
+  });
   const [open, setOpen] = useState(isRequiresAction);
   const [prevRequiresAction, setPrevRequiresAction] =
     useState(isRequiresAction);
@@ -1288,6 +1320,7 @@ const ToolFallbackImpl: ToolCallMessagePartComponent = ({
   const approvalHadFocusRef = useRef(false);
   const approvalElementRef = useRef<HTMLDivElement | null>(null);
   const triggerRef = useRef<HTMLButtonElement | null>(null);
+  const frameRef = useRef<HTMLDivElement | null>(null);
 
   useLayoutEffect(() => {
     const focusedElement = approvalElementRef.current;
@@ -1311,52 +1344,69 @@ const ToolFallbackImpl: ToolCallMessagePartComponent = ({
     }
   }, [approval, isRequiresAction, status?.type]);
 
+  const trackApprovalFocus = {
+    onFocusCapture: (event: FocusEvent<HTMLDivElement>) => {
+      triggerRef.current =
+        frameRef.current?.querySelector<HTMLButtonElement>(
+          '[data-slot="tool-fallback-trigger"]',
+        ) ?? null;
+      approvalElementRef.current = event.currentTarget;
+      approvalHadFocusRef.current = true;
+    },
+    onBlurCapture: (event: FocusEvent<HTMLDivElement>) => {
+      const relatedTarget = event.relatedTarget;
+      const stillFocused = relatedTarget
+        ? event.currentTarget.contains(relatedTarget as Node)
+        : event.currentTarget.contains(
+            event.currentTarget.ownerDocument.activeElement,
+          );
+      if (!stillFocused) approvalHadFocusRef.current = false;
+    },
+  };
+
   return (
-    <ToolFallbackRoot open={open} onOpenChange={setOpen}>
-      <ToolFallbackTrigger
-        toolName={toolName}
-        status={status}
-        result={result}
-      />
-      <ToolFallbackContent>
-        <ToolFallbackError status={status} />
-        <ToolFallbackArgs
-          argsText={argsText}
-          className={cx(isCancelled && styles.cancelledFade)}
+    <div ref={frameRef} className={styles.toolFrame}>
+      <ExternalApproval
+        active={externalApproval}
+        {...(request ? { noticeId: request.id, noticeBody: request.body } : {})}
+      >
+        <ToolFallbackApproval
+          addResult={addResult}
+          resume={resume}
+          interrupt={interrupt}
+          approval={approval}
+          respondToApproval={respondToApproval}
+          status={status}
+          {...trackApprovalFocus}
         />
-        {shouldRenderApproval && (
-          <ToolFallbackApproval
-            addResult={addResult}
-            resume={resume}
-            interrupt={interrupt}
-            approval={approval}
-            respondToApproval={respondToApproval}
-            status={status}
-            onFocusCapture={(event) => {
-              const root = event.currentTarget.closest(
-                '[data-slot="tool-fallback-root"]',
-              );
-              triggerRef.current =
-                root?.querySelector<HTMLButtonElement>(
-                  '[data-slot="tool-fallback-trigger"]',
-                ) ?? null;
-              approvalElementRef.current = event.currentTarget;
-              approvalHadFocusRef.current = true;
-            }}
-            onBlurCapture={(event) => {
-              const relatedTarget = event.relatedTarget;
-              const stillFocused = relatedTarget
-                ? event.currentTarget.contains(relatedTarget as Node)
-                : event.currentTarget.contains(
-                    event.currentTarget.ownerDocument.activeElement,
-                  );
-              if (!stillFocused) approvalHadFocusRef.current = false;
-            }}
+      </ExternalApproval>
+      <ToolFallbackRoot open={open} onOpenChange={setOpen}>
+        <ToolFallbackTrigger
+          toolName={toolName}
+          toolCallId={toolCallId}
+          status={status}
+        />
+        <ToolFallbackContent>
+          <ToolFallbackError status={status} />
+          <ToolFallbackArgs
+            argsText={argsText}
+            className={cx(isCancelled && styles.cancelledFade)}
           />
-        )}
-        <ToolFallbackResult result={result} />
-      </ToolFallbackContent>
-    </ToolFallbackRoot>
+          {settledApproval ? (
+            <ToolFallbackApproval
+              addResult={addResult}
+              resume={resume}
+              interrupt={interrupt}
+              approval={approval}
+              respondToApproval={respondToApproval}
+              status={status}
+              {...trackApprovalFocus}
+            />
+          ) : null}
+          <ToolFallbackResult result={result} />
+        </ToolFallbackContent>
+      </ToolFallbackRoot>
+    </div>
   );
 };
 
