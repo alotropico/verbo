@@ -187,7 +187,7 @@ function ToolFallbackTrigger({
       {node ? (
         <OutcomeMark node={node} />
       ) : isRunning ? (
-        <PendingIndicator label="Running" />
+        <PendingIndicator label="Running" size="compact" />
       ) : (
         <Icon
           data-slot="tool-fallback-trigger-icon"

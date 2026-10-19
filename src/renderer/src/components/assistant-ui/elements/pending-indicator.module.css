@@ -8,16 +8,16 @@
 
   40% {
     opacity: 1;
-    transform: translateY(rem(-3px));
+    transform: translateY(var(--pending-lift));
   }
 }
 
 .dot {
   animation: pendingDot 1.1s ease-in-out infinite;
   background: currentcolor;
-  block-size: rem(5px);
+  block-size: var(--pending-dot);
   border-radius: 999px;
-  inline-size: rem(5px);
+  inline-size: var(--pending-dot);
 }
 
 .dotSecond {
@@ -29,11 +29,21 @@
 }
 
 .dots {
-  align-items: flex-end;
-  block-size: 1lh;
+  --pending-dot: rem(5px);
+  --pending-lift: rem(-3px);
+  align-items: center;
+  block-size: rem(24px);
   color: var(--muted-foreground);
   display: inline-flex;
+  flex: none;
   gap: rem(4px);
+}
+
+.compact {
+  --pending-dot: rem(2px);
+  --pending-lift: rem(-1px);
+  block-size: rem(14px);
+  gap: rem(2px);
 }
 
 @media (prefers-reduced-motion: reduce) {

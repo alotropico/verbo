@@ -778,7 +778,9 @@ const ThreadWelcome: FC = () => {
       </h1>
       <p className={styles.welcomeDescription}>
         {line ??
-          (linePending ? <PendingIndicator label="Writing a line" /> : null)}
+          (linePending ? (
+            <PendingIndicator label="Writing a line" size="compact" />
+          ) : null)}
       </p>
     </div>
   );

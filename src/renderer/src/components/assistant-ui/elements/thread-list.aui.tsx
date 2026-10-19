@@ -445,7 +445,7 @@ export const ThreadListItem: FC = () => {
               data-slot="aui_thread-list-item-running"
               className={styles.runningSlot}
             >
-              <PendingIndicator label="Working" />
+              <PendingIndicator label="Working" size="compact" />
             </span>
           )}
           <span className={styles.itemBody}>

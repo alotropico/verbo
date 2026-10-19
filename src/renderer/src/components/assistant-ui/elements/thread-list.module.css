@@ -191,7 +191,7 @@
   align-items: center;
   display: inline-flex;
   flex-shrink: 0;
-  inline-size: rem(22px);
+  inline-size: rem(12px);
   justify-content: center;
   margin-inline-end: rem(6px);
 }
