@@ -1,9 +1,10 @@
+import { createMemoryStore } from "./memory";
 import { randomUUID } from "node:crypto";
 import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it } from "vitest";
+import { persistCommandReceipt } from "../test-support/receipts";
 import { VERBO_MIGRATIONS, migrateDatabase } from "./migrate";
 import { createWorkflowExecutionStore } from "./workflow-executions";
-import { persistCommandReceipt } from "./command-receipts";
 
 function setup(): {
   database: DatabaseSync;
@@ -11,20 +12,18 @@ function setup(): {
   execution: import("./workflow-executions").WorkflowExecution;
 } {
   const database = new DatabaseSync(":memory:");
-  migrateDatabase(
-    database,
-    VERBO_MIGRATIONS.filter((step) => step.version <= 21),
-  );
+  migrateDatabase(database, VERBO_MIGRATIONS);
   database
     .prepare(
       "INSERT INTO threads(id,title,created_at,updated_at) VALUES('thread','old history',1,1)",
     )
     .run();
-  database
-    .prepare(
-      "INSERT INTO memory_entries(id,scope,text,inclusion,source,created_at,updated_at) VALUES('legacy','global','Keep me','always','user',1,1)",
-    )
-    .run();
+  createMemoryStore(database).add({
+    text: "Keep me",
+    scope: "global",
+    inclusion: "always",
+    actor: "ui",
+  });
   migrateDatabase(database, VERBO_MIGRATIONS);
   const store = createWorkflowExecutionStore(database);
   const execution = store.create({
@@ -87,13 +86,11 @@ describe("durable execution and action claims", () => {
       store.attempts(execution.id).map((attempt) => attempt.state),
     ).toEqual(["uncertain", "uncertain", "completed"]);
   });
-  it("upgrades schema 21 without changing legacy data and rejects stale state writers", () => {
+  it("keeps command Memory in Alo and rejects stale app state writers", () => {
     const { database, store, execution } = setup();
-    expect(
-      database
-        .prepare("SELECT text FROM memory_entries WHERE id='legacy'")
-        .get()?.text,
-    ).toBe("Keep me");
+    expect(createMemoryStore(database).list({}).entries[0]?.text).toBe(
+      "Keep me",
+    );
     const active = store.beginStep(
       execution,
       "operate",

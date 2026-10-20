@@ -15,7 +15,7 @@ import { chatSettingsSchema } from "../../shared/storage-ipc";
 import { invokeAgent, createTurnBudget } from "../agents/invoke";
 import { resolveCTS } from "../agents/cts";
 import { resolveModelProfile } from "../agents/profiles";
-import { createRegistry } from "../capabilities/registry";
+import { createRegistry } from "../test-support/registry";
 import { migrateDatabase, VERBO_MIGRATIONS } from "../db/migrate";
 import { loadThreadHistory } from "../db/history";
 import { createAssetStore } from "../files/asset-store";

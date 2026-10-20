@@ -1,21 +1,26 @@
 appId: com.alotropico.verbo
 productName: verbo
+beforePack: ./scripts/verify-alo.mjs
 directories:
   buildResources: build
 files:
-  - '!dist/**'
-  - '!.tmp/**'
-  - '!**/.vscode/*'
-  - '!src/*'
-  - '!electron.vite.config.{js,ts,mjs,cjs}'
-  - '!{.eslintcache,eslint.config.mjs,.prettierignore,.prettierrc.yaml,dev-app-update.yml,CHANGELOG.md,README.md}'
-  - '!{.env,.env.*,.npmrc,pnpm-lock.yaml}'
-  - '!{tsconfig.json,tsconfig.node.json,tsconfig.web.json}'
-  - '!voice-service/**'
-  - '!scripts/voice-*.mjs'
+  - "!dist/**"
+  - "!.tmp/**"
+  - "!**/.vscode/*"
+  - "!src/**"
+  - "!resources/alo/**"
+  - "!electron.vite.config.{js,ts,mjs,cjs}"
+  - "!{.eslintcache,eslint.config.mjs,.prettierignore,.prettierrc.yaml,dev-app-update.yml,CHANGELOG.md,README.md}"
+  - "!{.env,.env.*,.npmrc,pnpm-lock.yaml}"
+  - "!{tsconfig.json,tsconfig.node.json,tsconfig.web.json}"
+  - "!voice-service/**"
+  - "!scripts/voice-*.mjs"
+  - "!scripts/prepare-alo.mjs"
 asarUnpack:
-  - 'resources/**'
+  - "resources/**"
 extraResources:
+  - from: resources/alo
+    to: alo
   - from: build/icon.ico
     to: icons/icon.ico
   - from: build/icon.png

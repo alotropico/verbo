@@ -1,25 +1,25 @@
-import { DatabaseSync } from "node:sqlite";
 import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
+import { DatabaseSync } from "node:sqlite";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
-import { DEFAULT_CHAT_SETTINGS } from "../../shared/config";
 import type { ChatEvent } from "../../shared/chat-ipc";
-import { createRegistry, type Capability } from "../capabilities/registry";
-import { withInvocation } from "../agents/policy";
+import { DEFAULT_CHAT_SETTINGS } from "../../shared/config";
+import type { GuidanceAssignment } from "../agents/guidance";
 import { invokeAgent } from "../agents/invoke";
+import { withInvocation } from "../agents/policy";
 import { routeGlobalRequest } from "../agents/routing";
-import { persistCommandReceipt } from "../db/command-receipts";
+import { persistCommandReceipt } from "../test-support/receipts";
+import { loadThreadHistory } from "../db/history";
 import { VERBO_MIGRATIONS, migrateDatabase } from "../db/migrate";
+import { createScopeStore } from "../db/scopes";
 import { createWorkflowExecutionStore } from "../db/workflow-executions";
 import { createAssetStore } from "../files/asset-store";
+import { createRegistry, type Capability } from "../test-support/registry";
 import { createTurnController } from "./controller";
-import { runWorkflowTurn } from "./workflow-runner";
-import { createTurnDispatcher } from "./turn-dispatcher";
 import { createRequestGate } from "./request-gate";
-import { loadThreadHistory } from "../db/history";
-import type { GuidanceAssignment } from "../agents/guidance";
-import { createScopeStore } from "../db/scopes";
+import { createTurnDispatcher } from "./turn-dispatcher";
+import { runWorkflowTurn } from "./workflow-runner";
 
 const directories: string[] = [];
 const databases: DatabaseSync[] = [];
@@ -52,6 +52,7 @@ function setup(
   assets: ReturnType<typeof createAssetStore>;
   directory: string;
 } {
+  mkdirSync(join(process.cwd(), ".tmp", "scratch"), { recursive: true });
   const directory = mkdtempSync(
     join(process.cwd(), ".tmp", "scratch", "2026-10-15-workflow-test-"),
   );
@@ -125,7 +126,60 @@ function setup(
   return { database, effects, controller, events, envelope, assets, directory };
 }
 
-describe("Controller workflow integration", () => {
+describe("Controller workflow integration", { timeout: 20_000 }, () => {
+  it("gives Commander a usable folder root while retaining the selected registration ID", async () => {
+    const requests: Parameters<typeof invokeAgent>[0][] = [];
+    const invoke: typeof invokeAgent = async (input) => {
+      if (input.modelProfileId === "responder")
+        throw new Error("Use deterministic presentation");
+      requests.push(input);
+      return {
+        output: { findings: ["Listed the folder"], receiptIds: [] },
+        outcome: { stop: "completed", content: "", results: [] },
+      } as never;
+    };
+    const fixture = setup(
+      async () => ({
+        value: { kind: "new", workflowId: "commander", targetHint: "garden" },
+        corrections: 0,
+      }),
+      invoke,
+    );
+    const saved = createScopeStore(fixture.database).apply({
+      removeIds: [],
+      updates: [],
+      additions: [
+        {
+          alias: "garden",
+          path: fixture.directory,
+          read: true,
+          write: true,
+          defaultSave: false,
+          kind: "obsidian",
+        },
+      ],
+    });
+    expect(saved.ok).toBe(true);
+    if (!saved.ok) return;
+    await fixture.controller.admitTurn(
+      { ...fixture.envelope, text: "List folders in garden" },
+      () => undefined,
+    ).completion;
+    expect(requests[0]?.value).toMatchObject({ target: "garden:/" });
+    expect(requests[0]?.cts.instructions).toContain(
+      "Selected folder root: garden:/",
+    );
+    expect(requests[0]?.cts.instructions).toContain("files.next");
+    expect(requests[0]?.cts.instructions).toContain(
+      "never ask whether to continue",
+    );
+    const execution = fixture.database
+      .prepare("SELECT parameters_json FROM workflow_executions LIMIT 1")
+      .get();
+    expect(JSON.parse(String(execution?.parameters_json)).target).toBe(
+      saved.scopes[0].id,
+    );
+  });
   it("passes one selected branch history without redundant conversational excerpts", async () => {
     const requests: Parameters<typeof invokeAgent>[0][] = [];
     const invoke: typeof invokeAgent = (input) => {

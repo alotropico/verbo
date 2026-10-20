@@ -12,10 +12,12 @@ import { it } from "vitest";
 import { z } from "zod";
 import { DEFAULT_CHAT_SETTINGS } from "../../shared/config";
 import { chatSettingsSchema } from "../../shared/storage-ipc";
-import { createRegistry } from "../capabilities/registry";
-import { persistCommandReceipt } from "../db/command-receipts";
-import { VERBO_MIGRATIONS, migrateDatabase } from "../db/migrate";
+import {
+  persistCommandReceipt,
+  fixtureReceiptIds,
+} from "../test-support/receipts";
 import { loadThreadHistory } from "../db/history";
+import { VERBO_MIGRATIONS, migrateDatabase } from "../db/migrate";
 import { createScopeStore } from "../db/scopes";
 import { createWorkflowExecutionStore } from "../db/workflow-executions";
 import { createAssetStore } from "../files/asset-store";
@@ -24,10 +26,11 @@ import { createTurnController } from "../runtime/controller";
 import { createRequestGate } from "../runtime/request-gate";
 import { createTurnDispatcher } from "../runtime/turn-dispatcher";
 import { runWorkflowTurn } from "../runtime/workflow-runner";
+import { createRegistry } from "../test-support/registry";
+import { OBSIDIAN_OPERATION_INSTRUCTIONS } from "../workflows/definitions/obsidian";
 import { resolveCTS } from "./cts";
 import { constrainedDecision, localDecisionSchema } from "./decision";
 import { createTurnBudget, invokeAgent } from "./invoke";
-import { OBSIDIAN_OPERATION_INSTRUCTIONS } from "../workflows/definitions/obsidian";
 
 it.skipIf(process.env.VERBO_QWEN_WORKFLOW_BENCHMARK !== "1")(
   "evaluates real local decisions and composed workflows with isolated fixture effects",
@@ -280,10 +283,7 @@ it.skipIf(process.env.VERBO_QWEN_WORKFLOW_BENCHMARK !== "1")(
         ).completion;
         const store = createWorkflowExecutionStore(database);
         const execution = store.list("fixture-thread")[0];
-        const receiptsBefore = database
-          .prepare("SELECT id FROM command_receipts ORDER BY id")
-          .all()
-          .map((row) => row.id);
+        const receiptsBefore = fixtureReceiptIds().map((row) => row.id);
         let continuation: unknown;
         if (execution?.status === "awaiting_input") {
           await controller.admitTurn(
@@ -302,10 +302,7 @@ it.skipIf(process.env.VERBO_QWEN_WORKFLOW_BENCHMARK !== "1")(
           continuation = {
             execution: store.read(execution.id)?.status,
             effectsAfterResume: effects,
-            receiptsAfter: database
-              .prepare("SELECT id FROM command_receipts ORDER BY id")
-              .all()
-              .map((row) => row.id),
+            receiptsAfter: fixtureReceiptIds().map((row) => row.id),
           };
         }
         record.workflows.push({

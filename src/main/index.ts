@@ -1,30 +1,26 @@
+import { electronApp, is, optimizer } from "@electron-toolkit/utils";
 import {
   app,
+  BrowserWindow,
   dialog,
   nativeTheme,
-  shell,
-  BrowserWindow,
   session,
+  shell,
 } from "electron";
 import { join } from "path";
-import { electronApp, optimizer, is } from "@electron-toolkit/utils";
+import { resolvePublicUrl } from "../shared/public-network";
+import { closeDatabase, getDatabase } from "./db/database";
+import { createAssetStore } from "./files/asset-store";
 import { registerIpc } from "./ipc/register-ipc";
+import { registerReplyNotifications } from "./reply-notifications";
+import { turnDispatcher } from "./runtime/queue-service";
+import { serviceManager } from "./services/service-host";
+import { voiceBridge } from "./voice/client";
 import {
   allowsMicrophoneCheck,
   allowsMicrophoneRequest,
 } from "./voice/microphone";
-import { closeDatabase, getDatabase } from "./db/database";
-import { turnDispatcher } from "./runtime/queue-service";
-import { voiceBridge } from "./voice/client";
-import { serviceManager } from "./services/service-host";
-import { createScopeStore } from "./db/scopes";
-import { createAssetStore } from "./files/asset-store";
-import { ensureInstalledFileScopes } from "./files/installed-scopes";
-import { reconcileOperations } from "./files/mutation-plan";
-import { closeWebBrowser } from "./web/browser-client";
-import { resolvePublicUrl } from "../shared/public-network";
 import { loadWindowState, rememberWindowState } from "./window-state";
-import { registerReplyNotifications } from "./reply-notifications";
 
 nativeTheme.themeSource = "dark";
 
@@ -126,19 +122,17 @@ app.whenReady().then(async () => {
 
   try {
     const database = getDatabase();
-    reconcileOperations(database);
+
     createAssetStore(
       database,
       join(app.getPath("userData"), "attachments"),
     ).sweep(Date.now());
     turnDispatcher();
-    const scopeRoot = app.isPackaged
-      ? app.getPath("userData")
-      : app.getAppPath();
-    ensureInstalledFileScopes(createScopeStore(database), scopeRoot);
   } catch (error) {
     const message = error instanceof Error ? error.message : "Startup failed.";
     dialog.showErrorBox("Verbo failed to start", message);
+    app.quit();
+    return;
   }
   const services = await serviceManager(app.getAppPath());
   shutdownServices = () => services.shutdown();
@@ -170,15 +164,6 @@ app.on("window-all-closed", () => {
   }
 });
 
-let webShutdownComplete = false;
-app.on("before-quit", (event) => {
-  if (webShutdownComplete) {
-    closeDatabase();
-    return;
-  }
-  event.preventDefault();
-  void closeWebBrowser().finally(() => {
-    webShutdownComplete = true;
-    app.quit();
-  });
+app.on("before-quit", () => {
+  closeDatabase();
 });

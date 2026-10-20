@@ -5,9 +5,10 @@ import {
   executionStatusSchema,
   verifiedOutcomeSchema,
   type ExecutionSummary,
-  type VerifiedOutcome,
   type StepResult,
+  type VerifiedOutcome,
 } from "../../shared/workflows";
+import { reconcileAloAttempts } from "../alo/data-client";
 import type { WorkflowCheckpoint } from "../workflows/interpreter";
 
 const checkpointSchema = z
@@ -450,24 +451,7 @@ export function createWorkflowExecutionStore(database: DatabaseSync): {
         .run(executionId, attachmentId);
     },
     reconcileInterrupted(): void {
-      transaction(() => {
-        database
-          .prepare(
-            `UPDATE workflow_action_attempts SET state=CASE
-              WHEN NOT EXISTS(SELECT 1 FROM command_receipts WHERE id=workflow_action_attempts.receipt_id) THEN 'uncertain'
-              WHEN (SELECT json_extract(result_json,'$.code') FROM command_receipts WHERE id=workflow_action_attempts.receipt_id) IN ('effect_uncertain','receipt_failed') THEN 'uncertain'
-              WHEN (SELECT json_extract(result_json,'$.status') FROM command_receipts WHERE id=workflow_action_attempts.receipt_id)='requires_confirmation' THEN
-                CASE WHEN EXISTS(SELECT 1 FROM operation_plans WHERE id=workflow_action_attempts.operation_id AND status='pending') THEN 'blocked' ELSE 'uncertain' END
-              WHEN (SELECT json_extract(result_json,'$.status') FROM command_receipts WHERE id=workflow_action_attempts.receipt_id) IN ('success','partial') THEN 'completed'
-              ELSE 'blocked' END,updated_at=? WHERE state='dispatched'`,
-          )
-          .run(Date.now());
-        database
-          .prepare(
-            "UPDATE workflow_executions SET status='suspended',reason='restart_requires_review',revision=revision+1,updated_at=? WHERE status='running'",
-          )
-          .run(Date.now());
-      });
+      reconcileAloAttempts(database);
     },
     result(stepRunId: string): StepResult | undefined {
       const row = database

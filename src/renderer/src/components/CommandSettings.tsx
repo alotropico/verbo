@@ -1,15 +1,17 @@
-import { type CommandSettings as CommandSettingsData } from "@shared/commands";
+import { useSettingsSession } from "@/hooks/settings-session-context";
+import { useSettingsDraft } from "@/hooks/use-settings-draft";
 import { Group, NavLink, Stack, Text } from "@mantine/core";
 import { useLocalStorage } from "@mantine/hooks";
+import { type CommandSettings as CommandSettingsData } from "@shared/commands";
 import {
-  GlobeIcon,
+  AppWindowIcon,
   BookmarkIcon,
   FolderIcon,
-  AppWindowIcon,
   FolderOpenIcon,
+  GlobeIcon,
+  ListTreeIcon,
   Settings2Icon,
   TerminalIcon,
-  ListTreeIcon,
   type LucideIcon,
 } from "lucide-react";
 import {
@@ -21,15 +23,12 @@ import {
   type ReactNode,
 } from "react";
 import styles from "./ActionsSettings.module.css";
+import { CommandTable } from "./CommandTable";
 import { EntityCommandSettings } from "./EntityCommandSettings";
 import { MemorySettings } from "./MemorySettings";
-import { StatusMessage } from "./StatusMessage";
-import { WebCommandSettings } from "./WebCommandSettings";
-import { CommandTable } from "./CommandTable";
 import { useSettingsNavigation } from "./settings-navigation-context";
 import { SettingsDisclosure } from "./SettingsDisclosure";
-import { useSettingsDraft } from "@/hooks/use-settings-draft";
-import { useSettingsSession } from "@/hooks/settings-session-context";
+import { StatusMessage } from "./StatusMessage";
 
 const MODULES: Record<string, { title: string; icon: LucideIcon }> = {
   general: { title: "All commands", icon: ListTreeIcon },
@@ -58,7 +57,6 @@ export function CommandSettings({
     "commands/epochs",
     {},
   );
-  const [webEpoch, setWebEpoch] = useSettingsDraft("commands/web-epoch", 0);
   const resetAliases = async (ids: string[]): Promise<void> => {
     for (const id of ids) await session.resetAutosaves(`command-alias/${id}/`);
   };
@@ -103,10 +101,6 @@ export function CommandSettings({
   ).length;
 
   const restored = (id: string): void => {
-    if (id === "web") {
-      session.clear("web/");
-      setWebEpoch((value) => value + 1);
-    }
     for (const node of data?.nodes ?? [])
       if (node.id === id || node.id.startsWith(`${id}.`))
         session.clear(`command-alias/${node.id}/`);
@@ -194,7 +188,6 @@ export function CommandSettings({
                 <CommandTable
                   data={data}
                   reload={load}
-                  resetWeb={() => session.resetAutosaves("web/")}
                   resetAliases={resetAliases}
                   epochs={epochs}
                   onRestored={restored}
@@ -218,14 +211,9 @@ export function CommandSettings({
                 open={settingsOpen}
                 onOpenChange={setSettingsOpen}
               >
-                {![
-                  "memory",
-                  "files",
-                  "software",
-                  "projects",
-                  "web",
-                  "ags",
-                ].includes(moduleId) ? (
+                {!["memory", "files", "software", "projects", "ags"].includes(
+                  moduleId,
+                ) ? (
                   <Text size="sm" c="dimmed">
                     No additional settings for this module. Open Commands to
                     manage its aliases and view usage details.
@@ -236,13 +224,6 @@ export function CommandSettings({
                 {moduleId === "ags" ? ags : null}
                 {moduleId === "projects" || moduleId === "software" ? (
                   <EntityCommandSettings module={moduleId} />
-                ) : null}
-                {moduleId === "web" && data ? (
-                  <WebCommandSettings
-                    key={webEpoch}
-                    settings={data.web}
-                    reload={load}
-                  />
                 ) : null}
               </SettingsDisclosure>
               <SettingsDisclosure
@@ -260,7 +241,6 @@ export function CommandSettings({
                     moduleId={moduleId}
                     data={data}
                     reload={load}
-                    resetWeb={() => session.resetAutosaves("web/")}
                     resetAliases={resetAliases}
                     epochs={epochs}
                     onRestored={restored}

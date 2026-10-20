@@ -49,7 +49,6 @@ export const AGENT_PROFILES: Record<AgentId, AgentProfile> = {
         "projects",
         "software",
         "ags",
-        "web",
         "memory",
       ],
       actions: [],

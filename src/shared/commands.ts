@@ -1,5 +1,4 @@
 import { z } from "zod";
-import type { WebSettings } from "./web-contracts";
 import type { CommandMetadata } from "./command-metadata";
 
 export const commandSegmentSchema = z.string().regex(/^[a-z][a-z0-9_-]{0,47}$/);
@@ -80,7 +79,7 @@ export const commandOverrideSchema = z
 export type CommandOverride = z.infer<typeof commandOverrideSchema>;
 export type CommandSettings = {
   metadata: CommandMetadata[];
-  web: WebSettings;
+
   nodes: CommandNode[];
   defaults: CommandNode[];
   entries: Array<{

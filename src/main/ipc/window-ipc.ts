@@ -38,12 +38,14 @@ export function registerWindowIpc(mainWindow: BrowserWindow): void {
     mainWindow.webContents.send(IPC_CHANNELS.windowStateChanged, getState());
   };
 
-  const writeClipboard = (event: IpcMainEvent, text: unknown): void => {
-    if (!isTrusted(event) || typeof text !== "string") return;
+  const writeClipboard = (event: IpcMainInvokeEvent, text: unknown): void => {
+    if (!isTrusted(event)) throw new Error("Untrusted clipboard IPC sender");
+    if (typeof text !== "string")
+      throw new Error("Clipboard text must be a string");
     clipboard.writeText(text);
   };
 
-  ipcMain.on(IPC_CHANNELS.clipboardWrite, writeClipboard);
+  ipcMain.handle(IPC_CHANNELS.clipboardWrite, writeClipboard);
   ipcMain.handle(IPC_CHANNELS.windowState, readState);
   ipcMain.on(IPC_CHANNELS.windowMinimize, minimize);
   ipcMain.on(IPC_CHANNELS.windowToggleMaximize, toggleMaximize);
@@ -53,7 +55,7 @@ export function registerWindowIpc(mainWindow: BrowserWindow): void {
 
   mainWindow.once("closed", () => {
     ipcMain.removeHandler(IPC_CHANNELS.windowState);
-    ipcMain.removeListener(IPC_CHANNELS.clipboardWrite, writeClipboard);
+    ipcMain.removeHandler(IPC_CHANNELS.clipboardWrite);
     ipcMain.removeListener(IPC_CHANNELS.windowMinimize, minimize);
     ipcMain.removeListener(IPC_CHANNELS.windowToggleMaximize, toggleMaximize);
     ipcMain.removeListener(IPC_CHANNELS.windowClose, close);

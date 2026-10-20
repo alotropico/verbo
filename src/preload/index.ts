@@ -1,24 +1,34 @@
 import { contextBridge, ipcRenderer } from "electron";
+import type { ActionResult } from "../shared/action-contract";
+import type { ActionsOverview } from "../shared/actions-overview";
+import type {
+  AttachmentAddResult,
+  AttachmentPreview,
+  AttachmentRef,
+} from "../shared/attachments";
 import {
   ASSISTANT_STREAM_CHANNEL,
   type AssistantAI,
   type ChatEvent,
   type ChatRequest,
 } from "../shared/chat-ipc";
-import { IPC_CHANNELS } from "../shared/ipc-channels";
-import type { WindowControlsApi, WindowState } from "../shared/window-controls";
 import type { ChatSettings } from "../shared/config";
+import type {
+  OperationReview,
+  OperationReviewFailure,
+} from "../shared/file-mutation";
+import type { FileUiAction } from "../shared/file-query";
 import type {
   FileSurfaceIntent,
   FileSurfaceResult,
 } from "../shared/file-surface";
-import type { FileUiAction } from "../shared/file-query";
-import type { LocalCommandResult } from "../shared/local-commands";
 import type {
   FileScopeProposal,
   FileScopeRecord,
   ScopeCommit,
 } from "../shared/files";
+import { IPC_CHANNELS } from "../shared/ipc-channels";
+import type { LocalCommandResult } from "../shared/local-commands";
 import type {
   ContextMeters,
   MemoryChange,
@@ -27,17 +37,6 @@ import type {
   MemoryScope,
   MemoryUsage,
 } from "../shared/memory";
-import type {
-  AttachmentAddResult,
-  AttachmentPreview,
-  AttachmentRef,
-} from "../shared/attachments";
-import type { ActionsOverview } from "../shared/actions-overview";
-import type { ActionResult } from "../shared/action-contract";
-import type {
-  OperationReview,
-  OperationReviewFailure,
-} from "../shared/file-mutation";
 import type { RegisteredRoot } from "../shared/projects";
 import type { SettingsRecovery } from "../shared/settings-recovery";
 import type {
@@ -47,14 +46,15 @@ import type {
   QueueSnapshot,
   QueueSource,
 } from "../shared/turn-queue";
-import type { VoiceDraftResult } from "../shared/voice-draft";
-import type { VoiceSettings } from "../shared/voice-settings";
 import type {
   VoiceAudioResult,
   VoiceStatus,
   VoiceSynthInput,
   VoiceTextResult,
 } from "../shared/voice";
+import type { VoiceDraftResult } from "../shared/voice-draft";
+import type { VoiceSettings } from "../shared/voice-settings";
+import type { WindowControlsApi, WindowState } from "../shared/window-controls";
 
 const assistantAI: AssistantAI = {
   streamChat(request: ChatRequest, onEvent: (event: ChatEvent) => void) {
@@ -87,9 +87,8 @@ const verbo = {
     },
   },
   clipboard: {
-    writeText: (text: string): void => {
-      ipcRenderer.send(IPC_CHANNELS.clipboardWrite, text);
-    },
+    writeText: (text: string): Promise<void> =>
+      ipcRenderer.invoke(IPC_CHANNELS.clipboardWrite, text),
   },
   window: {
     getState: () => ipcRenderer.invoke(IPC_CHANNELS.windowState),
@@ -215,10 +214,6 @@ const verbo = {
     discoverApplications: (): Promise<
       Array<{ name: string; aliases: string[]; executable: string }>
     > => ipcRenderer.invoke(IPC_CHANNELS.applicationsDiscover),
-    saveWeb: (
-      input: import("../shared/web-contracts").WebSettings,
-    ): Promise<{ ok: true } | { ok: false; summary: string }> =>
-      ipcRenderer.invoke(IPC_CHANNELS.commandsWebSave, input),
     settings: (): Promise<import("../shared/commands").CommandSettings> =>
       ipcRenderer.invoke(IPC_CHANNELS.commandsSettings),
     save: (

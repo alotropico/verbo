@@ -1,28 +1,104 @@
 import type { DatabaseSync } from "node:sqlite";
 import { z } from "zod";
-import { actionResultSchema } from "../../shared/action-contract";
+import {
+  actionResultSchema,
+  type ActionResult,
+} from "../../shared/action-contract";
 import { evaluateTrace } from "../../shared/execution-trace";
 import {
   verifiedOutcomeSchema,
   type VerifiedOutcome,
 } from "../../shared/workflows";
+import { aloExecutionReceipts } from "../alo/data-client";
 import type { WorkflowExecution } from "../db/workflow-executions";
+
+const LISTED_PATHS = "Listed paths:\n";
+
+/** Preserve query facts from verified receipts instead of trusting model prose. */
+export function commandResultFindings(result: ActionResult): string[] {
+  const findings = [result.summary.slice(0, 2000)];
+  if (
+    !["files.list", "files.search", "files.next"].includes(result.action) ||
+    !["success", "partial"].includes(result.status)
+  )
+    return findings;
+  try {
+    const detail = JSON.parse(result.detail ?? "{}");
+    const paths: unknown[] = Array.isArray(detail.paths)
+      ? detail.paths
+      : Array.isArray(detail.items)
+        ? detail.items
+            .filter(
+              (item: { type?: string }) =>
+                item && ["directory", "file"].includes(item.type ?? ""),
+            )
+            .map((item: { path?: unknown }) => item.path)
+        : [];
+    let group = LISTED_PATHS;
+    for (const path of paths) {
+      if (typeof path !== "string" || path.length > 1024) continue;
+      const line = path + "\n";
+      if (group.length + line.length > 1900) {
+        findings.push(group.trimEnd());
+        group = LISTED_PATHS;
+      }
+      group += line;
+    }
+    if (group !== LISTED_PATHS) findings.push(group.trimEnd());
+  } catch {
+    /* A malformed detail never supplies facts. */
+  }
+  return findings;
+}
+
+/** Finished reads need no input for a completion statement or an extra summary. */
+export function isListingCompletionStatement(
+  result: ActionResult | undefined,
+  text: string,
+  request = "",
+): boolean {
+  if (
+    !result ||
+    result.status !== "success" ||
+    !["files.list", "files.search", "files.next"].includes(result.action)
+  )
+    return false;
+  const trimmed = text.trim();
+  const completion =
+    /^(?:(?:the|all|your)\s+)?(?:(?:directory|directories|folder|folders|file|files|list|listing|query|search|task|work|request)\s+){0,3}(?:(?:is|are|has been|have been)\s+)?(?:complete|completed|done|finished|listed)\b/iu.exec(
+      trimmed,
+    );
+  const completionStatement =
+    completion &&
+    !trimmed.slice(completion[0].length).trimStart().startsWith("?");
+  // A summary offer is additional work, not a parameter needed by the completed query.
+  // Keep it when the user explicitly requested a question or confirmation.
+  const summaryOffer =
+    !/\b(?:ask|question|confirm)\b/iu.test(request) &&
+    /^(?:would you like|do you (?:want|need))\s+(?:me to (?:provide|give|show|write)\s+)?(?:a|an|the)\s+(?:summary|overview|breakdown|explanation)\s+(?:of|for|about)\s+(?:(?:the|this|your)\s+)?(?:directory|folder|file|listing|results|structure)\b/iu.test(
+      trimmed,
+    );
+  if (!completionStatement && !summaryOffer) return false;
+  try {
+    const detail = JSON.parse(result.detail ?? "{}");
+    return detail.page?.hasMore === false && detail.scan?.complete === true;
+  } catch {
+    return false;
+  }
+}
 
 export function freezeWorkflowOutcome(
   database: DatabaseSync,
   execution: WorkflowExecution,
 ): VerifiedOutcome {
-  const receipts = database
-    .prepare(
-      `SELECT DISTINCT receipt.id,receipt.result_json FROM command_receipts AS receipt
-    LEFT JOIN workflow_action_attempts AS attempt ON attempt.receipt_id=receipt.id
-    WHERE attempt.execution_id=? OR json_extract(receipt.attribution_json,'$.executionId')=? ORDER BY receipt.started_at LIMIT 100`,
-    )
-    .all(execution.id, execution.id)
-    .map((row) => ({
-      id: String(row.id),
-      result: actionResultSchema.parse(JSON.parse(String(row.result_json))),
-    }));
+  const receipts = aloExecutionReceipts(
+    database,
+    execution.id,
+    execution.threadId,
+  ).map((receipt) => ({
+    id: receipt.id,
+    result: actionResultSchema.parse(receipt.result),
+  }));
   const attempts = database
     .prepare(
       "SELECT state,receipt_id FROM workflow_action_attempts WHERE execution_id=?",
@@ -106,7 +182,7 @@ export function freezeWorkflowOutcome(
       status,
       requestMessageId: execution.requestMessageId,
       findings: receipts
-        .map(({ result }) => result.summary.slice(0, 2000))
+        .flatMap(({ result }) => commandResultFindings(result))
         .slice(0, 30),
       ...(result?.status === "awaiting_input"
         ? { question: result.question }
@@ -150,6 +226,16 @@ export function validatePresentation(
   if (identifiers.some((id) => text.toLowerCase().includes(id.toLowerCase())))
     return;
   if (outcome.question && !text.includes(outcome.question.text)) return;
+  for (const finding of outcome.findings) {
+    if (!finding.startsWith(LISTED_PATHS)) continue;
+    if (
+      finding
+        .slice(LISTED_PATHS.length)
+        .split("\n")
+        .some((path) => !text.includes(path))
+    )
+      return;
+  }
   return text;
 }
 

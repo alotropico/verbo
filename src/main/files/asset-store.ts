@@ -1,11 +1,11 @@
 import { createHash, randomUUID } from "node:crypto";
 import {
+  lstatSync,
   mkdirSync,
   readdirSync,
   readFileSync,
   realpathSync,
   rmSync,
-  lstatSync,
   writeFileSync,
 } from "node:fs";
 import { join, relative, win32 } from "node:path";
@@ -17,14 +17,12 @@ import {
   safeMediaType,
   type AttachmentRef,
 } from "../../shared/attachments";
+import { type CommandResource } from "../../shared/command-receipts";
 import { TEXT_EXTENSIONS } from "../../shared/file-query";
 import { FILE_READER_LIMITS } from "../../shared/file-readers";
+import { aloData } from "../alo/data-client";
 import { readImageMeta } from "./image-meta";
 import { extractPdfText } from "./pdf-text";
-import {
-  commandResourceSchema,
-  type CommandResource,
-} from "../../shared/command-receipts";
 
 const TEXT = new Set<string>(TEXT_EXTENSIONS);
 
@@ -63,41 +61,13 @@ function digest(bytes: Buffer): string {
 }
 
 /** Owned by the attachment subsystem; no copied bytes or upload quota consumption. */
-export function saveLiveReferences(
-  database: DatabaseSync,
-  receiptId: string,
-  threadId: string,
-  resources: readonly CommandResource[],
-): void {
-  const validated = resources.map((resource) =>
-    commandResourceSchema.parse(resource),
-  );
-  database
-    .prepare(
-      "DELETE FROM attachment_live_references WHERE receipt_id = ? AND thread_id = ?",
-    )
-    .run(receiptId, threadId);
-  const insert = database.prepare(
-    "INSERT INTO attachment_live_references(receipt_id, thread_id, ordinal, resource_json) VALUES (?, ?, ?, ?)",
-  );
-  validated.forEach((resource, ordinal) =>
-    insert.run(receiptId, threadId, ordinal, JSON.stringify(resource)),
-  );
-}
 
 export function readLiveReferences(
-  database: DatabaseSync,
+  _database: DatabaseSync,
   receiptId: string,
   threadId: string,
 ): CommandResource[] {
-  return database
-    .prepare(
-      "SELECT resource_json FROM attachment_live_references WHERE receipt_id = ? AND thread_id = ? ORDER BY ordinal",
-    )
-    .all(receiptId, threadId)
-    .map((row) =>
-      commandResourceSchema.parse(JSON.parse(String(row.resource_json))),
-    );
+  return aloData("resources.list", { receiptId }, threadId);
 }
 
 function intact(stored: AttachmentRow, bytes: Buffer): boolean {
@@ -314,6 +284,7 @@ export function createAssetStore(
     },
     text(threadId, id) {
       const stored = row(id);
+      if (!stored) return aloData("assets.text", { id }, threadId);
       if (
         !stored ||
         stored.thread_id !== threadId ||

@@ -1,8 +1,9 @@
 import type { DatabaseSync } from "node:sqlite";
 import { actionResultSchema } from "../../shared/action-contract";
-import { createWorkflowExecutionStore } from "../db/workflow-executions";
+import { aloData } from "../alo/data-client";
 import { CommandFailure } from "../capabilities/command-failure";
 import { commandFingerprint } from "../capabilities/preparation";
+import { createWorkflowExecutionStore } from "../db/workflow-executions";
 import type { InvocationPolicy } from "./policy";
 
 export function createActionLedger(input: {
@@ -41,9 +42,19 @@ export function createActionLedger(input: {
             attempt.state === "completed",
         );
         if (completed) {
-          const row = input.database
-            .prepare("SELECT result_json FROM command_receipts WHERE id=?")
-            .get(String(completed.receipt_id));
+          const thread = input.database
+            .prepare("SELECT thread_id FROM workflow_executions WHERE id=?")
+            .get(input.executionId);
+          const remote = thread
+            ? aloData<{ result: unknown } | null>(
+                "receipts.read",
+                { receiptId: String(completed.receipt_id) },
+                String(thread.thread_id),
+              )
+            : undefined;
+          const row = remote
+            ? { result_json: JSON.stringify(remote.result) }
+            : undefined;
           if (!row)
             throw new CommandFailure(
               "receipt_missing",
@@ -77,14 +88,18 @@ export function createActionLedger(input: {
     after(claim, result) {
       // Receipt persistence is authoritative and normally settles this in its transaction.
       // A missing receipt after dispatch remains uncertain rather than permitting replay.
-      const state =
-        result.code === "receipt_failed" || result.code === "effect_uncertain"
-          ? "uncertain"
-          : result.status === "requires_confirmation"
-            ? "dispatched"
-            : result.status === "success" || result.status === "partial"
-              ? "completed"
-              : "blocked";
+      const state = [
+        "receipt_failed",
+        "effect_uncertain",
+        "needs_review",
+        "needs_reconciliation",
+      ].includes(result.code ?? "")
+        ? "uncertain"
+        : result.status === "requires_confirmation"
+          ? "dispatched"
+          : result.status === "success" || result.status === "partial"
+            ? "completed"
+            : "blocked";
       input.database
         .prepare(
           "UPDATE workflow_action_attempts SET state=?,operation_id=coalesce(?,operation_id),updated_at=? WHERE id=? AND state='dispatched'",

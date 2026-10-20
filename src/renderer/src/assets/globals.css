@@ -2,6 +2,7 @@
 @import "@mantine/notifications/styles.layer.css";
 
 :root {
+  --brand: #e6944d;
   --radius: rem(10px);
   --radius-sm: calc(var(--radius) - rem(4px));
   --radius-md: calc(var(--radius) - rem(2px));

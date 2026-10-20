@@ -13,13 +13,14 @@ import {
 import { createActionLedger } from "../agents/action-ledger";
 import { resolveCTS, type ContextSource } from "../agents/cts";
 import { constrainedDecision, localDecisionSchema } from "../agents/decision";
-import { createTurnBudget, invokeAgent } from "../agents/invoke";
-import { routeGlobalRequest } from "../agents/routing";
 import {
-  resolveAssignedGuidance,
   guidanceConfigurationVersion,
+  resolveAssignedGuidance,
   type GuidanceAssignment,
 } from "../agents/guidance";
+import { createTurnBudget, invokeAgent } from "../agents/invoke";
+import { routeGlobalRequest } from "../agents/routing";
+import { aloExecutionReceipts } from "../alo/data-client";
 import type { CapabilityRegistry } from "../capabilities/registry";
 import { loadThreadHistory } from "../db/history";
 import { createMemoryStore } from "../db/memory";
@@ -38,22 +39,24 @@ import {
 import { createWorkflowRegistry } from "../workflows/registry";
 import { commanderOutputSchema, writerBodySchema } from "../workflows/schemas";
 import type { TurnWork } from "./controller";
+import { refreshModelVision } from "./model-vision";
+import type { RequestGate } from "./request-gate";
+import type { TurnUpdate } from "./turn";
 import {
   applyExecutionDisposition,
   executionOnBranch,
 } from "./workflow-continuation";
 import {
+  commandResultFindings,
+  isListingCompletionStatement,
   deterministicPresentation,
   freezeWorkflowOutcome,
   PRESENTATION_INSTRUCTION,
-  readableReportInput,
   presentationSchema,
+  readableReportInput,
   validatePresentation,
 } from "./workflow-outcome";
-import type { RequestGate } from "./request-gate";
-import type { TurnUpdate } from "./turn";
 import { resolveWorkflowTarget } from "./workflow-target";
-import { refreshModelVision } from "./model-vision";
 
 function plainText(content: unknown): string {
   if (typeof content === "string") return content;
@@ -466,15 +469,7 @@ export async function runWorkflowTurn(
   let activeStepRunId: string | undefined;
   let activeAttribution: WorkflowAttribution | undefined;
   const completedReceipts = (): { id: string; result: unknown }[] =>
-    database
-      .prepare(
-        `SELECT id,result_json FROM command_receipts WHERE json_extract(attribution_json,'$.executionId')=? ORDER BY started_at LIMIT 100`,
-      )
-      .all(execution.id)
-      .map((row) => ({
-        id: String(row.id),
-        result: JSON.parse(String(row.result_json)),
-      }));
+    aloExecutionReceipts(database, execution.id, execution.threadId);
   const onUpdate = (update: TurnUpdate): void => {
     if (update.type === "notice") {
       persist("backend_notice", update.notice);
@@ -613,7 +608,9 @@ export async function runWorkflowTurn(
           trustedInstructions:
             execution.workflowId === "obsidian"
               ? `Selected vault scope ID: ${selectedTarget}. Use it for every operation. Preserve supplied path/revision and contentRef. Writer composes body only; Commander integrates known metadata, omits optional unknown values, and never invents a taxonomy.`
-              : undefined,
+              : execution.workflowId === "commander" && chosen.scope
+                ? `Selected folder root: ${chosen.scope.alias}:/. Use this root for file commands; its registration ID is internal workflow identity. For directory names, call files.list with entryType=directories, view=paths and pageSize=100 so names fit compactly. When the user requests a read-only list, follow page.nextCursor with files.next while page.hasMore is true, respecting any explicit user limit. Fetching remaining pages is already authorized: never ask whether to continue a requested listing. Report the requested directory names and counts, not just a generic command-success summary. After completing the requested listing, omit question entirely. An optional offer to summarize or explore results is not a required question.`
+                : undefined,
         });
         const boundData = parametersRecord(bound);
         const sourceRef =
@@ -632,6 +629,9 @@ export async function runWorkflowTurn(
           };
         const value = {
           ...boundData,
+          ...(execution.workflowId === "commander" && chosen.scope
+            ? { target: `${chosen.scope.alias}:/` }
+            : {}),
           ...(source !== undefined ? { source } : {}),
           answers,
           completedReceipts: completedReceipts(),
@@ -818,7 +818,7 @@ export async function runWorkflowTurn(
         if (typeof identity.contentRef === "string")
           store.pin(execution.id, identity.contentRef);
         const output = {
-          findings: receipts.map((receipt) => receipt.summary).slice(0, 30),
+          findings: receipts.flatMap(commandResultFindings).slice(0, 30),
           receiptIds: receipts.map((receipt) => receipt.receiptId!),
           ...(typeof identity.contentRef === "string"
             ? { contentRef: identity.contentRef }
@@ -831,6 +831,15 @@ export async function runWorkflowTurn(
             ? { question: operated.output.question }
             : {}),
         };
+        if (
+          output.question &&
+          isListingCompletionStatement(
+            receipts.at(-1),
+            output.question.text,
+            envelope.text,
+          )
+        )
+          delete output.question;
         if (
           execution.workflowId === "obsidian" &&
           boundData.operation === "read" &&

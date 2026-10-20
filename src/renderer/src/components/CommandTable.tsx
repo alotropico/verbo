@@ -1,4 +1,9 @@
 import {
+  useSettingsAutosave,
+  useSettingsDraft,
+  useSettingsRef,
+} from "@/hooks/use-settings-draft";
+import {
   ActionIcon,
   Code,
   Group,
@@ -9,22 +14,17 @@ import {
   Tooltip,
   UnstyledButton,
 } from "@mantine/core";
-import { CheckIcon, CopyIcon, InfoIcon, RotateCcwIcon } from "lucide-react";
-import { useEffect, useEffectEvent, useState, type ReactElement } from "react";
 import {
   commandAliasesSchema,
   type CommandNode,
   type CommandSettings,
 } from "@shared/commands";
-import {
-  useSettingsAutosave,
-  useSettingsDraft,
-  useSettingsRef,
-} from "@/hooks/use-settings-draft";
+import { CheckIcon, CopyIcon, InfoIcon, RotateCcwIcon } from "lucide-react";
+import { useEffect, useEffectEvent, useState, type ReactElement } from "react";
 import { AutosaveStatus } from "./AutosaveStatus";
-import { useConfirmation } from "./confirmation-context";
 import { CommandDetailsModal } from "./CommandDetailsModal";
 import styles from "./CommandTable.module.css";
+import { useConfirmation } from "./confirmation-context";
 
 function AliasRow({
   node,
@@ -83,9 +83,9 @@ function AliasRow({
             className={styles.copyCommand}
             data-copied={copied || undefined}
             aria-label={`Copy /${node.id}`}
-            onClick={() => {
+            onClick={async () => {
               try {
-                window.verbo.clipboard.writeText(`/${node.id}`);
+                await window.verbo.clipboard.writeText(`/${node.id}`);
                 setCopied(true);
               } catch {
                 setError("Could not copy the command.");
@@ -181,7 +181,6 @@ export function CommandTable({
   moduleId,
   data,
   reload,
-  resetWeb,
   resetAliases,
   epochs,
   onRestored,
@@ -189,7 +188,6 @@ export function CommandTable({
   moduleId?: string;
   data: CommandSettings;
   reload: () => Promise<void>;
-  resetWeb?: () => Promise<void>;
   resetAliases: (ids: string[]) => Promise<void>;
   epochs: Record<string, number>;
   onRestored: (id: string) => void;
@@ -210,11 +208,10 @@ export function CommandTable({
     );
     void confirm({
       title: "Restore command defaults?",
-      message: `Restore aliases for ${target.id}${affected.length > 1 ? " and its child commands" : ""}?${target.id === "web" ? " Web search settings will also return to their defaults." : ""}`,
+      message: `Restore aliases for ${target.id}${affected.length > 1 ? " and its child commands" : ""}?`,
       confirmLabel: "Restore defaults",
       onConfirm: async () => {
         await resetAliases(affected.map((item) => item.id));
-        if (target.id === "web") await resetWeb?.();
         await window.verbo.commands.reset(target.id);
         // Fetch before remounting rows so no old alias snapshot is accepted as the new baseline.
         await reload();

@@ -5,7 +5,10 @@ import { IPC_CHANNELS } from "../../shared/ipc-channels";
 import type { WindowState } from "../../shared/window-controls";
 import { registerWindowIpc } from "./window-ipc";
 
-type StateHandler = (event: IpcMainInvokeEvent) => WindowState;
+type StateHandler = (
+  event: IpcMainInvokeEvent,
+  text?: unknown,
+) => WindowState | void;
 type CommandHandler = (event: IpcMainEvent) => void;
 
 const ipc = vi.hoisted(() => ({
@@ -71,9 +74,11 @@ function createWindow(): WindowFixture {
     handler(event);
   };
   const read = (event = trusted): WindowState => {
-    const handler = ipc.handle.mock.calls.at(-1)?.[1];
+    const handler = ipc.handle.mock.calls.find(
+      ([name]) => name === IPC_CHANNELS.windowState,
+    )?.[1];
     if (!handler) throw new Error("Missing window state handler");
-    return handler(event as unknown as IpcMainInvokeEvent);
+    return handler(event as unknown as IpcMainInvokeEvent) as WindowState;
   };
   return { window, trusted, command, read };
 }
@@ -97,18 +102,40 @@ describe("window controls IPC", () => {
     expect(window.close).toHaveBeenCalledTimes(1);
   });
 
-  it("copies text from the owning window", () => {
+  it("acknowledges text writes from the owning main frame and rejects invalid requests", () => {
     const { trusted } = createWindow();
-    const handler = ipc.on.mock.calls.find(
+    const handler = ipc.handle.mock.calls.find(
       ([name]) => name === IPC_CHANNELS.clipboardWrite,
-    )?.[1] as ((event: IpcMainEvent, text: unknown) => void) | undefined;
+    )?.[1];
     if (!handler) throw new Error("Missing clipboard handler");
-    handler(trusted, "{\"ok\":true}");
-    expect(ipc.writeText).toHaveBeenCalledWith("{\"ok\":true}");
+    const event = trusted as unknown as IpcMainInvokeEvent;
+    expect(handler(event, '{"ok":true}')).toBeUndefined();
+    expect(ipc.writeText).toHaveBeenCalledWith('{"ok":true}');
     ipc.writeText.mockClear();
-    handler({ ...trusted, sender: {} } as IpcMainEvent, "nope");
-    handler(trusted, 12);
+    expect(() =>
+      handler({ ...event, sender: {} } as IpcMainInvokeEvent, "nope"),
+    ).toThrow("Untrusted clipboard");
+    expect(() =>
+      handler({ ...event, senderFrame: {} } as IpcMainInvokeEvent, "nope"),
+    ).toThrow("Untrusted clipboard");
+    expect(() => handler(event, 12)).toThrow("Clipboard text must be a string");
     expect(ipc.writeText).not.toHaveBeenCalled();
+    expect(handler(event, "")).toBeUndefined();
+    expect(ipc.writeText).toHaveBeenCalledWith("");
+  });
+
+  it("propagates native clipboard failures instead of reporting success", () => {
+    const { trusted } = createWindow();
+    const handler = ipc.handle.mock.calls.find(
+      ([name]) => name === IPC_CHANNELS.clipboardWrite,
+    )?.[1];
+    if (!handler) throw new Error("Missing clipboard handler");
+    ipc.writeText.mockImplementationOnce(() => {
+      throw new Error("Clipboard unavailable");
+    });
+    expect(() =>
+      handler(trusted as unknown as IpcMainInvokeEvent, "text"),
+    ).toThrow("Clipboard unavailable");
   });
 
   it("rejects other windows and subframes for all operations", () => {
@@ -148,6 +175,7 @@ describe("window controls IPC", () => {
     window.on("maximize", otherObserver);
     window.close();
     expect(ipc.removeHandler).toHaveBeenCalledWith(IPC_CHANNELS.windowState);
+    expect(ipc.removeHandler).toHaveBeenCalledWith(IPC_CHANNELS.clipboardWrite);
     expect(ipc.removeListener.mock.calls).toEqual(ipc.on.mock.calls);
     expect(window.listenerCount("unmaximize")).toBe(0);
     expect(window.listenerCount("maximize")).toBe(1);

@@ -5,7 +5,7 @@ import {
   createRegistry,
   dispatchModelTool,
   type Capability,
-} from "../capabilities/registry";
+} from "../test-support/registry";
 import { createRequestGate } from "../runtime/request-gate";
 import { ollamaChatBody } from "../services/ollama-turn-stream";
 import { resolveCTS } from "./cts";

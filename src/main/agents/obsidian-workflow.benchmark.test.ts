@@ -3,26 +3,26 @@ import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { it } from "vitest";
+import type { ChatEvent } from "../../shared/chat-ipc";
 import { DEFAULT_CHAT_SETTINGS } from "../../shared/config";
-import { chatSettingsSchema } from "../../shared/storage-ipc";
 import {
-  obsidianTargetSchema,
   obsidianCreateSchema,
-  obsidianEditSchema,
-  obsidianTransferSchema,
   obsidianDeleteSchema,
+  obsidianEditSchema,
+  obsidianTargetSchema,
+  obsidianTransferSchema,
 } from "../../shared/obsidian";
-import { createRegistry, type Capability } from "../capabilities/registry";
-import { persistCommandReceipt } from "../db/command-receipts";
+import { chatSettingsSchema } from "../../shared/storage-ipc";
+import { persistCommandReceipt } from "../test-support/receipts";
 import { VERBO_MIGRATIONS, migrateDatabase } from "../db/migrate";
 import { createScopeStore } from "../db/scopes";
 import { createWorkflowExecutionStore } from "../db/workflow-executions";
 import { createAssetStore } from "../files/asset-store";
 import { createTurnController } from "../runtime/controller";
-import { createTurnDispatcher } from "../runtime/turn-dispatcher";
 import { createRequestGate } from "../runtime/request-gate";
+import { createTurnDispatcher } from "../runtime/turn-dispatcher";
 import { runWorkflowTurn } from "../runtime/workflow-runner";
-import type { ChatEvent } from "../../shared/chat-ipc";
+import { createRegistry, type Capability } from "../test-support/registry";
 
 it.skipIf(process.env.VERBO_QWEN_OBSIDIAN_BENCHMARK !== "1")(
   "measures all five real-Qwen Obsidian compositions with CLI effects disabled",

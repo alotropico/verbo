@@ -67,6 +67,72 @@ describe("chat export", () => {
     expect(markdown).not.toContain("Discarded.");
   });
 
+  it("exports only visible message text while full data retains other parts", () => {
+    const chat = {
+      id: "thread",
+      title: "Transcript",
+      headId: "tool",
+      messages: [
+        {
+          id: "system",
+          parentId: null,
+          role: "system",
+          content: "SYSTEM_ONLY",
+        },
+        { id: "user", parentId: "system", role: "user", content: "User text" },
+        {
+          id: "assistant",
+          parentId: "user",
+          role: "assistant",
+          metadata: { custom: "FULL_ONLY" },
+          content: [
+            { type: "text", text: "Answer text" },
+            { type: "reasoning", text: "REASONING_ONLY" },
+            {
+              type: "tool-call",
+              toolName: "files.read",
+              result: { summary: "TOOL_ONLY" },
+            },
+            { type: "image", filename: "IMAGE_ONLY.png" },
+            { type: "file", filename: "FILE_ONLY.pdf" },
+            { type: "data", name: "DATA_ONLY" },
+          ],
+        },
+        {
+          id: "tool",
+          parentId: "assistant",
+          role: "tool",
+          content: "TOOL_MESSAGE_ONLY",
+        },
+        {
+          id: "sibling",
+          parentId: "user",
+          role: "assistant",
+          content: "SIBLING_ONLY",
+        },
+      ],
+    };
+    const text = chatExportMarkdown(chat, { textOnly: true });
+    expect(text).toBe(
+      "# Transcript\n\n## User\n\nUser text\n\n## Assistant\n\nAnswer text\n",
+    );
+    const full = chatExportAdvanced(chat);
+    for (const marker of [
+      "SYSTEM_ONLY",
+      "FULL_ONLY",
+      "REASONING_ONLY",
+      "TOOL_ONLY",
+      "IMAGE_ONLY",
+      "FILE_ONLY",
+      "DATA_ONLY",
+      "TOOL_MESSAGE_ONLY",
+    ]) {
+      expect(text).not.toContain(marker);
+      expect(full).toContain(marker);
+    }
+    expect(full).not.toContain("SIBLING_ONLY");
+  });
+
   it("keeps the full user text in an advanced message export", () => {
     const text = [
       "Move the example file into the destination folder.",

@@ -2,6 +2,8 @@
 
 **Think out loud.**
 
+Domain commands now run in the independent Alo CLI. Existing profiles require the verified cutover before using this build. See [Alo extraction and cutover](docs/alo-extraction.md).
+
 Verbo is a local AI chat app for exploring ideas, making things, and questioning assumptions. It runs as an Electron desktop app, uses Ollama for inference, and saves conversations on your machine. Speech recognition and spoken replies stay on a separate local voice service. A textured background, translucent surfaces, and restrained color keep the interface quiet while giving it a little character. No hosted AI account or API key is required.
 
 ## Features
@@ -25,7 +27,7 @@ The main Controller saves a canonical final response before releasing the queue.
 
 ### Conversation history
 
-Create, switch, search by title, rename, archive, and delete conversations from the sidebar. Threads, messages, memory, file scopes, mutation plans, the turn queue, and voice drafts are stored in SQLite and loaded when you return.
+Create, switch, search by title, rename, archive, and delete conversations from the sidebar. Threads, messages, workflows, the turn queue and voice drafts stay in Verbo’s SQLite database. Memory, file scopes, command receipts and mutation plans live in Alo’s separate profile.
 
 ### Memory
 
@@ -78,7 +80,7 @@ Each module has **Other settings** and **Commands** disclosures. Other settings 
 
 Settings → Commands contains module aliases and protected descriptor details. Project preferences select a registered default application and ordered favorites. Application registration explicitly trusts an existing Windows executable, with fixed argument templates and working-directory rules. `projects.open` resolves the project and applications before requesting one grouped approval; launch receipts report successful OS spawning, without asserting that a GUI finished loading.
 
-`web.search` uses a lazy, hidden Puppeteer-core worker and the installed Chrome or Edge, trying Google, DuckDuckGo and Bing in the configured order without a key. `web.read` uses bounded HTTP extraction first and can request rendered content. Sources are links rather than file attachments. The worker uses disposable profiles and a DNS-pinned public-network proxy, with private destinations and browser side effects blocked. Live engine coverage remains incomplete: the 2026-10-13 Windows smoke check found Google/DDG blocked and Bing's results unparseable. Offline fallback tests alone do not establish operational search support.
+Alo owns 45 retained commands across seven modules. Verbo forwards discovery, invocation, settings and approvals through a typed one-shot subprocess bridge. Web commands and their browser worker have been removed.
 
 Settings is a centered workspace, capped at 1200 px, with Model, Memory, Files, Listening, Speech, and Commands tabs. Changes save automatically. Only the active tab and command module render; draft edits and save feedback survive navigation within the current window. No chat appears active while Settings is open. The arrow beside its title returns to the previously selected chat.
 
@@ -128,8 +130,9 @@ The voice service binds to `127.0.0.1:8765` only. Callers send `Authorization: B
 
 ### Prerequisites
 
-- Node.js `22.12` or newer, compatible with the installed Vite toolchain.
+- Standalone Node.js `24` or newer for the bundled Alo build.
 - pnpm.
+- The sibling Alo checkout at `../alo`, with its dependencies installed (`npm ci` in that repository).
 - Ollama, either available on `PATH` or already serving at `http://127.0.0.1:11434`.
 - Enough RAM or VRAM for the model and context window you choose.
 - Python `3.11` or newer when you want speech. Typed chat does not need it.
@@ -140,6 +143,7 @@ From the repository root:
 
 ```sh
 pnpm install
+pnpm alo:prepare
 ollama pull qwen3.5:4b-q4_K_M
 pnpm start
 ```
@@ -189,9 +193,11 @@ Verbo stores application data in Electron's platform-specific `app.getPath('user
 
 | Path            | Contents                                                                                                  |
 | --------------- | --------------------------------------------------------------------------------------------------------- |
-| `verbo.sqlite`  | Conversations, messages, memory, file scopes, mutation plans and audit, the turn queue, and voice drafts. |
+| `verbo.sqlite`  | Conversations, messages, workflows, upload metadata, the turn queue and voice drafts. |
 | `settings.json` | Validated model and generation settings.                                                                  |
 | `attachments/`  | Managed copies of attached files.                                                                         |
+
+Alo stores command data separately at `%APPDATA%/alo/alo.sqlite` on Windows. Existing v23 data must be backed up and partitioned before opening the new app build; see the cutover guide above.
 
 The voice bearer token lives in `%LOCALAPPDATA%\Verbo\voice-token`. Model inference, titles, speech recognition, and speech synthesis stay on this machine. Downloading dependencies, Ollama models, and speech assets requires network access. After those files are in place, chat and voice do not fetch models at launch.
 
@@ -208,7 +214,7 @@ The voice bearer token lives in `%LOCALAPPDATA%\Verbo\voice-token`. Model infere
 | Markdown                  | `@assistant-ui/react-markdown` and `remark-gfm`  | Message rendering and GitHub-flavored Markdown.                                   |
 | Inference                 | Ollama HTTP API                                  | Local chat streaming, tool rounds, title generation, and model status.            |
 | Speech                    | FastAPI, faster-whisper, and Piper               | Local transcription and wav synthesis on `127.0.0.1`.                             |
-| Persistence               | SQLite via `node:sqlite`                         | Conversation and capability storage in Electron's main process.                   |
+| Persistence               | SQLite via `node:sqlite`                         | Separate app and command databases, owned by Verbo and Alo.                   |
 | Validation                | Zod                                              | Settings, action, and IPC payload schemas.                                        |
 | Development and packaging | electron-vite, Vite, and electron-builder        | Development builds, renderer updates, and packaging scripts.                      |
 | Verification              | Vitest, pytest, TypeScript, ESLint, and Prettier | App tests, voice-service tests, type checks, linting, and formatting.             |
@@ -240,7 +246,7 @@ The [thread-list adapter](src/renderer/src/runtime/thread-list-adapter.tsx) supp
 
 ### Shared contracts and services
 
-Command definitions compile through `src/main/capabilities/modules.ts` into the existing registry. Each family exports its authoritative module descriptors separately from trusted handler/process bindings. A definition owns its canonical path, aliases, schemas, execution reference, output and attachment policy. Composite steps bind inputs and earlier receipts, run sequentially with shared depth/step/time limits, and use the existing operation service for immutable grouped approval. `browser-runtime/` owns Puppeteer and communicates through serializable DTOs and framed stdio; it imports no Electron, database or model clients. On Windows the browser worker belongs to a kill-on-close job, so worker failure or app exit also stops its Chromium descendants.
+Command definitions, schemas, handlers, preparation and domain persistence live in Alo. Verbo’s `src/main/alo` contains the trusted subprocess client, caller/policy construction and workflow correlation. App-side command interfaces are thin adapters; Alo implements the four model-facing operations and enforces command/file permissions and exact operation confirmation.
 
 To add a command, define its canonical ID, strict argument schema and valid example in its module's command array. Declare aliases, requirements, effect, output, messages and attachment policy there. Bind its fixed handler/process ID in the corresponding backend bindings factory and compose the bindings in `catalog.ts`. Mutation handlers retain native preflight/confirmation, or declare a trusted preparation binding for the existing operation service. Composite children reference registered IDs and typed input/receipt bindings. Add behavior tests and preserve existing discovery contracts; never accept model-selected executables, imports or scripts.
 

@@ -1,14 +1,14 @@
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
 import type { ActionResult } from "../../shared/action-contract";
-import { platformCapability } from "../capabilities/environment";
-import { createRegistry, type Capability } from "../capabilities/registry";
+import { platformCapability } from "../test-support/platform";
+import { createRegistry, type Capability } from "../test-support/registry";
 import {
   buildTurnContext,
   compactToolResult,
   composeSystemPrompt,
-  CORE_INSTRUCTIONS,
   contextTokens,
+  CORE_INSTRUCTIONS,
   type ContextMessage,
 } from "./context-builder";
 import {
@@ -361,6 +361,7 @@ describe("turn runner", () => {
     const seen: string[] = [];
     let calls = 0;
     const outcome = await runTurn({
+      registry: createRegistry([platformCapability()]),
       userText: "What platform is this?",
       history: [],
       numCtx: 8192,
@@ -412,6 +413,7 @@ describe("turn runner", () => {
     const seen: string[] = [];
     let calls = 0;
     await runTurn({
+      registry: createRegistry([platformCapability()]),
       userText: "Remember later",
       history: [],
       numCtx: 8192,
@@ -606,6 +608,7 @@ describe("turn runner", () => {
   it("stops when the same tool request repeats", async () => {
     const gate = createRequestGate();
     const outcome = await runTurn({
+      registry: createRegistry([platformCapability()]),
       userText: "List again",
       history: [],
       numCtx: 8192,
@@ -936,6 +939,7 @@ describe("turn runner", () => {
   it("names an empty Ollama finish", async () => {
     const gate = createRequestGate();
     const outcome = await runTurn({
+      registry: createRegistry([platformCapability()]),
       userText: "Hello",
       history: [],
       numCtx: 8192,

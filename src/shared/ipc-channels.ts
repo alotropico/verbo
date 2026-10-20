@@ -4,7 +4,6 @@ export const IPC_CHANNELS = {
   commandsSettings: "verbo:commands:settings",
   commandsSave: "verbo:commands:save",
   commandsReset: "verbo:commands:reset",
-  commandsWebSave: "verbo:commands:web:save",
   clipboardWrite: "verbo:clipboard:write",
   windowState: "verbo:window:state",
   windowMinimize: "verbo:window:minimize",

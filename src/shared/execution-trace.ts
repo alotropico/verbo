@@ -304,7 +304,6 @@ export function activityForCommand(input: {
   if (
     input.id === "capabilities.search" ||
     input.id === "capabilities.list" ||
-    input.id === "web.search" ||
     input.id.endsWith(".search")
   )
     return "search";

@@ -95,7 +95,8 @@ export function registerAssistantStreamIpc(mainWindow: BrowserWindow): void {
   });
   setTurnCancelHandler((turnId) => {
     const live = liveById(turnId);
-    if (live?.operationId) abandonPendingPlan(getDatabase(), live.operationId);
+    if (live?.operationId)
+      abandonPendingPlan(getDatabase(), live.operationId, live.threadId);
     // Cancellation requests abort work. Only the Controller may release the slot.
   });
   ipcMain.handle(IPC_CHANNELS.turnCancel, (event) => {

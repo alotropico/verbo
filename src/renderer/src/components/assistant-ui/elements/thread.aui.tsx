@@ -5,8 +5,6 @@ import {
   ComposerAttachments,
   UserMessageAttachments,
 } from "@/components/assistant-ui/elements/attachment.aui";
-import { ThreadFollowupSuggestions } from "./follow-up-suggestions.aui";
-import { SpeechSyncedText } from "./speech-synced-text";
 import {
   Reasoning,
   ReasoningContent,
@@ -20,49 +18,52 @@ import {
   ToolGroupRoot,
   ToolGroupTrigger,
 } from "@/components/assistant-ui/elements/tool-group.aui";
-import { TouchedFiles } from "./touched-files";
-import { ApprovalRequests } from "./approval-region";
-import { ExecutionTraceView, useMessageTrace } from "./execution-trace-view";
-import { MessageTime } from "./message-time";
-import { PendingIndicator } from "./pending-indicator";
-import { TooltipIconButton } from "./tooltip-icon-button";
 import { BackendNotice, FinalizationNotice } from "@/components/BackendNotice";
-import {
-  WorkflowStageNotice,
-  WorkflowRoutingNotice,
-} from "@/components/WorkflowProgress";
 import { CommandNotice } from "@/components/CommandNotice";
-import { StatusMessage } from "@/components/StatusMessage";
-import { WebSources } from "@/components/WebSources";
 import { ContextMeters } from "@/components/ContextMeters";
-import { noteThreadActivity, timestampMs } from "@/runtime/thread-activity";
+import { QueueRows } from "@/components/QueueSidebar";
+import { StatusMessage } from "@/components/StatusMessage";
+import { useVoiceListening } from "@/components/voice-session-context";
 import {
   VoiceDraftPanel,
   VoiceOrb,
   VoiceSessionButton,
 } from "@/components/VoiceSession";
-import { QueueRows } from "@/components/QueueSidebar";
-import { useVoiceListening } from "@/components/voice-session-context";
-import { getQueueEdit, subscribeQueueEdit } from "@/runtime/queue-edit";
+import {
+  WorkflowRoutingNotice,
+  WorkflowStageNotice,
+} from "@/components/WorkflowProgress";
+import a11y from "@/lib/a11y.module.css";
+import { cx } from "@/lib/cx";
+import { copyText } from "@/lib/clipboard";
+import { CHAT_TRANSFER_ACTIONS, transferChat } from "@/lib/chat-transfer";
+import { useCopyToClipboard } from "@/hooks/use-copy-to-clipboard";
+import { useAdvancedExport } from "@/runtime/advanced-export";
+import { approvalStaysOutsideGroups } from "@/runtime/approval-notice";
 import {
   interactionJson,
   readThreadInteraction,
   subscribeLatestExchange,
 } from "@/runtime/latest-exchange";
+import { getQueueEdit, subscribeQueueEdit } from "@/runtime/queue-edit";
+import { noteThreadActivity, timestampMs } from "@/runtime/thread-activity";
 import { useLocalCommandGuard } from "@/runtime/use-local-command";
-import { useAdvancedExport } from "@/runtime/advanced-export";
 import {
-  chatExportAdvanced,
-  chatExportFilename,
-  chatExportMarkdown,
-  exportMessageRecord,
-  messageExportJson,
-  type ChatExport,
-} from "@shared/chat-export";
-import { USER_ABORT_NOTICE } from "@shared/chat-ipc";
-import { chatPlaceholderTitle } from "@shared/thread-title";
-import { isPendingApprovalResult } from "@shared/tool-result-label";
-import { approvalStaysOutsideGroups } from "@/runtime/approval-notice";
+  ActionBarMorePrimitive,
+  ActionBarPrimitive,
+  AuiIf,
+  BranchPickerPrimitive,
+  ComposerPrimitive,
+  ErrorPrimitive,
+  groupPartByType,
+  MessagePrimitive,
+  ThreadPrimitive,
+  useAui,
+  useAuiState,
+  type AssistantState,
+  type TextMessagePartComponent,
+  type ToolCallMessagePartComponent,
+} from "@assistant-ui/react";
 import {
   ActionIcon,
   Button,
@@ -71,24 +72,14 @@ import {
   Text,
   Tooltip,
 } from "@mantine/core";
-import { cx } from "@/lib/cx";
-import a11y from "@/lib/a11y.module.css";
 import {
-  ActionBarMorePrimitive,
-  ActionBarPrimitive,
-  AuiIf,
-  type AssistantState,
-  BranchPickerPrimitive,
-  ComposerPrimitive,
-  ErrorPrimitive,
-  groupPartByType,
-  MessagePrimitive,
-  ThreadPrimitive,
-  useAui,
-  type TextMessagePartComponent,
-  type ToolCallMessagePartComponent,
-  useAuiState,
-} from "@assistant-ui/react";
+  exportMessageRecord,
+  messageExportJson,
+  type ChatExport,
+} from "@shared/chat-export";
+import { USER_ABORT_NOTICE } from "@shared/chat-ipc";
+import { chatPlaceholderTitle } from "@shared/thread-title";
+import { isPendingApprovalResult } from "@shared/tool-result-label";
 import {
   ArrowDownIcon,
   ArrowUpIcon,
@@ -102,12 +93,12 @@ import {
   LightbulbIcon,
   MicIcon,
   MoreHorizontalIcon,
+  OrbitIcon,
   PencilIcon,
   PhoneIcon,
   RefreshCwIcon,
-  SquareIcon,
   SparklesIcon,
-  OrbitIcon,
+  SquareIcon,
   ThumbsDownIcon,
   ThumbsUpIcon,
   XIcon,
@@ -126,7 +117,15 @@ import {
   type FC,
   type PropsWithChildren,
 } from "react";
+import { ApprovalRequests } from "./approval-region";
+import { ExecutionTraceView, useMessageTrace } from "./execution-trace-view";
+import { ThreadFollowupSuggestions } from "./follow-up-suggestions.aui";
+import { MessageTime } from "./message-time";
+import { PendingIndicator } from "./pending-indicator";
+import { SpeechSyncedText } from "./speech-synced-text";
 import styles from "./thread.module.css";
+import { TooltipIconButton } from "./tooltip-icon-button";
+import { TouchedFiles } from "./touched-files";
 
 export type ThreadGroupPart = MessagePrimitive.GroupedParts.GroupPart;
 
@@ -423,72 +422,43 @@ const SpokenMessage: FC = () => {
 };
 
 const MessageCopyButton: FC<{ className?: string }> = ({ className }) => {
+  const messageId = useAuiState((state) => state.message.id);
+  return <MessageCopyControl key={messageId} className={className} />;
+};
+
+const MessageCopyControl: FC<{ className?: string }> = ({ className }) => {
   const advanced = useAdvancedExport();
   const aui = useAui();
+  const { isCopied, copyToClipboard } = useCopyToClipboard();
   const running = useAuiState(
     (state) =>
       state.message.role === "assistant" &&
       state.message.status?.type === "running",
   );
-  const messageId = useAuiState((state) => state.message.id);
-  const messageIdRef = useRef(messageId);
-  messageIdRef.current = messageId;
-  const copiedTimer = useRef<ReturnType<typeof setTimeout> | undefined>(
-    undefined,
-  );
-  useEffect(
-    () => () => {
-      if (copiedTimer.current) clearTimeout(copiedTimer.current);
-    },
-    [],
-  );
-  if (!advanced) {
-    return (
-      <ActionBarPrimitive.Copy
-        render={
-          <TooltipIconButton
-            tooltip={advanced ? "Copy objects" : "Copy"}
-            className={className}
-          />
-        }
-      >
-        <AuiIf condition={(s) => s.message.isCopied}>
-          <CheckIcon className={styles.copyIconCheck} size={14} />
-        </AuiIf>
-        <AuiIf condition={(s) => !s.message.isCopied}>
-          <CopyIcon className={styles.copyIconCopy} size={14} />
-        </AuiIf>
-      </ActionBarPrimitive.Copy>
-    );
-  }
   const copy = (): void => {
     if (running) return;
     const message = aui.message().getState();
     const threadId = aui.threads().getState().mainThreadId;
-    window.verbo.clipboard.writeText(
-      messageExportJson(message, readThreadInteraction(threadId)),
-    );
-    const copiedId = message.id;
-    aui.message().setIsCopied(true);
-    if (copiedTimer.current) clearTimeout(copiedTimer.current);
-    copiedTimer.current = setTimeout(() => {
-      if (messageIdRef.current !== copiedId) return;
-      aui.message().setIsCopied(false);
-    }, 3000);
+    const composer = aui.composer().getState();
+    const text = advanced
+      ? messageExportJson(message, readThreadInteraction(threadId))
+      : composer.isEditing
+        ? composer.text
+        : aui.message().getCopyText();
+    copyToClipboard(text);
   };
   return (
     <TooltipIconButton
-      tooltip="Copy objects"
+      tooltip={advanced ? "Copy objects" : "Copy"}
       className={className}
       disabled={running}
       onClick={copy}
     >
-      <AuiIf condition={(s) => s.message.isCopied}>
+      {isCopied ? (
         <CheckIcon className={styles.copyIconCheck} size={14} />
-      </AuiIf>
-      <AuiIf condition={(s) => !s.message.isCopied}>
+      ) : (
         <CopyIcon className={styles.copyIconCopy} size={14} />
-      </AuiIf>
+      )}
     </TooltipIconButton>
   );
 };
@@ -852,7 +822,6 @@ function visibleChatExport(
   id: string,
   title: string,
   messages: readonly VisibleChatMessage[],
-  advanced: boolean,
 ): ChatExport | null {
   const visible = messages.filter(
     (message) => message.role === "user" || message.role === "assistant",
@@ -864,19 +833,6 @@ function visibleChatExport(
     headId: visible.at(-1)?.id ?? null,
     messages: visible.map((message, index) => {
       const parentId = index === 0 ? null : (visible[index - 1]?.id ?? null);
-      if (!advanced) {
-        return {
-          id: message.id,
-          parentId,
-          role: message.role,
-          content: [
-            ...message.content,
-            ...(message.attachments ?? []).flatMap(
-              (attachment) => attachment.content ?? [],
-            ),
-          ],
-        };
-      }
       const record = exportMessageRecord(message) ?? {};
       return {
         ...record,
@@ -889,78 +845,14 @@ function visibleChatExport(
   };
 }
 
-type ChatMenuAction = {
-  id: string;
-  label: string;
-  Icon: typeof CopyIcon;
-  run: () => void;
-};
-
 const ComposerChatMenu: FC = () => {
   const aui = useAui();
-  const advanced = useAdvancedExport();
   const hasChat = useAuiState((state) =>
     state.thread.messages.some(
       (message) => message.role === "user" || message.role === "assistant",
     ),
   );
-  const readTranscript = (): {
-    title: string;
-    text: string;
-    extension: "json" | "md";
-  } | null => {
-    const thread = aui.thread().getState();
-    const threads = aui.threads().getState();
-    const title =
-      threads.threadItems.find((item) => item.id === threads.mainThreadId)
-        ?.title || chatPlaceholderTitle(threads.mainThreadId);
-    const chat = visibleChatExport(
-      threads.mainThreadId,
-      title,
-      thread.messages,
-      advanced,
-    );
-    if (!chat) return null;
-    return {
-      title,
-      extension: advanced ? "json" : "md",
-      text: advanced
-        ? chatExportAdvanced(chat, readThreadInteraction(threads.mainThreadId))
-        : chatExportMarkdown(chat),
-    };
-  };
-  const actions: ChatMenuAction[] = [];
-  if (hasChat) {
-    actions.push(
-      {
-        id: "copy",
-        label: advanced ? "Copy chat objects" : "Copy full chat",
-        Icon: CopyIcon,
-        run: () => {
-          const transcript = readTranscript();
-          if (!transcript) return;
-          window.verbo.clipboard.writeText(transcript.text);
-        },
-      },
-      {
-        id: "download",
-        label: advanced ? "Download chat objects" : "Download whole chat",
-        Icon: DownloadIcon,
-        run: () => {
-          const transcript = readTranscript();
-          if (!transcript) return;
-          downloadText(
-            chatExportFilename(transcript.title, transcript.extension),
-            transcript.text,
-            transcript.extension === "json"
-              ? "application/json"
-              : "text/markdown;charset=utf-8",
-          );
-        },
-      },
-    );
-  }
-  if (actions.length === 0) return null;
+  if (!hasChat) return null;
   return (
     <Menu position="top-end" offset={6} withinPortal>
       <Menu.Target>
@@ -974,12 +866,36 @@ const ComposerChatMenu: FC = () => {
         </TooltipIconButton>
       </Menu.Target>
       <Menu.Dropdown className={styles.composerMenu}>
-        {actions.map((action) => (
+        {CHAT_TRANSFER_ACTIONS.map((action) => (
           <Menu.Item
             key={action.id}
             className={styles.composerMenuItem}
-            leftSection={<action.Icon className={styles.iconSize4} />}
-            onClick={action.run}
+            leftSection={
+              action.mode === "copy" ? (
+                <CopyIcon className={styles.iconSize4} />
+              ) : (
+                <DownloadIcon className={styles.iconSize4} />
+              )
+            }
+            onClick={() => {
+              const thread = aui.thread().getState();
+              const threads = aui.threads().getState();
+              const title =
+                threads.threadItems.find(
+                  (item) => item.id === threads.mainThreadId,
+                )?.title || chatPlaceholderTitle(threads.mainThreadId);
+              const chat = visibleChatExport(
+                threads.mainThreadId,
+                title,
+                thread.messages,
+              );
+              if (chat)
+                transferChat(
+                  chat,
+                  action,
+                  readThreadInteraction(threads.mainThreadId),
+                );
+            }}
           >
             {action.label}
           </Menu.Item>
@@ -1371,7 +1287,6 @@ const AssistantMessage: FC = () => {
         </ApprovalBoundary>
         <MessageError />
         {ready ? <TouchedFiles /> : null}
-        {ready ? <WebSources /> : null}
         {status === "running" ? (
           <div
             data-slot="aui_assistant-message-indicator"
@@ -1461,7 +1376,7 @@ const AssistantActionBar: FC = () => {
   const copyInteraction = (): void => {
     const text = interactionJson(threadId);
     if (!text) return;
-    window.verbo.clipboard.writeText(text);
+    void copyText(text);
   };
   const downloadInteraction = (): void => {
     const text = interactionJson(threadId);

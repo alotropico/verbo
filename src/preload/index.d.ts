@@ -1,28 +1,27 @@
+import type { ActionResult } from "../shared/action-contract";
+import type { ActionsOverview } from "../shared/actions-overview";
 import type {
   AttachmentAddResult,
   AttachmentPreview,
   AttachmentRef,
 } from "../shared/attachments";
-import type { ActionsOverview } from "../shared/actions-overview";
-import type { ActionResult } from "../shared/action-contract";
 import type { AssistantAI } from "../shared/chat-ipc";
-import type { WindowControlsApi } from "../shared/window-controls";
+import type { ChatSettings } from "../shared/config";
 import type {
   OperationReview,
   OperationReviewFailure,
 } from "../shared/file-mutation";
-import type { ChatSettings } from "../shared/config";
+import type { FileUiAction } from "../shared/file-query";
 import type {
   FileSurfaceIntent,
   FileSurfaceResult,
 } from "../shared/file-surface";
-import type { FileUiAction } from "../shared/file-query";
-import type { LocalCommandResult } from "../shared/local-commands";
 import type {
   FileScopeProposal,
   FileScopeRecord,
   ScopeCommit,
 } from "../shared/files";
+import type { LocalCommandResult } from "../shared/local-commands";
 import type {
   ContextMeters,
   MemoryChange,
@@ -31,7 +30,9 @@ import type {
   MemoryScope,
   MemoryUsage,
 } from "../shared/memory";
+import type { RegisteredRoot } from "../shared/projects";
 import type { SettingsRecovery } from "../shared/settings-recovery";
+import type { RemoteThreadMetadata } from "../shared/storage-ipc";
 import type {
   QueueClaimResult,
   QueueEditResult,
@@ -40,6 +41,15 @@ import type {
   QueueSnapshot,
   QueueSource,
 } from "../shared/turn-queue";
+import type {
+  VoiceAudioResult,
+  VoiceStatus,
+  VoiceSynthInput,
+  VoiceTextResult,
+} from "../shared/voice";
+import type { VoiceDraftResult } from "../shared/voice-draft";
+import type { VoiceSettings } from "../shared/voice-settings";
+import type { WindowControlsApi } from "../shared/window-controls";
 
 type ServiceView = {
   name: "ollama" | "voice";
@@ -52,16 +62,6 @@ type ServiceView = {
   suppressed: boolean;
   detail: string;
 };
-import type { VoiceDraftResult } from "../shared/voice-draft";
-import type { VoiceSettings } from "../shared/voice-settings";
-import type {
-  VoiceAudioResult,
-  VoiceStatus,
-  VoiceSynthInput,
-  VoiceTextResult,
-} from "../shared/voice";
-import type { RegisteredRoot } from "../shared/projects";
-import type { RemoteThreadMetadata } from "../shared/storage-ipc";
 
 type MemoryMutation = (
   | { ok: true; summary: string; entry?: MemoryRecord }
@@ -73,7 +73,7 @@ type VerboApi = {
     onReply: (listener: () => void) => () => void;
   };
   clipboard: {
-    writeText: (text: string) => void;
+    writeText: (text: string) => Promise<void>;
   };
   window: WindowControlsApi;
   storage: {
@@ -168,9 +168,6 @@ type VerboApi = {
     discoverApplications: () => Promise<
       Array<{ name: string; aliases: string[]; executable: string }>
     >;
-    saveWeb: (
-      input: import("../shared/web-contracts").WebSettings,
-    ) => Promise<{ ok: true } | { ok: false; summary: string }>;
     settings: () => Promise<import("../shared/commands").CommandSettings>;
     save: (
       input: import("../shared/commands").CommandOverride,

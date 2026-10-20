@@ -8,10 +8,6 @@ export default defineConfig({
       rollupOptions: {
         input: {
           index: resolve("src/main/index.ts"),
-          "browser-runtime": resolve("browser-runtime/src/main.ts"),
-          "application-discovery-worker": resolve(
-            "src/main/software/application-discovery-worker.ts",
-          ),
         },
       },
     },

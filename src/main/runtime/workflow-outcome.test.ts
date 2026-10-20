@@ -4,6 +4,8 @@ import {
   type VerifiedOutcome,
 } from "../../shared/workflows";
 import {
+  commandResultFindings,
+  isListingCompletionStatement,
   deterministicPresentation,
   readableReportInput,
   validatePresentation,
@@ -34,6 +36,126 @@ function outcome(): VerifiedOutcome {
 }
 
 describe("workflow presentation", () => {
+  it("does not turn a verified listing completion statement into a required question", () => {
+    const result = {
+      action: "files.list",
+      status: "success" as const,
+      summary: "Listed 4 entries.",
+      detail: JSON.stringify({
+        page: { hasMore: false },
+        scan: { complete: true },
+      }),
+    };
+    expect(isListingCompletionStatement(result, "List complete.")).toBe(true);
+    const offer = "Do you need a summary of the directory structure?";
+    expect(
+      isListingCompletionStatement(result, offer, "List the folders"),
+    ).toBe(true);
+    expect(
+      isListingCompletionStatement(
+        result,
+        offer,
+        "List the folders and ask whether I want a summary",
+      ),
+    ).toBe(false);
+    expect(
+      isListingCompletionStatement(
+        {
+          ...result,
+          detail: JSON.stringify({
+            page: { hasMore: true },
+            scan: { complete: true },
+          }),
+        },
+        offer,
+      ),
+    ).toBe(false);
+    expect(
+      isListingCompletionStatement(
+        result,
+        "Do you want to move these folders?",
+      ),
+    ).toBe(false);
+
+    expect(
+      isListingCompletionStatement(
+        result,
+        "Directory listing complete: 64 directories found. Would you like to explore a subdirectory?",
+      ),
+    ).toBe(true);
+    expect(
+      isListingCompletionStatement(result, "Which folder should I open?"),
+    ).toBe(false);
+    expect(isListingCompletionStatement(result, "Is the list complete?")).toBe(
+      false,
+    );
+    expect(
+      isListingCompletionStatement(
+        {
+          ...result,
+          detail: JSON.stringify({
+            page: { hasMore: true },
+            scan: { complete: true },
+          }),
+        },
+        "List complete.",
+      ),
+    ).toBe(false);
+    expect(
+      isListingCompletionStatement(
+        { ...result, status: "error" },
+        "List complete.",
+      ),
+    ).toBe(false);
+  });
+  it("retains directory names from verified query results and rejects a reply that drops them", () => {
+    const findings = commandResultFindings({
+      action: "files.list",
+      status: "success",
+      summary: "Listed 2 entries.",
+      detail: JSON.stringify({
+        items: [
+          { path: "nous:/inbox", type: "directory" },
+          { path: "nous:/work", type: "directory" },
+        ],
+      }),
+    });
+    expect(findings.join("\n")).toContain("nous:/inbox");
+    expect(findings.join("\n")).toContain("nous:/work");
+    expect(
+      commandResultFindings({
+        action: "files.list",
+        status: "success",
+        summary: "Listed 1 entry.",
+        detail: JSON.stringify({ paths: ["nous:/work"] }),
+      }).join("\n"),
+    ).toContain("nous:/work");
+    const report = {
+      ...outcome(),
+      status: "completed" as const,
+      findings,
+      errors: [],
+    };
+    expect(
+      validatePresentation(report, { text: "Two directories were listed." }),
+    ).toBeUndefined();
+    expect(
+      validatePresentation(report, {
+        text: "Directories: nous:/inbox and nous:/work.",
+      }),
+    ).toBeDefined();
+    expect(deterministicPresentation(report)).toContain("nous:/work");
+    expect(
+      commandResultFindings({
+        action: "files.list",
+        status: "error",
+        summary: "Read denied",
+        detail: JSON.stringify({
+          items: [{ path: "unverified", type: "directory" }],
+        }),
+      }),
+    ).toEqual(["Read denied"]);
+  });
   it("keeps a composed reply and rejects an invented receipt id", () => {
     const frozen = outcome();
     expect(

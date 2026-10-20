@@ -5,7 +5,7 @@ import {
 } from "./prompt-eval";
 import { createRequestGate } from "./request-gate";
 import { runTurn } from "./turn";
-import { createRegistry } from "../capabilities/registry";
+import { createRegistry } from "../test-support/registry";
 import type { InferenceSource } from "../../shared/inference-metrics";
 
 const source: InferenceSource = {

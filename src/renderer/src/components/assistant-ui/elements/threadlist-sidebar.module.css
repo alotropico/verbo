@@ -25,9 +25,9 @@
 }
 
 .mark {
-  color: var(--primary);
+  color: var(--brand);
   filter: drop-shadow(
-    0 0 rem(8px) color-mix(in oklab, var(--primary) 30%, transparent)
+    0 0 rem(8px) color-mix(in oklab, var(--brand) 30%, transparent)
   );
   height: rem(30px);
   width: rem(30px);
@@ -40,7 +40,7 @@
 }
 
 .brandDot {
-  color: var(--primary);
+  color: var(--brand);
 }
 
 .content {

@@ -234,13 +234,13 @@ function ExportSettings(): ReactElement {
   return (
     <SettingsSection
       title="Copy and export"
-      description="Plain text is the default. Advanced format keeps every object in the message or chat."
+      description="Choose the format for message copy and export. Chat actions always offer both text and full data."
     >
       <Switch
         label={
           <SettingsLabel
             label="Advanced format"
-            tip="Copy and export of a message or a whole chat include parts, tool calls, results, attachments, and the latest turn's model objects as JSON."
+            tip="Message copy and export include parts, tool calls, results, attachments, and the latest turn's model objects as JSON. This setting applies to message actions only."
           />
         }
         checked={enabled}

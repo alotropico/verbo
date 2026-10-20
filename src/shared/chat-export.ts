@@ -242,14 +242,32 @@ function messageMarkdown(content: unknown): string {
     .join("\n\n");
 }
 
-export function chatExportMarkdown(chat: ChatExport): string {
+export function chatExportMarkdown(
+  chat: ChatExport,
+  { textOnly = false }: { textOnly?: boolean } = {},
+): string {
   const messages = activeBranch(chat.messages, chat.headId);
   const body = messages
-    .map((message) => {
-      const text = messageMarkdown(message.content);
-      return text
-        ? `## ${roleLabel(message.role)}\n\n${text}`
-        : `## ${roleLabel(message.role)}`;
+    .flatMap((message) => {
+      if (textOnly && !["user", "assistant"].includes(message.role)) return [];
+      const content =
+        textOnly && Array.isArray(message.content)
+          ? message.content.filter(
+              (part: unknown) =>
+                typeof part === "string" ||
+                (typeof part === "object" &&
+                  part !== null &&
+                  "type" in part &&
+                  part.type === "text"),
+            )
+          : message.content;
+      const text = messageMarkdown(content);
+      if (textOnly && !text) return [];
+      return [
+        text
+          ? `## ${roleLabel(message.role)}\n\n${text}`
+          : `## ${roleLabel(message.role)}`,
+      ];
     })
     .join("\n\n");
   return body ? `# ${chat.title}\n\n${body}\n` : `# ${chat.title}\n`;

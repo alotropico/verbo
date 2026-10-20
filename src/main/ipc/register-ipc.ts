@@ -7,25 +7,23 @@ import {
   type BrowserWindow,
   type IpcMainInvokeEvent,
 } from "electron";
-import { registerWindowIpc } from "./window-ipc";
-import { commandReceiptRequestSchema } from "../../shared/command-receipts";
-import { readCommandReceipt } from "../db/command-receipts";
-import { readWebSettings, saveWebSettings } from "../db/web-settings";
-import { commandPathSchema } from "../../shared/commands";
+import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import {
-  resetCommandOverrides,
-  saveCommandOverride,
-} from "../db/command-overrides";
+  approvalDecisionSchema,
+  approvalReviewSchema,
+} from "../../shared/action-contract";
+import { agsHostAddSchema } from "../../shared/ags";
+import { commandReceiptRequestSchema } from "../../shared/command-receipts";
+import { commandPathSchema } from "../../shared/commands";
+import { fileUiQuerySchema } from "../../shared/file-query";
+import { fileSurfaceSchema } from "../../shared/file-surface";
 import {
-  IPC_CHANNELS,
-  messageAppendSchema,
-  threadIdSchema,
-  titleSchema,
-  chatSettingsSchema,
-  generateTitleSchema,
-  welcomeLineSchema,
-} from "../../shared/storage-ipc";
+  displayFinalPath,
+  scopeCommitSchema,
+  splitScopeAliases,
+} from "../../shared/files";
+import { parseLocalCommand, routeUtterance } from "../../shared/local-commands";
 import {
   contextEstimateSchema,
   memoryAddArgsSchema,
@@ -35,18 +33,64 @@ import {
   memoryUpdateArgsSchema,
 } from "../../shared/memory";
 import {
-  approvalDecisionSchema,
-  approvalReviewSchema,
-} from "../../shared/action-contract";
-import { fileSurfaceSchema } from "../../shared/file-surface";
-import { fileUiQuerySchema } from "../../shared/file-query";
-import { refreshModelVision } from "../runtime/model-vision";
+  projectAddSchema,
+  registeredRootRemoveSchema,
+} from "../../shared/projects";
 import {
-  displayFinalPath,
-  scopeCommitSchema,
-  splitScopeAliases,
-} from "../../shared/files";
+  chatSettingsSchema,
+  generateTitleSchema,
+  IPC_CHANNELS,
+  messageAppendSchema,
+  threadIdSchema,
+  titleSchema,
+  welcomeLineSchema,
+} from "../../shared/storage-ipc";
+import { registryForDatabase } from "../capabilities/catalog";
+import { buildActionsOverview } from "../capabilities/overview";
+import { recordActionAudit } from "../db/action-audit";
+import { clearAgsCheck, saveAgsCheck } from "../db/ags-check";
+import {
+  readEntitySettings,
+  removeApplicationRegistration,
+  saveApplicationRegistration,
+  saveProjectPreferences,
+} from "../db/application-registration";
+import {
+  resetCommandOverrides,
+  saveCommandOverride,
+} from "../db/command-overrides";
+import { readCommandReceipt } from "../db/command-receipts";
+import { getDatabase } from "../db/database";
+import { createMemoryStore } from "../db/memory";
+import { saveProjectImportSettings } from "../db/project-import-settings";
+import { createRootStore } from "../db/registered-roots";
+import { createScopeStore, type ScopeAddition } from "../db/scopes";
+import {
+  DEFAULT_SCOPE_ALIAS,
+  ensureProposedDefaultDirectory,
+} from "../files/default-scope";
+import { performFileSurface } from "../files/file-surface";
+import {
+  analyzeFolder,
+  applyImportedProjectPreferences,
+  importFolderProjects,
+  updateFolderSettings,
+} from "../files/folder-import";
+import { decideOperation, reviewOperation } from "../files/mutation-plan";
+import { operationSession } from "../files/mutation-ports";
+import { aliasFromFolderName, isProtectedLocation } from "../files/path-policy";
+import { consumePick, rememberPick } from "../files/picked-folders";
+import { routingInventoryForDatabase } from "../files/routing-inventory";
+import { describeExistingPath } from "../files/windows-containment";
 import { resolveApproval } from "../runtime/approval-wait";
+import { estimateContextMeters } from "../runtime/context-estimate";
+import { turnController } from "../runtime/controller-service";
+import { executeLocalCommand } from "../runtime/local-command";
+import { executeMemorySettingsAction } from "../runtime/memory-settings";
+import { refreshModelVision } from "../runtime/model-vision";
+import { inferenceMeasurements } from "../runtime/prompt-eval";
+import { turnDispatcher } from "../runtime/queue-service";
+import { liveTurnForThread } from "../runtime/turn-session";
 import {
   appendMessage,
   archiveThread,
@@ -66,59 +110,13 @@ import {
 } from "../services/settings-store";
 import { generateThreadTitle } from "../services/thread-title";
 import { generateWelcomeLine } from "../services/welcome-line";
-import { agsHostAddSchema } from "../../shared/ags";
-import {
-  projectAddSchema,
-  registeredRootRemoveSchema,
-} from "../../shared/projects";
-import { buildActionsOverview } from "../capabilities/overview";
-import { registryForDatabase } from "../capabilities/catalog";
-import { clearAgsCheck, saveAgsCheck } from "../db/ags-check";
-import { recordActionAudit } from "../db/action-audit";
-import { createRootStore } from "../db/registered-roots";
-import {
-  readEntitySettings,
-  removeApplicationRegistration,
-  saveApplicationRegistration,
-  saveProjectPreferences,
-} from "../db/application-registration";
 import { discoverApplications } from "../software/application-discovery";
-import { createScopeStore, type ScopeAddition } from "../db/scopes";
-import { getDatabase } from "../db/database";
-import { createMemoryStore } from "../db/memory";
-import {
-  DEFAULT_SCOPE_ALIAS,
-  ensureProposedDefaultDirectory,
-} from "../files/default-scope";
-import { performFileSurface } from "../files/file-surface";
-import { operationSession } from "../files/mutation-ports";
-import { decideOperation, reviewOperation } from "../files/mutation-plan";
-import { aliasFromFolderName, isProtectedLocation } from "../files/path-policy";
-import {
-  analyzeFolder,
-  importFolderProjects,
-  applyImportedProjectPreferences,
-  updateFolderSettings,
-} from "../files/folder-import";
-import { saveProjectImportSettings } from "../db/project-import-settings";
-import { consumePick, rememberPick } from "../files/picked-folders";
-import { describeExistingPath } from "../files/windows-containment";
-import { estimateContextMeters } from "../runtime/context-estimate";
-import { executeLocalCommand } from "../runtime/local-command";
-import { routeUtterance, parseLocalCommand } from "../../shared/local-commands";
-import { turnController } from "../runtime/controller-service";
-import { turnDispatcher } from "../runtime/queue-service";
-import { randomUUID } from "node:crypto";
-import { liveTurnForThread } from "../runtime/turn-session";
-import { routingInventoryForDatabase } from "../files/routing-inventory";
-import { configureObsidianDataDirectory } from "../obsidian/config";
-import { executeMemorySettingsAction } from "../runtime/memory-settings";
-import { inferenceMeasurements } from "../runtime/prompt-eval";
-import { registerAssistantStreamIpc } from "./chat-stream";
 import { registerAttachmentIpc } from "./attachment-ipc";
+import { registerAssistantStreamIpc } from "./chat-stream";
 import { registerQueueIpc } from "./queue-ipc";
 import { registerServiceIpc } from "./service-ipc";
 import { registerVoiceIpc } from "./voice-ipc";
+import { registerWindowIpc } from "./window-ipc";
 
 function assertTrustedWindow(
   event: IpcMainInvokeEvent,
@@ -133,7 +131,6 @@ function assertTrustedWindow(
 }
 
 export function registerIpc(mainWindow: BrowserWindow): void {
-  configureObsidianDataDirectory(app.getPath("userData"));
   registerWindowIpc(mainWindow);
   registerQueueIpc(mainWindow);
   registerVoiceIpc(mainWindow);
@@ -373,7 +370,6 @@ export function registerIpc(mainWindow: BrowserWindow): void {
     const database = getDatabase();
     const registry = registryForDatabase(database);
     return {
-      web: readWebSettings(database),
       metadata: registry.metadata?.() ?? [],
       nodes: registry.nodes(),
       defaults: registryForDatabase(database, true).nodes(),
@@ -419,22 +415,17 @@ export function registerIpc(mainWindow: BrowserWindow): void {
       payload,
     );
   });
-  ipcMain.handle(IPC_CHANNELS.commandsReset, (event, payload: unknown) => {
-    assertTrustedWindow(event, mainWindow);
-    const data = z
-      .object({ nodeId: commandPathSchema })
-      .strict()
-      .parse(payload);
-    resetCommandOverrides(getDatabase(), data.nodeId);
-    if (data.nodeId === "web")
-      getDatabase()
-        .prepare("DELETE FROM command_module_settings WHERE module_id = 'web'")
-        .run();
-  });
-  ipcMain.handle(IPC_CHANNELS.commandsWebSave, (event, payload: unknown) => {
-    assertTrustedWindow(event, mainWindow);
-    return saveWebSettings(getDatabase(), payload);
-  });
+  ipcMain.handle(
+    IPC_CHANNELS.commandsReset,
+    async (event, payload: unknown) => {
+      assertTrustedWindow(event, mainWindow);
+      const data = z
+        .object({ nodeId: commandPathSchema })
+        .strict()
+        .parse(payload);
+      resetCommandOverrides(getDatabase(), data.nodeId);
+    },
+  );
 
   ipcMain.handle(IPC_CHANNELS.contextEstimate, (event, payload: unknown) => {
     assertTrustedWindow(event, mainWindow);

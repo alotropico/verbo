@@ -4,7 +4,7 @@ import { cpus, totalmem } from "node:os";
 import { it } from "vitest";
 import { DEFAULT_CHAT_SETTINGS, OLLAMA_BASE_URL } from "../../shared/config";
 import { chatSettingsSchema } from "../../shared/storage-ipc";
-import { createRegistry } from "../capabilities/registry";
+import { createRegistry } from "../test-support/registry";
 import { createRequestGate } from "../runtime/request-gate";
 import { createWorkflowRegistry } from "../workflows/registry";
 import { routeGlobalRequest } from "./routing";

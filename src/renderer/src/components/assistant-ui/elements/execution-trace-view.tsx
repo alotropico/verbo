@@ -32,6 +32,7 @@ import {
   type TraceOutcome,
 } from "@shared/execution-trace";
 import { cx } from "@/lib/cx";
+import { copyText } from "@/lib/clipboard";
 import { readClock, subscribeClock } from "@/runtime/relative-time";
 import { PendingIndicator } from "./pending-indicator";
 import { TooltipIconButton } from "./tooltip-icon-button";
@@ -221,7 +222,7 @@ function TraceRow({
                           tooltip={`Copy ${field.label.toLowerCase()}`}
                           aria-label={`Copy ${field.label}`}
                           onClick={() => {
-                            void window.verbo.clipboard.writeText(field.value);
+                            void copyText(field.value);
                           }}
                         >
                           <CopyIcon size={12} aria-hidden />

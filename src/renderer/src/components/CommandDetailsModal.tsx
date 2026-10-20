@@ -46,9 +46,9 @@ function DetailsCode({
           <ActionIcon
             variant="subtle"
             aria-label={`Copy ${label.toLowerCase()} for ${commandId}`}
-            onClick={() => {
+            onClick={async () => {
               try {
-                window.verbo.clipboard.writeText(value);
+                await window.verbo.clipboard.writeText(value);
                 setCopied(true);
                 setError("");
               } catch {

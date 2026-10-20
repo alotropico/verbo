@@ -50,3 +50,6 @@ voice-service/assets/*
 !voice-service/assets/README.md
 
 node_modules/
+
+# Prepared standalone Alo bundle (recreated by alo:prepare)
+resources/alo/

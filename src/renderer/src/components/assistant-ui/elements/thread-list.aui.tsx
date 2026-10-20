@@ -9,7 +9,11 @@ import {
   Skeleton,
   type ButtonProps,
 } from "@mantine/core";
-import { useAdvancedExport } from "@/runtime/advanced-export";
+import {
+  CHAT_TRANSFER_ACTIONS,
+  transferChat,
+  type ChatTransferAction,
+} from "@/lib/chat-transfer";
 import { publishCommandStatus } from "@/runtime/command-status";
 import { readThreadInteraction } from "@/runtime/latest-exchange";
 import {
@@ -21,14 +25,7 @@ import { SettingsPanel } from "@/components/SettingsPanel";
 import { useChatSelection } from "@/components/chat-selection-context";
 import { cx } from "@/lib/cx";
 import a11y from "@/lib/a11y.module.css";
-import {
-  chatExportAdvanced,
-  chatExportFilename,
-  chatExportJson,
-  chatExportMarkdown,
-  readExportMessages,
-  type ChatExport,
-} from "@shared/chat-export";
+import { readExportMessages, type ChatExport } from "@shared/chat-export";
 import { chatPlaceholderTitle } from "@shared/thread-title";
 import { savedRemoteThreadId } from "@shared/thread-identity";
 import { PendingIndicator } from "./pending-indicator";
@@ -47,8 +44,8 @@ import {
 } from "@assistant-ui/react";
 import {
   ArchiveIcon,
-  FileJsonIcon,
-  FileTextIcon,
+  CopyIcon,
+  DownloadIcon,
   MoreHorizontalIcon,
   PencilIcon,
   PlusIcon,
@@ -410,6 +407,7 @@ export const ThreadListItem: FC = () => {
         ? { "data-active": undefined, "aria-current": undefined }
         : {})}
       data-selected={selected ? "true" : undefined}
+      data-running={isRunning || undefined}
       className={styles.itemRoot}
       onKeyDown={onItemKeyDown}
     >
@@ -440,14 +438,6 @@ export const ThreadListItem: FC = () => {
             showChat();
           }}
         >
-          {isRunning && (
-            <span
-              data-slot="aui_thread-list-item-running"
-              className={styles.runningSlot}
-            >
-              <PendingIndicator label="Working" size="compact" />
-            </span>
-          )}
           <span className={styles.itemBody}>
             <span
               data-slot="aui_thread-list-item-title"
@@ -476,7 +466,10 @@ export const ThreadListItem: FC = () => {
           {isRunning && <span className={a11y.srOnly}>Running</span>}
         </ThreadListItemPrimitive.Trigger>
       )}
-      <ThreadListItemMore onRename={() => setIsRenaming(true)} />
+      <ThreadListItemMore
+        isRunning={isRunning}
+        onRename={() => setIsRenaming(true)}
+      />
     </ThreadListItemPrimitive.Root>
   );
 };
@@ -548,20 +541,8 @@ const ThreadListItemRename: FC<{
   );
 };
 
-const downloadText = (filename: string, mime: string, text: string): void => {
-  const url = URL.createObjectURL(new Blob([text], { type: mime }));
-  const link = document.createElement("a");
-  link.href = url;
-  link.download = filename;
-  link.rel = "noopener";
-  document.body.appendChild(link);
-  link.click();
-  link.remove();
-  setTimeout(() => URL.revokeObjectURL(url), 0);
-};
-
-const exportChatFile = async (
-  kind: "json" | "md" | "advanced",
+const transferSavedChat = async (
+  action: ChatTransferAction,
   item: {
     id: string;
     remoteId: string | undefined;
@@ -583,35 +564,28 @@ const exportChatFile = async (
     headId: loaded.headId,
     messages: readExportMessages(loaded.messages),
   };
-  const advanced = kind === "advanced";
-  const interaction = advanced
-    ? (readThreadInteraction(chat.id) ?? readThreadInteraction(item.id))
-    : null;
-  const text = advanced
-    ? chatExportAdvanced(chat, interaction)
-    : kind === "json"
-      ? chatExportJson(chat)
-      : chatExportMarkdown(chat);
-  const extension = advanced || kind === "json" ? "json" : "md";
-  const mime =
-    extension === "json" ? "application/json" : "text/markdown;charset=utf-8";
-  downloadText(chatExportFilename(title, extension), mime, text);
+  transferChat(
+    chat,
+    action,
+    readThreadInteraction(chat.id) ?? readThreadInteraction(item.id),
+  );
 };
 
-const ThreadListItemMore: FC<{ onRename: () => void }> = ({ onRename }) => {
+const ThreadListItemMore: FC<{ onRename: () => void; isRunning: boolean }> = ({
+  onRename,
+  isRunning,
+}) => {
   const aui = useAui();
   const confirm = useConfirmation();
-  const advanced = useAdvancedExport();
-
-  const exportAs = (kind: "json" | "md" | "advanced"): void => {
+  const transfer = (action: ChatTransferAction): void => {
     const item = aui.threadListItem.getState();
-    void exportChatFile(kind, item).catch((error: unknown) => {
+    void transferSavedChat(action, item).catch((error: unknown) => {
       publishCommandStatus({
         status: "error",
         summary:
           error instanceof Error
             ? error.message
-            : "Could not export that chat.",
+            : "Could not read that chat for copying or export.",
       });
     });
   };
@@ -628,6 +602,14 @@ const ThreadListItemMore: FC<{ onRename: () => void }> = ({ onRename }) => {
           />
         }
       >
+        {isRunning && (
+          <span
+            data-slot="aui_thread-list-item-running"
+            className={styles.runningSlot}
+          >
+            <PendingIndicator label="Working" size="compact" />
+          </span>
+        )}
         <MoreHorizontalIcon className={styles.moreIcon} />
         <span className={a11y.srOnly}>More options</span>
       </ThreadListItemMorePrimitive.Trigger>
@@ -646,35 +628,21 @@ const ThreadListItemMore: FC<{ onRename: () => void }> = ({ onRename }) => {
           <PencilIcon className={styles.moreItemIcon} />
           Rename
         </ThreadListItemMorePrimitive.Item>
-        {advanced ? (
+        {CHAT_TRANSFER_ACTIONS.map((action) => (
           <ThreadListItemMorePrimitive.Item
+            key={action.id}
             data-slot="aui_thread-list-item-more-item"
             className={styles.moreItem}
-            onSelect={() => exportAs("advanced")}
+            onSelect={() => transfer(action)}
           >
-            <FileJsonIcon className={styles.moreItemIcon} />
-            Export objects
+            {action.mode === "copy" ? (
+              <CopyIcon className={styles.moreItemIcon} />
+            ) : (
+              <DownloadIcon className={styles.moreItemIcon} />
+            )}
+            {action.label}
           </ThreadListItemMorePrimitive.Item>
-        ) : (
-          <ThreadListItemMorePrimitive.Item
-            data-slot="aui_thread-list-item-more-item"
-            className={styles.moreItem}
-            onSelect={() => exportAs("json")}
-          >
-            <FileJsonIcon className={styles.moreItemIcon} />
-            Export as JSON
-          </ThreadListItemMorePrimitive.Item>
-        )}
-        {advanced ? null : (
-          <ThreadListItemMorePrimitive.Item
-            data-slot="aui_thread-list-item-more-item"
-            className={styles.moreItem}
-            onSelect={() => exportAs("md")}
-          >
-            <FileTextIcon className={styles.moreItemIcon} />
-            Export as MD
-          </ThreadListItemMorePrimitive.Item>
-        )}
+        ))}
         <ThreadListItemPrimitive.Archive
           render={
             <ThreadListItemMorePrimitive.Item

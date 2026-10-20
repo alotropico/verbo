@@ -174,7 +174,8 @@
 
 .itemRoot:hover .trigger,
 .itemRoot:has(:focus-visible) .trigger,
-.itemRoot:has([data-state="open"]) .trigger {
+.itemRoot:has([data-state="open"]) .trigger,
+.itemRoot[data-running] .trigger {
   padding-inline-end: rem(36px);
 }
 
@@ -190,10 +191,8 @@
 .runningSlot {
   align-items: center;
   display: inline-flex;
-  flex-shrink: 0;
-  inline-size: rem(12px);
   justify-content: center;
-  margin-inline-end: rem(6px);
+  pointer-events: none;
 }
 
 .itemBody {
@@ -249,6 +248,28 @@
 .itemRoot[data-active] .moreTrigger,
 .moreTrigger[data-state="open"] {
   opacity: 1;
+}
+
+.itemRoot[data-running] .moreTrigger {
+  opacity: 1;
+}
+
+.itemRoot[data-running] .moreIcon {
+  display: none;
+}
+
+.itemRoot[data-running]:is(
+    :hover,
+    :has(:focus-visible),
+    :has([aria-expanded="true"])
+  )
+  .moreIcon {
+  display: block;
+}
+
+.itemRoot:is(:hover, :has(:focus-visible), :has([aria-expanded="true"]))
+  .runningSlot {
+  display: none;
 }
 
 .moreIcon {
