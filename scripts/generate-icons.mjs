@@ -12,10 +12,12 @@ const theme = await readFile(
   "utf8",
 );
 const darkTheme = theme.slice(theme.indexOf(".dark,"));
-const colors = {};
+const brand = theme.match(/--brand:\s*(#[\da-f]{6})\s*;/iu)?.[1];
+if (!brand) throw new Error("Missing hex brand token: --brand");
+const colors = { brand };
 
-// Export the existing OKLCH theme colors as sRGB for native icon formats.
-for (const token of ["primary", "card"]) {
+// Export the existing OKLCH background as sRGB for native icon formats.
+for (const token of ["card"]) {
   const match = darkTheme.match(
     new RegExp(`--${token}:\\s*oklch\\(([^)]+)\\)`),
   );
@@ -48,7 +50,7 @@ for (const token of ["primary", "card"]) {
 
 const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="${mark.viewBox}" fill="none">
   <rect x="1" y="1" width="30" height="30" rx="7" fill="${colors.card}"/>
-  <path d="${mark.path}" transform="translate(2 2) scale(.875)" stroke="${colors.primary}" stroke-width="${mark.strokeWidth}" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="${mark.path}" transform="translate(2 2) scale(.875)" stroke="${colors.brand}" stroke-width="${mark.strokeWidth}" stroke-linecap="round" stroke-linejoin="round"/>
 </svg>
 `;
 const buildDir = join(root, "build");
