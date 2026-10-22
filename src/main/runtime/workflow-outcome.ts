@@ -1,26 +1,68 @@
 import type { DatabaseSync } from "node:sqlite";
 import { z } from "zod";
-import {
-  actionResultSchema,
-  type ActionResult,
-} from "../../shared/action-contract";
+import { actionResultSchema, type ActionResult } from "../../shared/action-contract";
 import { evaluateTrace } from "../../shared/execution-trace";
-import {
-  verifiedOutcomeSchema,
-  type VerifiedOutcome,
-} from "../../shared/workflows";
+import { verifiedOutcomeSchema, type VerifiedOutcome } from "../../shared/workflows";
 import { aloExecutionReceipts } from "../alo/data-client";
+import { withAloSignal } from "../alo/client";
 import type { WorkflowExecution } from "../db/workflow-executions";
 
 const LISTED_PATHS = "Listed paths:\n";
+const VERIFIED_FACTS = "Verified facts:\n";
+
+function verifiedReadFacts(result: ActionResult): string[] {
+  try {
+    const detail: unknown = JSON.parse(result.detail ?? "{}");
+    if (result.action === "files.read") {
+      const parsed = z.object({ text: z.string() }).safeParse(detail);
+      return parsed.success ? [parsed.data.text] : [];
+    }
+    if (result.action === "environment.platform") {
+      const parsed = z.object({ platform: z.string(), arch: z.string(), release: z.string() }).safeParse(detail);
+      return parsed.success ? Object.entries(parsed.data).map(([key, value]) => `${key}: ${value}`) : [];
+    }
+    if (result.action === "environment.paths") {
+      const entries = z.array(z.object({ name: z.string(), path: z.string() }));
+      const parsed = z.object({ folders: entries.default([]), aliases: entries.default([]) }).safeParse(detail);
+      return parsed.success ? [...parsed.data.folders, ...parsed.data.aliases].map((entry) => `${entry.name}: ${entry.path}`) : [];
+    }
+    if (["files.hash", "files.compare", "files.stat"].includes(result.action)) {
+      const parsed = z.record(z.string(), z.unknown()).safeParse(detail);
+      return parsed.success ? [JSON.stringify(parsed.data, null, 2)] : [];
+    }
+    if (result.action === "files.inspect_image") {
+      const parsed = z
+        .object({
+          items: z.array(
+            z.object({
+              path: z.string(),
+              format: z.string(),
+              width: z.number(),
+              height: z.number(),
+              bytes: z.number(),
+            }),
+          ),
+        })
+        .safeParse(detail);
+      return parsed.success ? [JSON.stringify(parsed.data, null, 2)] : [];
+    }
+  } catch {
+    /* Only verified, decodable receipt data can supply report facts. */
+  }
+  return [];
+}
 
 /** Preserve query facts from verified receipts instead of trusting model prose. */
 export function commandResultFindings(result: ActionResult): string[] {
   const findings = [result.summary.slice(0, 2000)];
-  if (
-    !["files.list", "files.search", "files.next"].includes(result.action) ||
-    !["success", "partial"].includes(result.status)
-  )
+  if (["success", "partial"].includes(result.status)) {
+    for (const fact of verifiedReadFacts(result)) {
+      if (!fact) continue;
+      const bounded = fact.length > 1800 ? `${fact.slice(0, 1700)} [excerpt; remaining content is in the receipt]` : fact;
+      findings.push(VERIFIED_FACTS + bounded);
+    }
+  }
+  if (!["files.list", "files.search", "files.next"].includes(result.action) || !["success", "partial"].includes(result.status))
     return findings;
   try {
     const detail = JSON.parse(result.detail ?? "{}");
@@ -28,10 +70,7 @@ export function commandResultFindings(result: ActionResult): string[] {
       ? detail.paths
       : Array.isArray(detail.items)
         ? detail.items
-            .filter(
-              (item: { type?: string }) =>
-                item && ["directory", "file"].includes(item.type ?? ""),
-            )
+            .filter((item: { type?: string }) => item && ["directory", "file"].includes(item.type ?? ""))
             .map((item: { path?: unknown }) => item.path)
         : [];
     let group = LISTED_PATHS;
@@ -52,25 +91,14 @@ export function commandResultFindings(result: ActionResult): string[] {
 }
 
 /** Finished reads need no input for a completion statement or an extra summary. */
-export function isListingCompletionStatement(
-  result: ActionResult | undefined,
-  text: string,
-  request = "",
-): boolean {
-  if (
-    !result ||
-    result.status !== "success" ||
-    !["files.list", "files.search", "files.next"].includes(result.action)
-  )
-    return false;
+export function isListingCompletionStatement(result: ActionResult | undefined, text: string, request = ""): boolean {
+  if (!result || result.status !== "success" || !["files.list", "files.search", "files.next"].includes(result.action)) return false;
   const trimmed = text.trim();
   const completion =
     /^(?:(?:the|all|your)\s+)?(?:(?:directory|directories|folder|folders|file|files|list|listing|query|search|task|work|request)\s+){0,3}(?:(?:is|are|has been|have been)\s+)?(?:complete|completed|done|finished|listed)\b/iu.exec(
       trimmed,
     );
-  const completionStatement =
-    completion &&
-    !trimmed.slice(completion[0].length).trimStart().startsWith("?");
+  const completionStatement = completion && !trimmed.slice(completion[0].length).trimStart().startsWith("?");
   // A summary offer is additional work, not a parameter needed by the completed query.
   // Keep it when the user explicitly requested a question or confirmation.
   const summaryOffer =
@@ -87,54 +115,30 @@ export function isListingCompletionStatement(
   }
 }
 
-export function freezeWorkflowOutcome(
-  database: DatabaseSync,
-  execution: WorkflowExecution,
-): VerifiedOutcome {
-  const receipts = aloExecutionReceipts(
-    database,
-    execution.id,
-    execution.threadId,
-  ).map((receipt) => ({
-    id: receipt.id,
-    result: actionResultSchema.parse(receipt.result),
-  }));
-  const attempts = database
-    .prepare(
-      "SELECT state,receipt_id FROM workflow_action_attempts WHERE execution_id=?",
-    )
-    .all(execution.id);
+export async function freezeWorkflowOutcome(database: DatabaseSync, execution: WorkflowExecution): Promise<VerifiedOutcome> {
+  const receipts = (await withAloSignal(undefined, async () => await aloExecutionReceipts(database, execution.id, execution.threadId))).map(
+    (receipt) => ({
+      id: receipt.id,
+      result: actionResultSchema.parse(receipt.result),
+    }),
+  );
+  const attempts = database.prepare("SELECT state,receipt_id FROM workflow_action_attempts WHERE execution_id=?").all(execution.id);
   const uncertain = [
     ...new Set(
       attempts
-        .filter(
-          (attempt) =>
-            attempt.state === "dispatched" || attempt.state === "uncertain",
-        )
+        .filter((attempt) => attempt.state === "dispatched" || attempt.state === "uncertain")
         .map((attempt) => String(attempt.receipt_id)),
     ),
   ];
-  const failures = receipts.filter((receipt) =>
-    ["error", "denied", "not_supported", "cancelled"].includes(
-      receipt.result.status,
-    ),
-  );
+  const failures = receipts.filter((receipt) => ["error", "denied", "not_supported", "cancelled"].includes(receipt.result.status));
   const result = execution.checkpoint.result;
   const errors = failures.map(({ result }) => ({
     code: result.code ?? result.status,
     summary: result.summary.slice(0, 2000),
   }));
-  if (
-    result &&
-    result.status !== "succeeded" &&
-    result.status !== "awaiting_input" &&
-    !errors.some((error) => error.code === result.code)
-  )
+  if (result && result.status !== "succeeded" && result.status !== "awaiting_input" && !errors.some((error) => error.code === result.code))
     errors.push({ code: result.code, summary: result.summary });
-  const noEvidence =
-    execution.workflowId !== "conversational" &&
-    execution.status === "completed" &&
-    receipts.length === 0;
+  const noEvidence = execution.workflowId !== "conversational" && execution.status === "completed" && receipts.length === 0;
   if (noEvidence)
     errors.push({
       code: "no_verified_results",
@@ -147,9 +151,7 @@ export function freezeWorkflowOutcome(
       toolName: "actions.invoke",
       order,
       result: receipt.result,
-      uncertainAttempt:
-        uncertain.includes(receipt.id) &&
-        receipt.result.status !== "requires_confirmation",
+      uncertainAttempt: uncertain.includes(receipt.id) && receipt.result.status !== "requires_confirmation",
     })),
     workflow: {
       executionId: execution.id,
@@ -157,23 +159,26 @@ export function freezeWorkflowOutcome(
       status: execution.status,
     },
     clock: { assumeReady: true },
-    ...(result?.status === "awaiting_input"
-      ? { question: result.question.text }
-      : {}),
+    ...(result?.status === "awaiting_input" ? { question: result.question.text } : {}),
   });
   const root = trace.nodes.find((node) => node.kind === "workflow");
-  const status =
+  const stepBlocked =
+    receipts.length === 0 &&
+    (result?.status === "blocked" || result?.status === "not_supported");
+  const status: VerifiedOutcome["status"] =
     execution.status === "awaiting_input"
       ? "awaiting_input"
       : execution.status === "cancelled" || root?.outcome === "cancelled"
         ? "cancelled"
-        : root?.outcome === "succeeded"
-          ? "completed"
-          : root?.outcome === "partial"
-            ? "partial"
-            : root?.outcome === "failed"
-              ? "failed"
-              : "blocked";
+        : stepBlocked || root?.outcome === "blocked"
+          ? "blocked"
+          : root?.outcome === "succeeded"
+            ? "completed"
+            : root?.outcome === "partial"
+              ? "partial"
+              : execution.status === "failed" || root?.outcome === "failed"
+                ? "failed"
+                : "blocked";
   return Object.freeze(
     verifiedOutcomeSchema.parse({
       version: 1,
@@ -181,12 +186,8 @@ export function freezeWorkflowOutcome(
       workflowId: execution.workflowId,
       status,
       requestMessageId: execution.requestMessageId,
-      findings: receipts
-        .flatMap(({ result }) => commandResultFindings(result))
-        .slice(0, 30),
-      ...(result?.status === "awaiting_input"
-        ? { question: result.question }
-        : {}),
+      findings: receipts.flatMap(({ result }) => commandResultFindings(result)).slice(0, 30),
+      ...(result?.status === "awaiting_input" ? { question: result.question } : {}),
       receiptIds: receipts.map((receipt) => receipt.id),
       uncertainReceiptIds: uncertain,
       errors: errors.slice(0, 30),
@@ -202,35 +203,23 @@ export const presentationSchema = z
 export type WorkflowPresentation = z.infer<typeof presentationSchema>;
 
 export const PRESENTATION_INSTRUCTION =
-  "Write a short chat reply from this readable report. Use one to three paragraphs. Phrase the status, findings, errors, and question; do not invent effects, paths, or counts. If question is present, ask it verbatim. If uncertainty is true, say those effects are uncertain and will not be replayed. Do not include identifiers, receipt ids, execution ids, or step ids. Return JSON with only a text field.";
+  "Write a short chat reply from this readable report. Use one to three paragraphs. Phrase the status, findings, errors, and question; do not invent effects, paths, or counts. If question is present, ask it verbatim. If uncertainty is true, say those effects are uncertain and will not be replayed. If uncertainty is false, never mention uncertain effects or replay. Do not include identifiers, receipt ids, execution ids, or step ids. Return JSON with only a text field.";
 
 /** Admit phrasing that keeps the required question and leaks no diagnostic identifier. */
-export function validatePresentation(
-  outcome: VerifiedOutcome,
-  candidate: unknown,
-): string | undefined {
+export function validatePresentation(outcome: VerifiedOutcome, candidate: unknown): string | undefined {
   const parsed = presentationSchema.safeParse(candidate);
   if (!parsed.success) return;
   const text = parsed.data.text;
-  if (
-    /\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/i.test(
-      text,
-    )
-  )
-    return;
-  const identifiers = [
-    outcome.executionId,
-    ...outcome.receiptIds,
-    ...outcome.uncertainReceiptIds,
-  ].filter((id) => id.length >= 8);
-  if (identifiers.some((id) => text.toLowerCase().includes(id.toLowerCase())))
-    return;
+  if (/\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/i.test(text)) return;
+  const identifiers = [outcome.executionId, ...outcome.receiptIds, ...outcome.uncertainReceiptIds].filter((id) => id.length >= 8);
+  if (identifiers.some((id) => text.toLowerCase().includes(id.toLowerCase()))) return;
   if (outcome.question && !text.includes(outcome.question.text)) return;
   for (const finding of outcome.findings) {
-    if (!finding.startsWith(LISTED_PATHS)) continue;
+    const prefix = [LISTED_PATHS, VERIFIED_FACTS].find((prefix) => finding.startsWith(prefix));
+    if (!prefix) continue;
     if (
       finding
-        .slice(LISTED_PATHS.length)
+        .slice(prefix.length)
         .split("\n")
         .some((path) => !text.includes(path))
     )
@@ -247,13 +236,8 @@ export function readableReportInput(outcome: VerifiedOutcome): {
   question?: string;
   uncertainty: boolean;
 } {
-  const identifiers = [
-    outcome.executionId,
-    ...outcome.receiptIds,
-    ...outcome.uncertainReceiptIds,
-  ];
-  const visible = (value: string): boolean =>
-    !identifiers.some((id) => id.length >= 8 && value.includes(id));
+  const identifiers = [outcome.executionId, ...outcome.receiptIds, ...outcome.uncertainReceiptIds];
+  const visible = (value: string): boolean => !identifiers.some((id) => id.length >= 8 && value.includes(id));
   return {
     status: outcome.status,
     findings: outcome.findings.filter(visible),
@@ -275,13 +259,9 @@ export function deterministicPresentation(outcome: VerifiedOutcome): string {
   return [
     status,
     ...outcome.findings,
-    ...outcome.errors
-      .filter((error) => !outcome.findings.includes(error.summary))
-      .map((error) => error.summary),
+    ...outcome.errors.filter((error) => !outcome.findings.includes(error.summary)).map((error) => error.summary),
     ...(outcome.uncertainReceiptIds.length
-      ? [
-          "Some dispatched effects are uncertain. Inspect their receipts before retrying; they will not be replayed automatically.",
-        ]
+      ? ["Some dispatched effects are uncertain. Inspect their receipts before retrying; they will not be replayed automatically."]
       : []),
     outcome.question?.text,
   ]

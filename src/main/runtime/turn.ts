@@ -1,20 +1,8 @@
-import {
-  actionResultSchema,
-  DEFAULT_TURN_LIMITS,
-  type ActionResult,
-} from "../../shared/action-contract";
+import { actionResultSchema, DEFAULT_TURN_LIMITS, type ActionResult } from "../../shared/action-contract";
 import { createProductionRegistry } from "../capabilities/catalog";
-import {
-  canonicalListArguments,
-  dispatchModelTool,
-  type ActionContext,
-  type CapabilityRegistry,
-} from "../capabilities/registry";
-import {
-  aggregateOllamaToolStream,
-  type AggregatedOllamaStream,
-  type AggregatedToolCall,
-} from "../services/ollama-tool-stream";
+import { withAloSignal } from "../alo/client";
+import { canonicalListArguments, dispatchModelTool, type ActionContext, type CapabilityRegistry } from "../capabilities/registry";
+import { aggregateOllamaToolStream, type AggregatedOllamaStream, type AggregatedToolCall } from "../services/ollama-tool-stream";
 import type { MemorySnapshot } from "../../shared/memory";
 import {
   buildTurnContext,
@@ -25,24 +13,14 @@ import {
   type ContextToolMessage,
 } from "./context-builder";
 import { USER_ABORT_NOTICE } from "../../shared/chat-ipc";
-import {
-  backendNoticeSchema,
-  type BackendNotice,
-} from "../../shared/backend-notice";
+import { backendNoticeSchema, type BackendNotice } from "../../shared/backend-notice";
 import { turnStopNotice } from "./turn-report";
 import { CHAT_REQUEST_PRIORITY, type RequestGate } from "./request-gate";
 import { stableCommandJson } from "../capabilities/preparation";
 import type { InferenceSource } from "../../shared/inference-metrics";
 import { inferenceMeasurements } from "./prompt-eval";
 
-export type TurnStop =
-  | "completed"
-  | "paused"
-  | "cancelled"
-  | "limit"
-  | "capacity"
-  | "no_progress"
-  | "failed";
+export type TurnStop = "completed" | "paused" | "cancelled" | "limit" | "capacity" | "no_progress" | "failed";
 
 export type TurnOutcome = {
   stop: TurnStop;
@@ -84,29 +62,17 @@ type ModelHooks = {
   onCompletion?: (chunk: unknown) => void;
 };
 
-type Model = (
-  messages: ContextMessage[],
-  hooks: ModelHooks,
-) => Promise<unknown[]>;
+type Model = (messages: ContextMessage[], hooks: ModelHooks) => Promise<unknown[]>;
 
-function toolKey(
-  registry: CapabilityRegistry,
-  name: string,
-  args: unknown,
-): string {
-  if (
-    name === "actions.invoke" &&
-    isRecord(args) &&
-    typeof args.name === "string"
-  ) {
-    const normalized = registry.normalize?.(
-      args.name,
-      isRecord(args.args) ? args.args : {},
-    ) ?? { name: args.name, args: args.args ?? {} };
+async function toolKey(registry: CapabilityRegistry, name: string, args: unknown): Promise<string> {
+  if (name === "actions.invoke" && isRecord(args) && typeof args.name === "string") {
+    const normalized = (await registry.normalize?.(args.name, isRecord(args.args) ? args.args : {})) ?? {
+      name: args.name,
+      args: args.args ?? {},
+    };
     return `${name}:${stableCommandJson(normalized)}`;
   }
-  if (name === "capabilities.list")
-    return `${name}:${stableCommandJson(canonicalListArguments(args))}`;
+  if (name === "capabilities.list") return `${name}:${stableCommandJson(canonicalListArguments(args))}`;
   return `${name}:${stableCommandJson(args)}`;
 }
 
@@ -114,18 +80,12 @@ function stalledSummary(results: readonly ActionResult[]): string {
   let blocker: string | undefined;
   for (const result of results) {
     if (result.action.startsWith("capabilities.")) continue;
-    if (result.code === "duplicate_feedback" || result.code === "unattempted")
-      continue;
+    if (result.code === "duplicate_feedback" || result.code === "unattempted") continue;
     if (result.status === "success" || result.status === "partial") {
       blocker = undefined;
       continue;
     }
-    if (
-      result.status === "error" ||
-      result.status === "denied" ||
-      result.status === "not_supported"
-    )
-      blocker = result.summary;
+    if (result.status === "error" || result.status === "denied" || result.status === "not_supported") blocker = result.summary;
   }
   return blocker ?? "The same tool request was repeated without new work.";
 }
@@ -147,10 +107,7 @@ function malformedCall(name: string): ActionResult {
   });
 }
 
-function assignedCall(
-  call: AggregatedToolCall,
-  rounds: number,
-): ContextToolCall {
+function assignedCall(call: AggregatedToolCall, rounds: number): ContextToolCall {
   return {
     id: call.id || `call-${rounds}-${call.index}`,
     name: call.name,
@@ -158,7 +115,11 @@ function assignedCall(
   };
 }
 
-export async function runTurn(input: {
+export function runTurn(input: Parameters<typeof runTurnImpl>[0]): ReturnType<typeof runTurnImpl> {
+  return withAloSignal(input.signal, () => runTurnImpl(input));
+}
+
+async function runTurnImpl(input: {
   userText: string;
   history: ContextMessage[];
   numCtx: number;
@@ -169,10 +130,7 @@ export async function runTurn(input: {
   registry?: CapabilityRegistry;
   signal?: AbortSignal;
   onUpdate?: (update: TurnUpdate) => void;
-  awaitDecision?: (
-    result: ActionResult,
-    call: ContextToolCall,
-  ) => Promise<ActionResult>;
+  awaitDecision?: (result: ActionResult, call: ContextToolCall) => Promise<ActionResult>;
   instructions?: string;
   terminalResult?: (result: ActionResult) => string | undefined;
   tools?: boolean;
@@ -232,11 +190,7 @@ export async function runTurn(input: {
   let wrote = false;
   input.onUpdate?.({ type: "trimmed", removedCount: built.removedCount });
 
-  const finish = (
-    stop: TurnStop,
-    content: string,
-    summary?: string,
-  ): TurnOutcome => {
+  const finish = (stop: TurnStop, content: string, summary?: string): TurnOutcome => {
     const outcome: TurnOutcome = {
       stop,
       content,
@@ -262,9 +216,7 @@ export async function runTurn(input: {
     }
     rounds += 1;
     let chunks: unknown[];
-    const measurement = input.inferenceSource
-      ? inferenceMeasurements.begin(input.inferenceSource)
-      : undefined;
+    const measurement = input.inferenceSource ? inferenceMeasurements.begin(input.inferenceSource) : undefined;
     try {
       input.budget?.inference();
       chunks = await input.gate.schedule(
@@ -301,22 +253,11 @@ export async function runTurn(input: {
       if (aggregated.content) {
         input.onUpdate?.({ type: "text", text: aggregated.content });
       }
-      return finish(
-        "completed",
-        aggregated.content,
-        wrote ? undefined : silentReply(aggregated),
-      );
+      return finish("completed", aggregated.content, wrote ? undefined : silentReply(aggregated));
     }
 
-    const toolCalls = aggregated.toolCalls.map((call) =>
-      assignedCall(call, rounds),
-    );
-    if (input.tools === false)
-      return finish(
-        "failed",
-        "",
-        "A tool-free invocation returned forbidden tool output.",
-      );
+    const toolCalls = aggregated.toolCalls.map((call) => assignedCall(call, rounds));
+    if (input.tools === false) return finish("failed", "", "A tool-free invocation returned forbidden tool output.");
     input.onUpdate?.({
       type: "assistant_tools",
       content: "",
@@ -354,8 +295,7 @@ export async function runTurn(input: {
         summary,
       });
     const settleRemaining = (start: number, summary: string): void => {
-      for (const rest of toolCalls.slice(start))
-        pushTool(rest, { ...closed(rest, summary), code: "unattempted" });
+      for (const rest of toolCalls.slice(start)) pushTool(rest, { ...closed(rest, summary), code: "unattempted" });
     };
 
     for (let index = 0; index < toolCalls.length; index += 1) {
@@ -366,22 +306,20 @@ export async function runTurn(input: {
         return finish("cancelled", "", USER_ABORT_NOTICE);
       }
       if (toolRequests >= DEFAULT_TURN_LIMITS.maxToolRequests) {
-        settleRemaining(
-          index,
-          "The tool request limit was reached before this call.",
-        );
+        settleRemaining(index, "The tool request limit was reached before this call.");
         return finish("limit", "", "The turn reached the tool request limit.");
       }
-      const key = toolKey(registry, call.name, call.arguments);
+      let key: string;
+      try {
+        key = await toolKey(registry, call.name, call.arguments);
+      } catch (error) {
+        if (!input.signal?.aborted) throw error;
+        settleRemaining(index, "The turn was cancelled before this call.");
+        return finish("cancelled", "", USER_ABORT_NOTICE);
+      }
       repeats = key === previousKey ? repeats + 1 : 1;
-      const repeatedDiscovery =
-        repeats === 1 &&
-        call.name.startsWith("capabilities.") &&
-        seenDiscovery.has(key);
-      const repeatedFailure =
-        repeats === 1 &&
-        call.name === "actions.invoke" &&
-        failedInvokes.has(key);
+      const repeatedDiscovery = repeats === 1 && call.name.startsWith("capabilities.") && seenDiscovery.has(key);
+      const repeatedFailure = repeats === 1 && call.name === "actions.invoke" && failedInvokes.has(key);
       if (repeats >= 3 || repeatedDiscovery || repeatedFailure) {
         settleRemaining(index, "The repeated request was not attempted again.");
         return finish("no_progress", "", stalledSummary(results));
@@ -392,22 +330,11 @@ export async function runTurn(input: {
           pushTool(call, {
             ...previousResult,
             code: "duplicate_feedback",
-            summary:
-              `Previous result retained; no new execution. ${previousResult.summary}`.slice(
-                0,
-                4000,
-              ),
+            summary: `Previous result retained; no new execution. ${previousResult.summary}`.slice(0, 4000),
           })
         ) {
-          settleRemaining(
-            index + 1,
-            "The context budget was reached before this call.",
-          );
-          return finish(
-            "capacity",
-            "",
-            "The tool results exceed the context budget.",
-          );
+          settleRemaining(index + 1, "The context budget was reached before this call.");
+          return finish("capacity", "", "The tool results exceed the context budget.");
         }
         continue;
       }
@@ -428,17 +355,13 @@ export async function runTurn(input: {
           action: call.name || "tool",
           status: "error",
           code: "interrupted",
-          summary:
-            "The call was interrupted. Inspect recorded receipts before retrying effects.",
+          summary: "The call was interrupted. Inspect recorded receipts before retrying effects.",
         });
         settleRemaining(index + 1, "The turn stopped before this call.");
         return finish(
           input.signal?.aborted ? "cancelled" : "failed",
           "",
-          (error instanceof Error ? error.message : "Command failed").slice(
-            0,
-            500,
-          ),
+          (error instanceof Error ? error.message : "Command failed").slice(0, 500),
         );
       }
       if (result.status === "requires_confirmation") {
@@ -451,58 +374,27 @@ export async function runTurn(input: {
         if (!input.awaitDecision) {
           pushTool(call, result);
           settleRemaining(index + 1, "A prior call is awaiting confirmation.");
-          return finish(
-            "paused",
-            "",
-            "A mutation is waiting for confirmation.",
-          );
+          return finish("paused", "", "A mutation is waiting for confirmation.");
         }
         try {
           result = await input.awaitDecision(result, call);
         } catch (error) {
           const cancelled = input.signal?.aborted || isAbort(error);
-          pushTool(
-            call,
-            closed(
-              call,
-              cancelled
-                ? USER_ABORT_NOTICE
-                : "Confirmation could not settle; inspect the operation receipt.",
-            ),
-          );
+          pushTool(call, closed(call, cancelled ? USER_ABORT_NOTICE : "Confirmation could not settle; inspect the operation receipt."));
           settleRemaining(index + 1, "The turn stopped before this call.");
-          return finish(
-            cancelled ? "cancelled" : "failed",
-            "",
-            cancelled ? USER_ABORT_NOTICE : "Confirmation failed.",
-          );
+          return finish(cancelled ? "cancelled" : "failed", "", cancelled ? USER_ABORT_NOTICE : "Confirmation failed.");
         }
       }
       if (pushTool(call, result)) {
-        settleRemaining(
-          index + 1,
-          "The context budget was reached before this call.",
-        );
-        return finish(
-          "capacity",
-          "",
-          "The required instructions, user message, and tool results do not fit the context budget.",
-        );
+        settleRemaining(index + 1, "The context budget was reached before this call.");
+        return finish("capacity", "", "The required instructions, user message, and tool results do not fit the context budget.");
       }
-      if (
-        call.name === "actions.invoke" &&
-        (result.status === "error" ||
-          result.status === "denied" ||
-          result.status === "not_supported")
-      )
+      if (call.name === "actions.invoke" && (result.status === "error" || result.status === "denied" || result.status === "not_supported"))
         failedInvokes.add(key);
       previousResult = result;
       const terminal = input.terminalResult?.(result);
       if (terminal !== undefined) {
-        settleRemaining(
-          index + 1,
-          "The step reached a terminal command result before this call.",
-        );
+        settleRemaining(index + 1, "The step reached a terminal command result before this call.");
         return finish("completed", terminal);
       }
     }

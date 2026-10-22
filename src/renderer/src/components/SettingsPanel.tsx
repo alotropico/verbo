@@ -1,18 +1,10 @@
-import {
-  ActionIcon,
-  Button,
-  Group,
-  SimpleGrid,
-  Stack,
-  Switch,
-  Tabs,
-  Text,
-} from "@mantine/core";
+import { ActionIcon, Button, Group, SimpleGrid, Stack, Switch, Tabs, Text } from "@mantine/core";
 import {
   ArrowLeftIcon,
   BookmarkIcon,
   BrainCircuitIcon,
   FolderOpenIcon,
+  GlobeIcon,
   MicIcon,
   SlidersHorizontalIcon,
   TerminalIcon,
@@ -20,26 +12,10 @@ import {
 } from "lucide-react";
 import { useEffect, useState, type ReactElement } from "react";
 import type { ChatSettings } from "@shared/config";
-import {
-  contextChoices,
-  legacyTemperatureNotice,
-  sliderTemperature,
-  type SettingsRecovery,
-} from "@shared/settings-recovery";
-import {
-  DEFAULT_VOICE_SETTINGS,
-  VOICE_SETTINGS_EVENT,
-  type VoiceSettings,
-} from "@shared/voice-settings";
-import {
-  useSettingsAutosave,
-  useSettingsDraft,
-  useSettingsRef,
-} from "@/hooks/use-settings-draft";
-import {
-  useAdvancedExport,
-  writeAdvancedExport,
-} from "@/runtime/advanced-export";
+import { contextChoices, legacyTemperatureNotice, sliderTemperature, type SettingsRecovery } from "@shared/settings-recovery";
+import { DEFAULT_VOICE_SETTINGS, VOICE_SETTINGS_EVENT, type VoiceSettings } from "@shared/voice-settings";
+import { useSettingsAutosave, useSettingsDraft, useSettingsRef } from "@/hooks/use-settings-draft";
+import { useAdvancedExport, writeAdvancedExport } from "@/runtime/advanced-export";
 import { SettingsSessionProvider } from "./SettingsSessionProvider";
 import { ChoiceInput } from "./ChoiceInput";
 import { SettingsLabel } from "./SettingsLabel";
@@ -47,11 +23,13 @@ import { SettingsSection } from "./SettingsSection";
 import { SettingsSlider } from "./SettingsSlider";
 import { ListeningSettings, SpeechSettings } from "./VoiceSettings";
 import { ActionsSettings } from "./ActionsSettings";
+import { WebSettings } from "./WebSettings";
 import { FileSettings } from "./FileSettings";
 import { AutosaveStatus } from "./AutosaveStatus";
 import { StatusMessage } from "./StatusMessage";
 import { useSettingsNavigation } from "./settings-navigation-context";
 import styles from "./SettingsPanel.module.css";
+import { useSettingsSession } from "@/hooks/settings-session-context";
 
 export function SettingsPanel(): ReactElement {
   const { openSettings, opened } = useSettingsNavigation();
@@ -79,50 +57,37 @@ function ModelSettings({ report }: { report: SettingsRecovery }): ReactElement {
   const [models, setModels] = useState<string[]>([]);
   const [error, setError] = useState("");
   const baselineRef = useSettingsRef("model/baseline", report.settings);
+  const autosave = useSettingsAutosave<Partial<ChatSettings>>(
+    "model/save",
+    async (patch) => {
+      const saved = await window.verbo.settings.patch(patch);
+      window.dispatchEvent(new CustomEvent("verbo:settings-changed", { detail: saved }));
+    },
+    (previous, next) => ({ ...previous, ...next }),
+    report.settings,
+  );
   useEffect(() => {
     const changed = (event: Event): void => {
       const incoming = (event as CustomEvent<ChatSettings>).detail;
       if (!incoming) return;
       const previous = baselineRef.current;
       setDraft((current) => ({
-        model:
-          current.model === previous.model ? incoming.model : current.model,
-        think:
-          current.think === previous.think ? incoming.think : current.think,
-        temperature:
-          current.temperature === previous.temperature
-            ? incoming.temperature
-            : current.temperature,
-        numCtx:
-          current.numCtx === previous.numCtx ? incoming.numCtx : current.numCtx,
-        keepAlive:
-          current.keepAlive === previous.keepAlive
-            ? incoming.keepAlive
-            : current.keepAlive,
+        model: current.model === previous.model ? incoming.model : current.model,
+        think: current.think === previous.think ? incoming.think : current.think,
+        temperature: current.temperature === previous.temperature ? incoming.temperature : current.temperature,
+        numCtx: current.numCtx === previous.numCtx ? incoming.numCtx : current.numCtx,
+        keepAlive: current.keepAlive === previous.keepAlive ? incoming.keepAlive : current.keepAlive,
       }));
       baselineRef.current = incoming;
+      autosave.controller.acceptBaseline(incoming);
     };
     window.addEventListener("verbo:settings-changed", changed);
     void window.verbo.settings
       .get()
-      .then((next) =>
-        changed(
-          new CustomEvent("verbo:settings-changed", { detail: next.settings }),
-        ),
-      )
+      .then((next) => changed(new CustomEvent("verbo:settings-changed", { detail: next.settings })))
       .catch(() => setError("Could not refresh model settings."));
     return () => window.removeEventListener("verbo:settings-changed", changed);
-  }, [baselineRef, setDraft]);
-  const autosave = useSettingsAutosave<Partial<ChatSettings>>(
-    "model/save",
-    async (patch) => {
-      const saved = await window.verbo.settings.patch(patch);
-      window.dispatchEvent(
-        new CustomEvent("verbo:settings-changed", { detail: saved }),
-      );
-    },
-    (previous, next) => ({ ...previous, ...next }),
-  );
+  }, [baselineRef, setDraft, autosave.controller]);
   useEffect(() => {
     void window.verbo.ollama
       .status()
@@ -138,17 +103,11 @@ function ModelSettings({ report }: { report: SettingsRecovery }): ReactElement {
   };
   const modelData = [...new Set([...models, draft.model])].map((model) => ({
     value: model,
-    label:
-      models.length && !models.includes(model)
-        ? `${model} (not installed)`
-        : model,
+    label: models.length && !models.includes(model) ? `${model} (not installed)` : model,
   }));
   const notice = legacyTemperatureNotice(report.settings.temperature);
   return (
-    <SettingsSection
-      title="Model behavior"
-      description="Choose the model and tune how it responds."
-    >
+    <SettingsSection title="Model behavior" description="Choose the model and tune how it responds.">
       {report.issues.map((issue) => (
         <StatusMessage key={issue} display="outline" tone="warning">
           {issue}
@@ -164,19 +123,9 @@ function ModelSettings({ report }: { report: SettingsRecovery }): ReactElement {
           {error}
         </StatusMessage>
       ) : null}
-      <SimpleGrid
-        type="container"
-        cols={{ base: 1, "640px": 2 }}
-        spacing="md"
-        className={styles.formFields}
-      >
+      <SimpleGrid type="container" cols={{ base: 1, "640px": 2 }} spacing="md" className={styles.formFields}>
         <ChoiceInput
-          label={
-            <SettingsLabel
-              label="Model"
-              tip="Choose an installed Ollama model for your conversations."
-            />
-          }
+          label={<SettingsLabel label="Model" tip="Choose an installed Ollama model for your conversations." />}
           data={modelData}
           allowDeselect={false}
           searchable
@@ -188,10 +137,7 @@ function ModelSettings({ report }: { report: SettingsRecovery }): ReactElement {
         />
         <ChoiceInput
           label={
-            <SettingsLabel
-              label="Context window"
-              tip="How much conversation the model can use at once. Larger windows use more memory."
-            />
+            <SettingsLabel label="Context window" tip="How much conversation the model can use at once. Larger windows use more memory." />
           }
           data={contextChoices(draft.numCtx)}
           allowDeselect={false}
@@ -201,12 +147,7 @@ function ModelSettings({ report }: { report: SettingsRecovery }): ReactElement {
           }}
         />
         <Switch
-          label={
-            <SettingsLabel
-              label="Thinking mode"
-              tip="Let supported models reason before answering."
-            />
-          }
+          label={<SettingsLabel label="Thinking mode" tip="Let supported models reason before answering." />}
           checked={draft.think}
           onChange={(event) => change({ think: event.currentTarget.checked })}
         />
@@ -221,16 +162,15 @@ function ModelSettings({ report }: { report: SettingsRecovery }): ReactElement {
           onChange={(temperature) => change({ temperature })}
         />
       </SimpleGrid>
-      <AutosaveStatus
-        state={autosave.state}
-        retry={() => autosave.controller.retry()}
-      />
+      <AutosaveStatus state={autosave.state} retry={() => autosave.controller.retry()} />
     </SettingsSection>
   );
 }
 
 function ExportSettings(): ReactElement {
   const enabled = useAdvancedExport();
+  const [draft, setDraft] = useSettingsDraft("export/draft", enabled);
+  const autosave = useSettingsAutosave<boolean>("export/save", async (value) => writeAdvancedExport(value), undefined, enabled);
   return (
     <SettingsSection
       title="Copy and export"
@@ -243,9 +183,14 @@ function ExportSettings(): ReactElement {
             tip="Message copy and export include parts, tool calls, results, attachments, and the latest turn's model objects as JSON. This setting applies to message actions only."
           />
         }
-        checked={enabled}
-        onChange={(event) => writeAdvancedExport(event.currentTarget.checked)}
+        checked={draft}
+        onChange={(event) => {
+          const next = event.currentTarget.checked;
+          setDraft(next);
+          autosave.controller.schedule(next);
+        }}
       />
+      <AutosaveStatus state={autosave.state} retry={() => autosave.controller.retry()} />
     </SettingsSection>
   );
 }
@@ -260,30 +205,24 @@ export function SettingsPage(): ReactElement {
 
 function SettingsWorkspace(): ReactElement {
   const navigation = useSettingsNavigation();
+  const session = useSettingsSession();
   const [report, setReport] = useState<SettingsRecovery | null>(null);
   const [voice, setVoice] = useState<VoiceSettings>(DEFAULT_VOICE_SETTINGS);
   const [error, setError] = useState("");
-  const voiceAutosave = useSettingsAutosave<VoiceSettings>(
-    "voice/save",
-    async (value) => {
-      const saved = await window.verbo.voice.setSettings(value);
-      window.dispatchEvent(
-        new CustomEvent(VOICE_SETTINGS_EVENT, { detail: saved }),
-      );
-    },
-  );
+  const voiceAutosave = useSettingsAutosave<VoiceSettings>("voice/save", async (value) => {
+    const saved = await window.verbo.voice.setSettings(value);
+    window.dispatchEvent(new CustomEvent(VOICE_SETTINGS_EVENT, { detail: saved }));
+  });
   useEffect(() => {
     if (!navigation.opened || report) return;
-    void Promise.all([
-      window.verbo.settings.get(),
-      window.verbo.voice.settings(),
-    ])
+    void Promise.all([window.verbo.settings.get(), window.verbo.voice.settings()])
       .then(([settings, voiceSettings]) => {
         setReport(settings);
         setVoice(voiceSettings);
+        voiceAutosave.controller.acceptBaseline(voiceSettings);
       })
       .catch(() => setError("Could not load Settings."));
-  }, [navigation.opened, report]);
+  }, [navigation.opened, report, voiceAutosave.controller]);
   const changeVoice = (value: VoiceSettings): void => {
     setVoice(value);
     voiceAutosave.controller.schedule(value);
@@ -293,14 +232,11 @@ function SettingsWorkspace(): ReactElement {
       aria-label="Settings workspace"
       className={styles.workspace}
       hidden={!navigation.opened}
+      onBlurCapture={() => void session.flush()}
     >
       <Group justify="space-between" className={styles.workspaceHeader}>
         <Group gap="sm">
-          <ActionIcon
-            variant="subtle"
-            aria-label="Back to chat"
-            onClick={navigation.showChat}
-          >
+          <ActionIcon variant="subtle" aria-label="Back to chat" onClick={navigation.showChat}>
             <ArrowLeftIcon size={18} />
           </ActionIcon>
           <Text component="h2" size="xl" fw={500} m={0}>
@@ -326,41 +262,26 @@ function SettingsWorkspace(): ReactElement {
           classNames={{ list: styles.tabList, tab: styles.tab }}
         >
           <Tabs.List>
-            <Tabs.Tab
-              value="model"
-              leftSection={<BrainCircuitIcon aria-hidden size={16} />}
-            >
+            <Tabs.Tab value="model" leftSection={<BrainCircuitIcon aria-hidden size={16} />}>
               Model
             </Tabs.Tab>
-            <Tabs.Tab
-              value="memory"
-              leftSection={<BookmarkIcon aria-hidden size={16} />}
-            >
+            <Tabs.Tab value="memory" leftSection={<BookmarkIcon aria-hidden size={16} />}>
               Memory
             </Tabs.Tab>
-            <Tabs.Tab
-              value="files"
-              leftSection={<FolderOpenIcon aria-hidden size={16} />}
-            >
+            <Tabs.Tab value="files" leftSection={<FolderOpenIcon aria-hidden size={16} />}>
               Files
             </Tabs.Tab>
-            <Tabs.Tab
-              value="listening"
-              leftSection={<MicIcon aria-hidden size={16} />}
-            >
+            <Tabs.Tab value="listening" leftSection={<MicIcon aria-hidden size={16} />}>
               Listening
             </Tabs.Tab>
-            <Tabs.Tab
-              value="speech"
-              leftSection={<Volume2Icon aria-hidden size={16} />}
-            >
+            <Tabs.Tab value="speech" leftSection={<Volume2Icon aria-hidden size={16} />}>
               Speech
             </Tabs.Tab>
-            <Tabs.Tab
-              value="actions"
-              leftSection={<TerminalIcon aria-hidden size={16} />}
-            >
+            <Tabs.Tab value="actions" leftSection={<TerminalIcon aria-hidden size={16} />}>
               Commands
+            </Tabs.Tab>
+            <Tabs.Tab value="web" leftSection={<GlobeIcon aria-hidden size={16} />}>
+              Web
             </Tabs.Tab>
           </Tabs.List>
           {navigation.tab === "model" ? (
@@ -404,10 +325,7 @@ function SettingsWorkspace(): ReactElement {
               {report ? (
                 <Stack>
                   <ListeningSettings value={voice} onChange={changeVoice} />
-                  <AutosaveStatus
-                    state={voiceAutosave.state}
-                    retry={() => voiceAutosave.controller.retry()}
-                  />
+                  <AutosaveStatus state={voiceAutosave.state} retry={() => voiceAutosave.controller.retry()} />
                 </Stack>
               ) : (
                 <Text size="sm" c="dimmed">
@@ -421,10 +339,7 @@ function SettingsWorkspace(): ReactElement {
               {report ? (
                 <Stack>
                   <SpeechSettings value={voice} onChange={changeVoice} />
-                  <AutosaveStatus
-                    state={voiceAutosave.state}
-                    retry={() => voiceAutosave.controller.retry()}
-                  />
+                  <AutosaveStatus state={voiceAutosave.state} retry={() => voiceAutosave.controller.retry()} />
                 </Stack>
               ) : (
                 <Text size="sm" c="dimmed">
@@ -434,11 +349,13 @@ function SettingsWorkspace(): ReactElement {
             </Tabs.Panel>
           ) : null}
           {navigation.tab === "actions" ? (
-            <Tabs.Panel
-              value="actions"
-              className={`${styles.panel} ${styles.commandsPanel}`}
-            >
+            <Tabs.Panel value="actions" className={`${styles.panel} ${styles.commandsPanel}`}>
               <ActionsSettings files={<FileSettings />} />
+            </Tabs.Panel>
+          ) : null}
+          {navigation.tab === "web" ? (
+            <Tabs.Panel value="web" className={styles.panel}>
+              <WebSettings />
             </Tabs.Panel>
           ) : null}
         </Tabs>

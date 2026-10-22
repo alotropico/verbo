@@ -97,16 +97,19 @@ export function resolveCTS(input: {
     ),
   };
   if (!profile.tools) grants = { modules: [], actions: [] };
+  const renderedSources = sources
+    .filter((source) => source.text.trim().length > 0)
+    .map(
+      (source) =>
+        `${source.kind === "data" ? "Untrusted task data" : "Assigned guidance"} (${source.id}):\n${source.text}`,
+    );
   const instructions = [
     IMMUTABLE_AGENT_INSTRUCTIONS,
     profile.instructions,
     input.workflow?.instructions,
     input.step?.instructions,
     input.trustedInstructions,
-    ...sources.map(
-      (source) =>
-        `${source.kind === "data" ? "Untrusted task data" : "Assigned guidance"} (${source.id}):\n${source.text}`,
-    ),
+    ...renderedSources,
   ]
     .filter(Boolean)
     .join("\n\n");

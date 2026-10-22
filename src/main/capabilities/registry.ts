@@ -1,22 +1,10 @@
-import {
-  type ActionResult,
-  type ActorKind,
-} from "../../shared/action-contract";
+import { type ActionResult, type ActorKind } from "../../shared/action-contract";
 import type { CommandMetadata } from "../../shared/command-metadata";
-import {
-  type CommandNode,
-  type CommandResolution,
-} from "../../shared/commands";
-import {
-  PERMANENT_MODEL_TOOLS,
-  type PermanentModelTool,
-} from "../../shared/model-tools";
+import { type CommandNode, type CommandResolution } from "../../shared/commands";
+import { PERMANENT_MODEL_TOOLS, type PermanentModelTool } from "../../shared/model-tools";
 import type { WorkflowAttribution } from "../../shared/workflows";
 import { withInvocation, type InvocationPolicy } from "../agents/policy";
-export {
-  PERMANENT_MODEL_TOOLS as MODEL_TOOL_NAMES,
-  type PermanentModelTool as ModelToolName,
-};
+export { PERMANENT_MODEL_TOOLS as MODEL_TOOL_NAMES, type PermanentModelTool as ModelToolName };
 export type ActionContext = {
   actor: ActorKind;
   threadId: string;
@@ -33,26 +21,18 @@ export type ActionContext = {
 };
 export type CapabilityRegistry = {
   /** Trusted Alo transport. Production dispatch fails closed when unavailable. */
-  forwardModelTool?: (
-    name: string,
-    args: unknown,
-    context: ActionContext,
-  ) => Promise<ActionResult | undefined>;
+  forwardModelTool?: (name: string, args: unknown, context: ActionContext) => Promise<ActionResult | undefined>;
   normalize?: (
     name: string,
     args: Record<string, unknown>,
-  ) => { name: string; args: Record<string, unknown> };
-  metadata?: () => CommandMetadata[];
-  nodes: () => CommandNode[];
-  resolve: (name: string) => CommandResolution;
-  list: (category?: string) => ListResult;
-  search: (query: string) => SearchResult;
-  describe: (ids: string[]) => DescribeResult;
-  invoke: (
-    name: string,
-    args: Record<string, unknown>,
-    context: ActionContext,
-  ) => Promise<ActionResult>;
+  ) => { name: string; args: Record<string, unknown> } | Promise<{ name: string; args: Record<string, unknown> }>;
+  metadata?: () => CommandMetadata[] | Promise<CommandMetadata[]>;
+  nodes: () => CommandNode[] | Promise<CommandNode[]>;
+  resolve: (name: string) => CommandResolution | Promise<CommandResolution>;
+  list: (category?: string) => ListResult | Promise<ListResult>;
+  search: (query: string) => SearchResult | Promise<SearchResult>;
+  describe: (ids: string[]) => DescribeResult | Promise<DescribeResult>;
+  invoke: (name: string, args: Record<string, unknown>, context: ActionContext) => Promise<ActionResult>;
 };
 export type SearchMatch = {
   id: string;
@@ -93,8 +73,7 @@ export type DescribeResult = {
   truncated: boolean;
 };
 export function canonicalListArguments(args: unknown): { category?: string } {
-  if (typeof args !== "object" || args === null || Array.isArray(args))
-    return {};
+  if (typeof args !== "object" || args === null || Array.isArray(args)) return {};
   const record = args as Record<string, unknown>;
   const category = trimmedText(record.category) ?? trimmedText(record.path);
   return category ? { category } : {};

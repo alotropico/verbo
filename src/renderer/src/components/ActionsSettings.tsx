@@ -1,20 +1,8 @@
-import {
-  FolderPlusIcon,
-  TerminalIcon,
-  Trash2Icon,
-  XCircleIcon,
-} from "lucide-react";
+import { FolderPlusIcon, TerminalIcon, Trash2Icon, XCircleIcon } from "lucide-react";
 import { useConfirmation } from "./confirmation-context";
-import type { ActionsOverview } from "@shared/actions-overview";
 import { scopeAliasSchema } from "@shared/files";
 import { Button, Text, TextInput } from "@mantine/core";
-import {
-  useCallback,
-  useEffect,
-  useState,
-  type ReactElement,
-  type ReactNode,
-} from "react";
+import { type ReactElement, type ReactNode } from "react";
 import { CommandSettings } from "./CommandSettings";
 import { SettingsLabel } from "./SettingsLabel";
 import { StatusMessage } from "./StatusMessage";
@@ -22,57 +10,33 @@ import { SettingsDisclosure } from "./SettingsDisclosure";
 import { SettingsSection } from "./SettingsSection";
 import styles from "./ActionsSettings.module.css";
 import { useSettingsDraft } from "@/hooks/use-settings-draft";
+import { useSettingsResource } from "@/hooks/use-settings-resource";
+import { SettingsLoading } from "./SettingsLoading";
 
 function aliasOrError(value: string): string | null {
   const parsed = scopeAliasSchema.safeParse(value);
   return parsed.success ? parsed.data : null;
 }
 
-export function ActionsSettings({
-  files,
-}: {
-  files?: ReactNode;
-}): ReactElement {
-  return (
-    <CommandSettings
-      ags={<AgsSettings />}
-      history={<RecentActions />}
-      files={files}
-    />
-  );
+export function ActionsSettings({ files }: { files?: ReactNode }): ReactElement {
+  return <CommandSettings ags={<AgsSettings />} history={<RecentActions />} files={files} />;
 }
 
 function AgsSettings(): ReactElement {
   const confirm = useConfirmation();
-  const [overview, setOverview] = useState<ActionsOverview | null>(null);
+  const {
+    data: overview,
+    loading,
+    error: loadError,
+    reload: load,
+  } = useSettingsResource("overview", () => window.verbo.actions.overview());
   const [error, setError] = useSettingsDraft("ags/error", "");
   const [hostAlias, setHostAlias] = useSettingsDraft("ags/host-alias", "");
   const [busy, setBusy] = useSettingsDraft("ags/busy", false);
 
-  const load = useCallback((): void => {
-    void window.verbo.actions
-      .overview()
-      .then((next) => {
-        setOverview(next);
-        setError("");
-      })
-      .catch((caught: unknown) => {
-        setError(
-          caught instanceof Error ? caught.message : "Could not load actions.",
-        );
-      });
-  }, [setOverview, setError]);
-
-  useEffect(() => {
-    load();
-  }, [load]);
-
   const addRoot = (
     alias: string,
-    add: (input: {
-      pickId: string;
-      alias: string;
-    }) => Promise<{ ok: boolean; summary: string }>,
+    add: (input: { pickId: string; alias: string }) => Promise<{ ok: boolean; summary: string }>,
     clear: () => void,
   ): void => {
     const parsed = aliasOrError(alias);
@@ -102,11 +66,10 @@ function AgsSettings(): ReactElement {
       .finally(() => setBusy(false));
   };
 
+  if (!overview) return <SettingsLoading label="Loading AGS registrations…" error={loadError} retry={() => void load()} />;
   return (
-    <SettingsSection
-      title="AGS repositories"
-      description="Configure the AGS executable and register repository roots."
-    >
+    <SettingsSection title="AGS repositories" description="Configure the AGS executable and register repository roots.">
+      {loading || loadError ? <SettingsLoading label="Refreshing AGS registrations…" error={loadError} retry={() => void load()} /> : null}
       {error ? (
         <StatusMessage display="plain" size="sm" tone="error">
           {error}
@@ -160,12 +123,7 @@ function AgsSettings(): ReactElement {
       <div className={styles.row}>
         <TextInput
           className={styles.aliasField}
-          label={
-            <SettingsLabel
-              label="Host alias"
-              tip="Name for an AGS repository root."
-            />
-          }
+          label={<SettingsLabel label="Host alias" tip="Name for an AGS repository root." />}
           value={hostAlias}
           onChange={(event) => setHostAlias(event.currentTarget.value)}
         />
@@ -175,9 +133,7 @@ function AgsSettings(): ReactElement {
           size="xs"
           variant="default"
           loading={busy}
-          onClick={() =>
-            addRoot(hostAlias, window.verbo.ags.addHost, () => setHostAlias(""))
-          }
+          onClick={() => addRoot(hostAlias, window.verbo.ags.addHost, () => setHostAlias(""))}
         >
           Add AGS host
         </Button>
@@ -219,29 +175,12 @@ function AgsSettings(): ReactElement {
 
 function RecentActions(): ReactElement {
   const [opened, setOpened] = useSettingsDraft("commands/history-open", false);
-  const [overview, setOverview] = useState<ActionsOverview | null>(null);
-  const [error, setError] = useState("");
-  useEffect(() => {
-    void window.verbo.actions
-      .overview()
-      .then(setOverview)
-      .catch(() => setError("Could not load recent actions."));
-  }, []);
+  const { data: overview, error, reload } = useSettingsResource("overview", () => window.verbo.actions.overview(), opened);
   const history = overview?.history.slice(0, 12) ?? [];
   return (
-    <SettingsDisclosure
-      title="Recent actions"
-      open={opened}
-      onOpenChange={setOpened}
-    >
-      {error ? (
-        <StatusMessage display="plain" tone="error">
-          {error}
-        </StatusMessage>
-      ) : !overview ? (
-        <Text size="sm" c="dimmed">
-          Loading recent actions…
-        </Text>
+    <SettingsDisclosure title="Recent actions" open={opened} onOpenChange={setOpened}>
+      {!overview ? (
+        <SettingsLoading label="Loading recent actions…" error={error} retry={() => void reload()} />
       ) : (
         <>
           {history.length === 0 ? (
@@ -249,18 +188,8 @@ function RecentActions(): ReactElement {
           ) : (
             <ul className={styles.history}>
               {history.map((entry) => (
-                <li
-                  className={styles.entry}
-                  key={`${entry.createdAt}-${entry.actionId}`}
-                >
-                  <Text
-                    className={
-                      entry.status === "error" || entry.status === "partial"
-                        ? styles.error
-                        : undefined
-                    }
-                    size="sm"
-                  >
+                <li className={styles.entry} key={`${entry.createdAt}-${entry.actionId}`}>
+                  <Text className={entry.status === "error" || entry.status === "partial" ? styles.error : undefined} size="sm">
                     {entry.actionId}
                     {entry.code ? ` (${entry.code})` : ""} · {entry.status}
                   </Text>

@@ -1,4 +1,5 @@
 import { createAloScopeStore } from "../alo/data-client";
+import type { AsyncMethods } from "../alo/async";
 
 import type { DatabaseSync } from "node:sqlite";
 
@@ -62,10 +63,7 @@ export type ScopeStore = {
   activeGrants: () => FileGrantRecord[];
 };
 
-export function createScopeStore(
-  database: DatabaseSync,
-  _options?: { now?: () => number },
-): ScopeStore {
+export function createScopeStore(database: DatabaseSync, _options?: { now?: () => number }): AsyncMethods<ScopeStore> {
   void _options; // Retain the existing app-facing signature; storage belongs to Alo.
 
   return createAloScopeStore(database);

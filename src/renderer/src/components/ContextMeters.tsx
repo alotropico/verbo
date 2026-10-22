@@ -1,10 +1,6 @@
 import { Tooltip } from "@mantine/core";
 import { useAuiState } from "@assistant-ui/react";
-import {
-  formatEstimatedTokens,
-  meterLevel,
-  type ContextMeters as MeterSnapshot,
-} from "@shared/memory";
+import { formatEstimatedTokens, meterLevel, type ContextMeters as MeterSnapshot } from "@shared/memory";
 import { isPersistedThreadId } from "@shared/thread-identity";
 import { BrainIcon, GaugeIcon } from "lucide-react";
 import { useEffect, useState, type ReactElement } from "react";
@@ -26,26 +22,22 @@ function levelClass(used: number, total: number): string {
   return styles.ok;
 }
 
-export function ContextMeters({
-  audience = "conversational",
-}: {
-  audience?: AgentId;
-}): ReactElement {
+export function ContextMeters({ audience = "conversational" }: { audience?: AgentId }): ReactElement {
   const threadId = useAuiState((state) => state.threads.mainThreadId);
   const [snapshot, setSnapshot] = useState<{
     threadId: typeof threadId;
     audience: AgentId;
     meters: MeterSnapshot;
   }>();
-  const meters =
-    snapshot?.threadId === threadId && snapshot.audience === audience
-      ? snapshot.meters
-      : EMPTY;
+  const meters = snapshot?.threadId === threadId && snapshot.audience === audience ? snapshot.meters : EMPTY;
 
   useEffect(() => {
     let cancelled = false;
     let latestLoad = 0;
+    let loading = false;
     const load = (): void => {
+      if (document.hidden || loading) return;
+      loading = true;
       const loadId = ++latestLoad;
       void window.verbo.context
         .estimate({
@@ -53,10 +45,12 @@ export function ContextMeters({
           ...(isPersistedThreadId(threadId) ? { threadId } : {}),
         })
         .then((next) => {
-          if (!cancelled && loadId === latestLoad)
-            setSnapshot({ threadId, audience, meters: next });
+          if (!cancelled && loadId === latestLoad) setSnapshot({ threadId, audience, meters: next });
         })
-        .catch(() => undefined);
+        .catch(() => undefined)
+        .finally(() => {
+          loading = false;
+        });
     };
     load();
     const onChange = (): void => load();
@@ -69,14 +63,8 @@ export function ContextMeters({
     };
   }, [threadId, audience]);
 
-  const memoryPercent =
-    meters.memoryBudget > 0
-      ? Math.round((meters.memoryTokens / meters.memoryBudget) * 100)
-      : 0;
-  const contextPercent =
-    meters.contextWindow > 0
-      ? Math.round((meters.contextTokens / meters.contextWindow) * 100)
-      : 0;
+  const memoryPercent = meters.memoryBudget > 0 ? Math.round((meters.memoryTokens / meters.memoryBudget) * 100) : 0;
+  const contextPercent = meters.contextWindow > 0 ? Math.round((meters.contextTokens / meters.contextWindow) * 100) : 0;
   const memoryLabel = [
     `${audience} context notes: about ${memoryPercent}% of the global always-on budget (${meters.memoryTokens} of ${meters.memoryBudget} estimated tokens).`,
     "Only notes explicitly assigned to this recipient are counted. Unassigned and other recipients' notes are excluded.",
@@ -118,8 +106,7 @@ export function ContextMeters({
         >
           <GaugeIcon aria-hidden="true" className={styles.icon} />
           <span>
-            {formatEstimatedTokens(meters.contextTokens)} /{" "}
-            {formatEstimatedTokens(meters.contextWindow)}
+            {formatEstimatedTokens(meters.contextTokens)} / {formatEstimatedTokens(meters.contextWindow)}
           </span>
         </span>
       </Tooltip>

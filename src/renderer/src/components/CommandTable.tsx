@@ -1,24 +1,6 @@
-import {
-  useSettingsAutosave,
-  useSettingsDraft,
-  useSettingsRef,
-} from "@/hooks/use-settings-draft";
-import {
-  ActionIcon,
-  Code,
-  Group,
-  Stack,
-  Table,
-  TagsInput,
-  Text,
-  Tooltip,
-  UnstyledButton,
-} from "@mantine/core";
-import {
-  commandAliasesSchema,
-  type CommandNode,
-  type CommandSettings,
-} from "@shared/commands";
+import { useSettingsAutosave, useSettingsDraft, useSettingsRef } from "@/hooks/use-settings-draft";
+import { ActionIcon, Code, Group, Stack, Table, TagsInput, Text, Tooltip, UnstyledButton } from "@mantine/core";
+import { commandAliasesSchema, type CommandNode, type CommandSettings } from "@shared/commands";
 import { CheckIcon, CopyIcon, InfoIcon, RotateCcwIcon } from "lucide-react";
 import { useEffect, useEffectEvent, useState, type ReactElement } from "react";
 import { AutosaveStatus } from "./AutosaveStatus";
@@ -43,10 +25,7 @@ function AliasRow({
   const [search, setSearch] = useSettingsDraft(key + "search", "");
   const [copied, setCopied] = useState(false);
   const currentRef = useSettingsRef(key + "current", aliases);
-  const baselineRef = useSettingsRef(
-    key + "baseline",
-    JSON.stringify(node.aliases),
-  );
+  const baselineRef = useSettingsRef(key + "baseline", JSON.stringify(node.aliases));
   const autosave = useSettingsAutosave<string[]>(
     key + "save",
     async (value) => {
@@ -59,14 +38,16 @@ function AliasRow({
       baselineRef.current = JSON.stringify(value);
       reload();
     },
+    undefined,
+    node.aliases,
   );
   const synchronize = useEffectEvent(() => {
-    if (autosave.state.status === "saving" || autosave.state.status === "error")
-      return;
+    if (autosave.state.status === "saving" || autosave.state.status === "error") return;
     if (JSON.stringify(currentRef.current) === baselineRef.current) {
       currentRef.current = node.aliases;
       setAliases(node.aliases);
       baselineRef.current = JSON.stringify(node.aliases);
+      autosave.controller.acceptBaseline(node.aliases);
     }
   });
   useEffect(() => {
@@ -75,10 +56,7 @@ function AliasRow({
   return (
     <Table.Tr>
       <Table.Td className={styles.commandCell}>
-        <Tooltip
-          label={copied ? "Copied" : `Copy /${node.id}`}
-          events={{ hover: true, focus: true, touch: false }}
-        >
+        <Tooltip label={copied ? "Copied" : `Copy /${node.id}`} events={{ hover: true, focus: true, touch: false }}>
           <UnstyledButton
             className={styles.copyCommand}
             data-copied={copied || undefined}
@@ -97,17 +75,9 @@ function AliasRow({
               {node.id}
             </Code>
             {copied ? (
-              <CheckIcon
-                aria-hidden
-                size={14}
-                className={styles.copyIndicator}
-              />
+              <CheckIcon aria-hidden size={14} className={styles.copyIndicator} />
             ) : (
-              <CopyIcon
-                aria-hidden
-                size={14}
-                className={styles.copyIndicator}
-              />
+              <CopyIcon aria-hidden size={14} className={styles.copyIndicator} />
             )}
           </UnstyledButton>
         </Tooltip>
@@ -127,19 +97,12 @@ function AliasRow({
               currentRef.current = value;
               setAliases(value);
               const parsed = commandAliasesSchema.safeParse(value);
-              setError(
-                parsed.success
-                  ? ""
-                  : (parsed.error.issues[0]?.message ?? "Check aliases."),
-              );
+              setError(parsed.success ? "" : (parsed.error.issues[0]?.message ?? "Check aliases."));
               if (parsed.success) autosave.controller.schedule(parsed.data);
             }}
             onBlur={() => void autosave.controller.flush()}
           />
-          <Tooltip
-            label={`Restore defaults for ${node.id}`}
-            events={{ hover: true, focus: true, touch: false }}
-          >
+          <Tooltip label={`Restore defaults for ${node.id}`} events={{ hover: true, focus: true, touch: false }}>
             <ActionIcon
               variant="subtle"
               className={styles.rowAction}
@@ -150,25 +113,13 @@ function AliasRow({
             </ActionIcon>
           </Tooltip>
         </Group>
-        {autosave.state.status === "saving" ||
-        autosave.state.status === "error" ? (
-          <AutosaveStatus
-            state={autosave.state}
-            retry={() => autosave.controller.retry()}
-          />
+        {autosave.state.status === "saving" || autosave.state.status === "error" ? (
+          <AutosaveStatus state={autosave.state} retry={() => autosave.controller.retry()} />
         ) : null}
       </Table.Td>
       <Table.Td className={styles.detailsCell}>
-        <Tooltip
-          label={`Details for ${node.id}`}
-          events={{ hover: true, focus: true, touch: false }}
-        >
-          <ActionIcon
-            variant="subtle"
-            className={styles.rowAction}
-            aria-label={`Details for ${node.id}`}
-            onClick={() => details(node.id)}
-          >
+        <Tooltip label={`Details for ${node.id}`} events={{ hover: true, focus: true, touch: false }}>
+          <ActionIcon variant="subtle" className={styles.rowAction} aria-label={`Details for ${node.id}`} onClick={() => details(node.id)}>
             <InfoIcon size={15} />
           </ActionIcon>
         </Tooltip>
@@ -203,9 +154,7 @@ export function CommandTable({
     if (node) setDetail({ opened: true, node, data });
   };
   const restore = (target: CommandNode): void => {
-    const affected = data.nodes.filter(
-      (item) => item.id === target.id || item.id.startsWith(`${target.id}.`),
-    );
+    const affected = data.nodes.filter((item) => item.id === target.id || item.id.startsWith(`${target.id}.`));
     void confirm({
       title: "Restore command defaults?",
       message: `Restore aliases for ${target.id}${affected.length > 1 ? " and its child commands" : ""}?`,
@@ -249,20 +198,9 @@ export function CommandTable({
           </Table.Thead>
           <Table.Tbody>
             {data.nodes
-              .filter(
-                (item) =>
-                  !moduleId ||
-                  item.id === moduleId ||
-                  item.id.startsWith(`${moduleId}.`),
-              )
+              .filter((item) => !moduleId || item.id === moduleId || item.id.startsWith(`${moduleId}.`))
               .map((item) => (
-                <AliasRow
-                  key={`${item.id}-${epochs[item.id] ?? 0}`}
-                  node={item}
-                  restore={restore}
-                  details={showDetails}
-                  reload={reload}
-                />
+                <AliasRow key={`${item.id}-${epochs[item.id] ?? 0}`} node={item} restore={restore} details={showDetails} reload={reload} />
               ))}
           </Table.Tbody>
         </Table>
@@ -271,12 +209,8 @@ export function CommandTable({
         opened={detail?.opened ?? false}
         node={detail?.node}
         data={detail?.data ?? data}
-        onClose={() =>
-          setDetail((current) => current && { ...current, opened: false })
-        }
-        onExitTransitionEnd={() =>
-          setDetail((current) => (current?.opened ? current : null))
-        }
+        onClose={() => setDetail((current) => current && { ...current, opened: false })}
+        onExitTransitionEnd={() => setDetail((current) => (current?.opened ? current : null))}
         onSelect={showDetails}
       />
     </Stack>

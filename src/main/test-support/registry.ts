@@ -1,39 +1,19 @@
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
-import {
-  actionResultSchema,
-  type ActionResult,
-  type ActorKind,
-} from "../../shared/action-contract";
+import { actionResultSchema, type ActionResult, type ActorKind } from "../../shared/action-contract";
 import type { CommandMetadata } from "../../shared/command-metadata";
 import type { CommandResource } from "../../shared/command-receipts";
-import {
-  createCommandResolver,
-  type CommandNode,
-  type CommandResolution,
-} from "../../shared/commands";
+import { createCommandResolver, type CommandNode, type CommandResolution } from "../../shared/commands";
 import { activityForCommand } from "../../shared/execution-trace";
 import { ACTION_ALIASES, LOCAL_COMMANDS } from "../../shared/local-commands";
-import {
-  PERMANENT_MODEL_TOOLS,
-  type PermanentModelTool,
-} from "../../shared/model-tools";
+import { PERMANENT_MODEL_TOOLS, type PermanentModelTool } from "../../shared/model-tools";
 import type { WorkflowAttribution } from "../../shared/workflows";
-import {
-  activeInvocation,
-  bindApprovalInvocation,
-  permitsCommand,
-  withInvocation,
-  type InvocationPolicy,
-} from "../agents/policy";
+import { activeInvocation, bindApprovalInvocation, permitsCommand, withInvocation, type InvocationPolicy } from "../agents/policy";
 import { CommandFailure } from "../capabilities/command-failure";
 import type { PreparedEffect } from "./preparation";
 import { collectCommandResources } from "../files/resource-events";
 
-export {
-  PERMANENT_MODEL_TOOLS as MODEL_TOOL_NAMES,
-  type PermanentModelTool as ModelToolName,
-};
+export { PERMANENT_MODEL_TOOLS as MODEL_TOOL_NAMES, type PermanentModelTool as ModelToolName };
 
 const LIST_LIMIT = 20;
 const SEARCH_LIMIT = 20;
@@ -86,46 +66,24 @@ export type Capability = {
   aliases?: string[];
   tags?: string[];
   parameterHelp?: Record<string, string>;
-  execute: (
-    args: Record<string, unknown>,
-    context: ActionContext,
-  ) => ActionResult | Promise<ActionResult>;
+  execute: (args: Record<string, unknown>, context: ActionContext) => ActionResult | Promise<ActionResult>;
 };
 
 export type CapabilityRegistry = {
   /** Temporary extraction bridge; undefined retains the local route for unmigrated fixtures. */
-  forwardModelTool?: (
-    name: string,
-    args: unknown,
-    context: ActionContext,
-  ) => Promise<ActionResult | undefined>;
-  normalize?: (
-    name: string,
-    args: Record<string, unknown>,
-  ) => { name: string; args: Record<string, unknown> };
+  forwardModelTool?: (name: string, args: unknown, context: ActionContext) => Promise<ActionResult | undefined>;
+  normalize?: (name: string, args: Record<string, unknown>) => { name: string; args: Record<string, unknown> };
   metadata?: () => CommandMetadata[];
   /** Backend preparation hooks are not model tools or renderer IPC. */
-  prepareEffect?: (
-    name: string,
-    args: Record<string, unknown>,
-    context: ActionContext,
-  ) => Promise<PreparedEffect>;
+  prepareEffect?: (name: string, args: Record<string, unknown>, context: ActionContext) => Promise<PreparedEffect>;
   preparationSignature?: (name: string) => string | undefined;
-  aggregatePrepared?: (
-    name: string,
-    action: string,
-    children: ActionResult[],
-  ) => ActionResult;
+  aggregatePrepared?: (name: string, action: string, children: ActionResult[]) => ActionResult;
   nodes: () => CommandNode[];
   resolve: (name: string) => CommandResolution;
   list: (category?: string) => ListResult;
   search: (query: string) => SearchResult;
   describe: (ids: string[]) => DescribeResult;
-  invoke: (
-    name: string,
-    args: Record<string, unknown>,
-    context: ActionContext,
-  ) => Promise<ActionResult>;
+  invoke: (name: string, args: Record<string, unknown>, context: ActionContext) => Promise<ActionResult>;
 };
 
 type Child = {
@@ -186,8 +144,7 @@ const listArgsSchema = z
   .strict();
 
 export function canonicalListArguments(args: unknown): { category?: string } {
-  if (typeof args !== "object" || args === null || Array.isArray(args))
-    return {};
+  if (typeof args !== "object" || args === null || Array.isArray(args)) return {};
   const record = args as Record<string, unknown>;
   const category = trimmedText(record.category) ?? trimmedText(record.path);
   return category ? { category } : {};
@@ -210,19 +167,11 @@ function unknownCategorySummary(category: string): string {
 }
 
 function commandListSummary(category: string, shortened: boolean): string {
-  const subject = category
-    ? `Listed command definitions in category '${category}'.`
-    : "Listed root command categories.";
-  return shortened
-    ? `${subject} Syntax is complete. Descriptions were shortened or omitted.`
-    : subject;
+  const subject = category ? `Listed command definitions in category '${category}'.` : "Listed root command categories.";
+  return shortened ? `${subject} Syntax is complete. Descriptions were shortened or omitted.` : subject;
 }
 
-function listDetail(
-  listed: ListResult,
-  children: unknown,
-  more = listed.more,
-): { category?: string; children: unknown; more: boolean } {
+function listDetail(listed: ListResult, children: unknown, more = listed.more): { category?: string; children: unknown; more: boolean } {
   return {
     ...(listed.category ? { category: listed.category } : {}),
     children,
@@ -232,11 +181,7 @@ function listDetail(
 
 const searchArgsSchema = z
   .object({
-    query: z
-      .string()
-      .trim()
-      .min(2, "Search needs at least two characters.")
-      .max(64),
+    query: z.string().trim().min(2, "Search needs at least two characters.").max(64),
   })
   .strict();
 
@@ -273,11 +218,7 @@ function omitNulls(value: unknown): unknown {
   );
 }
 
-function errorResult(
-  action: string,
-  code: string,
-  summary: string,
-): ActionResult {
+function errorResult(action: string, code: string, summary: string): ActionResult {
   return actionResultSchema.parse({ action, status: "error", code, summary });
 }
 
@@ -312,9 +253,7 @@ function renderSchema(schema: JsonSchema, depth = 0): string {
   if (schema.const !== undefined) return JSON.stringify(schema.const);
   if (schema.enum) {
     const values = schema.enum.map((value) => JSON.stringify(value)).join("|");
-    return schema.default === undefined
-      ? values
-      : `${values}=${JSON.stringify(schema.default)}`;
+    return schema.default === undefined ? values : `${values}=${JSON.stringify(schema.default)}`;
   }
   if (schema.type === "array") {
     return `[${schema.items ? renderSchema(schema.items, depth + 1) : ""}]`;
@@ -323,18 +262,10 @@ function renderSchema(schema: JsonSchema, depth = 0): string {
     if (depth > 2) return "{...}";
     const required = new Set(schema.required ?? []);
     const fields = Object.entries(schema.properties).map(([name, property]) => {
-      const optional =
-        required.has(name) && property.default === undefined ? "" : "?";
+      const optional = required.has(name) && property.default === undefined ? "" : "?";
       const rendered = renderSchema(property, depth + 1);
-      if (
-        rendered === "string" ||
-        rendered === "number" ||
-        rendered === "boolean"
-      ) {
-        const fallback =
-          property.default === undefined
-            ? ""
-            : `=${JSON.stringify(property.default)}`;
+      if (rendered === "string" || rendered === "number" || rendered === "boolean") {
+        const fallback = property.default === undefined ? "" : `=${JSON.stringify(property.default)}`;
         return `${name}${optional}${fallback}`;
       }
       return `${name}${optional}:${rendered}`;
@@ -359,23 +290,14 @@ function shownSyntax(capability: Capability): string {
 function contractResult(result: ActionResult): ActionResult {
   const parsed = actionResultSchema.safeParse(result);
   if (parsed.success) return parsed.data;
-  const detail =
-    result.detail && result.detail.length > DETAIL_LIMIT
-      ? result.detail.slice(0, DETAIL_LIMIT)
-      : result.detail;
+  const detail = result.detail && result.detail.length > DETAIL_LIMIT ? result.detail.slice(0, DETAIL_LIMIT) : result.detail;
   const retry = actionResultSchema.safeParse({
     ...result,
     summary: result.summary.slice(0, DETAIL_LIMIT),
-    ...(detail !== undefined
-      ? { detail, detailsAvailable: true as const }
-      : {}),
+    ...(detail !== undefined ? { detail, detailsAvailable: true as const } : {}),
   });
   if (retry.success) return retry.data;
-  return errorResult(
-    result.action.slice(0, 128) || "action",
-    "invalid_result",
-    "The action result did not fit the response contract.",
-  );
+  return errorResult(result.action.slice(0, 128) || "action", "invalid_result", "The action result did not fit the response contract.");
 }
 
 function fitListDetail(listed: ListResult): {
@@ -385,10 +307,7 @@ function fitListDetail(listed: ListResult): {
   const full = jsonWithin(listDetail(listed, listed.children));
   if (full) return { detail: full };
 
-  const longest = listed.children.reduce(
-    (max, child) => Math.max(max, child.description.length),
-    0,
-  );
+  const longest = listed.children.reduce((max, child) => Math.max(max, child.description.length), 0);
   // Below this, a clipped description is noise. Keep syntax and drop the prose.
   const minimumDescription = 80;
   let low = minimumDescription;
@@ -423,13 +342,7 @@ function fitListDetail(listed: ListResult): {
   }));
   let count = ids.length;
   while (count > 0) {
-    const detail = jsonWithin(
-      listDetail(
-        listed,
-        ids.slice(0, count),
-        listed.more || count < ids.length,
-      ),
-    );
+    const detail = jsonWithin(listDetail(listed, ids.slice(0, count), listed.more || count < ids.length));
     if (detail) return { detail, detailsAvailable: true };
     count -= 1;
   }
@@ -486,26 +399,21 @@ function fitDescribeDetail(described: DescribeResult): {
   if (full) return { detail: full };
 
   const withoutArgs = {
-    entries: described.entries.map(
-      ({ id, description, kind, approval, syntax, example, code }) => ({
-        id,
-        ...(kind ? { kind } : {}),
-        ...(approval ? { approval } : {}),
-        ...(syntax ? { syntax } : {}),
-        ...(example ? { example } : {}),
-        ...(description ? { description } : {}),
-        ...(code ? { code } : {}),
-      }),
-    ),
+    entries: described.entries.map(({ id, description, kind, approval, syntax, example, code }) => ({
+      id,
+      ...(kind ? { kind } : {}),
+      ...(approval ? { approval } : {}),
+      ...(syntax ? { syntax } : {}),
+      ...(example ? { example } : {}),
+      ...(description ? { description } : {}),
+      ...(code ? { code } : {}),
+    })),
     truncated: described.truncated,
   };
   const dropped = jsonWithin(withoutArgs);
   if (dropped) return { detail: dropped, detailsAvailable: true };
 
-  const longest = withoutArgs.entries.reduce(
-    (max, entry) => Math.max(max, entry.description?.length ?? 0),
-    0,
-  );
+  const longest = withoutArgs.entries.reduce((max, entry) => Math.max(max, entry.description?.length ?? 0), 0);
   let low = 80;
   let high = longest;
   let fitted: string | undefined;
@@ -514,9 +422,7 @@ function fitDescribeDetail(described: DescribeResult): {
     const detail = jsonWithin({
       entries: withoutArgs.entries.map((entry) => ({
         ...entry,
-        ...(entry.description
-          ? { description: clip(entry.description, cap) }
-          : {}),
+        ...(entry.description ? { description: clip(entry.description, cap) } : {}),
       })),
       truncated: true,
     });
@@ -543,23 +449,13 @@ function fitDescribeDetail(described: DescribeResult): {
 
 export type RegistryOptions = {
   nodes?: CommandNode[];
-  finalize?: (input: {
-    result: ActionResult;
-    context: ActionContext;
-    startedAt: number;
-    resources: CommandResource[];
-  }) => ActionResult;
+  finalize?: (input: { result: ActionResult; context: ActionContext; startedAt: number; resources: CommandResource[] }) => ActionResult;
 };
-function createFixtureRegistry(
-  capabilities: Capability[],
-  options: RegistryOptions = {},
-): CapabilityRegistry {
+function createFixtureRegistry(capabilities: Capability[], options: RegistryOptions = {}): CapabilityRegistry {
   const byId = new Map<string, Capability>();
   for (const capability of capabilities) {
     if (!capability.id.includes(".")) {
-      throw new Error(
-        `Capability id must include a category: ${capability.id}`,
-      );
+      throw new Error(`Capability id must include a category: ${capability.id}`);
     }
     if (byId.has(capability.id)) {
       throw new Error(`Duplicate capability: ${capability.id}`);
@@ -589,10 +485,7 @@ function createFixtureRegistry(
   const visible = (id: string): boolean =>
     byId.has(id)
       ? permitsCommand(id, true)
-      : [...byId.keys()].some(
-          (action) =>
-            action.startsWith(`${id}.`) && permitsCommand(action, true),
-        );
+      : [...byId.keys()].some((action) => action.startsWith(`${id}.`) && permitsCommand(action, true));
 
   function list(category?: string): ListResult {
     const requested = category?.trim() ?? "";
@@ -609,11 +502,7 @@ function createFixtureRegistry(
       };
     }
     const children = nodes
-      .filter(
-        (node) =>
-          node.id.split(".").slice(0, -1).join(".") === normalized &&
-          visible(node.id),
-      )
+      .filter((node) => node.id.split(".").slice(0, -1).join(".") === normalized && visible(node.id))
       .sort((left, right) => left.id.localeCompare(right.id));
     if (children.length === 0 && normalized && !byNode.has(normalized)) {
       return {
@@ -670,40 +559,24 @@ function createFixtureRegistry(
     return { entries, truncated: ids.length > DESCRIBE_LIMIT };
   }
 
-  function invoke(
-    name: string,
-    args: Record<string, unknown>,
-    context: ActionContext,
-  ): Promise<ActionResult> {
-    return withInvocation(context.invocation, () =>
-      invokeAuthorized(name, args, context),
-    );
+  function invoke(name: string, args: Record<string, unknown>, context: ActionContext): Promise<ActionResult> {
+    return withInvocation(context.invocation, () => invokeAuthorized(name, args, context));
   }
-  async function invokeAuthorized(
-    name: string,
-    args: Record<string, unknown>,
-    context: ActionContext,
-  ): Promise<ActionResult> {
+  async function invokeAuthorized(name: string, args: Record<string, unknown>, context: ActionContext): Promise<ActionResult> {
     const startedAt = Date.now();
     context = {
       ...context,
       receiptId: context.receiptId ?? randomUUID(),
       attribution: context.attribution ?? activeInvocation()?.attribution,
     };
-    const ledger =
-      context.parentReceiptId || context.derivedDispatch
-        ? undefined
-        : activeInvocation()?.ledger;
+    const ledger = context.parentReceiptId || context.derivedDispatch ? undefined : activeInvocation()?.ledger;
     let claim: { id: string; receiptId: string } | undefined;
     const activitySource: {
       id?: string;
       effect?: "read" | "write" | "launch" | "process";
       kind?: "read" | "mutation";
     } = {};
-    const settle = (
-      result: ActionResult,
-      resources: CommandResource[] = [],
-    ): ActionResult => {
+    const settle = (result: ActionResult, resources: CommandResource[] = []): ActionResult => {
       const activity =
         result.activity ??
         (activitySource.id
@@ -713,9 +586,7 @@ function createFixtureRegistry(
               kind: activitySource.kind,
             })
           : undefined);
-      const validated = contractResult(
-        activity && !result.activity ? { ...result, activity } : result,
-      );
+      const validated = contractResult(activity && !result.activity ? { ...result, activity } : result);
       if (validated.status === "requires_confirmation" && validated.operationId)
         bindApprovalInvocation(validated.operationId, context.threadId);
       try {
@@ -739,8 +610,7 @@ function createFixtureRegistry(
           ...validated,
           status: "error",
           code: "receipt_failed",
-          summary:
-            "Operation failed: saving the command result failed. Recorded effects must not be replayed.",
+          summary: "Operation failed: saving the command result failed. Recorded effects must not be replayed.",
         };
       }
     };
@@ -757,13 +627,7 @@ function createFixtureRegistry(
       );
     const capability = byId.get(resolution.id);
     if (!capability) {
-      return settle(
-        errorResult(
-          name,
-          "unknown_action",
-          `No registered action named ${name}.`,
-        ),
-      );
+      return settle(errorResult(name, "unknown_action", `No registered action named ${name}.`));
     }
     name = capability.id;
     activitySource.id = capability.id;
@@ -783,10 +647,7 @@ function createFixtureRegistry(
         errorResult(
           name,
           "invalid_args",
-          clip(
-            `${parsed.error.issues.map((issue) => issue.message).join(" ")} Syntax: ${shownSyntax(capability)}`,
-            DETAIL_LIMIT,
-          ),
+          clip(`${parsed.error.issues.map((issue) => issue.message).join(" ")} Syntax: ${shownSyntax(capability)}`, DETAIL_LIMIT),
         ),
       );
     }
@@ -798,46 +659,26 @@ function createFixtureRegistry(
       });
     }
     try {
-      const admission = ledger?.before(
-        name,
-        parsed.data as Record<string, unknown>,
-        capability.kind,
-      );
+      const admission = await ledger?.before(name, parsed.data as Record<string, unknown>, capability.kind);
       if (admission?.replay) return admission.replay;
       if (admission) {
         claim = admission;
         context = {
           ...context,
           receiptId: admission.receiptId,
-          attribution: context.attribution
-            ? { ...context.attribution, attemptId: admission.id }
-            : undefined,
+          attribution: context.attribution ? { ...context.attribution, attemptId: admission.id } : undefined,
         };
       }
       const recorded = await collectCommandResources(async () => {
         try {
-          return await capability.execute(
-            parsed.data as Record<string, unknown>,
-            context,
-          );
+          return await capability.execute(parsed.data as Record<string, unknown>, context);
         } catch (error) {
           if (error instanceof CommandFailure)
             return {
-              ...errorResult(
-                name,
-                error.code,
-                `Operation failed: ${error.message}`.slice(0, 500),
-              ),
-              ...(error.code === "obsidian_unqualified" ||
-              error.code === "not_supported"
-                ? { status: "not_supported" as const }
-                : {}),
+              ...errorResult(name, error.code, `Operation failed: ${error.message}`.slice(0, 500)),
+              ...(error.code === "obsidian_unqualified" || error.code === "not_supported" ? { status: "not_supported" as const } : {}),
             };
-          return errorResult(
-            name,
-            "execution_failed",
-            "Operation failed: the registered executor could not complete.",
-          );
+          return errorResult(name, "execution_failed", "Operation failed: the registered executor could not complete.");
         }
       });
       return settle(recorded.result, recorded.resources);
@@ -846,9 +687,7 @@ function createFixtureRegistry(
         errorResult(
           name,
           error instanceof CommandFailure ? error.code : "execution_failed",
-          error instanceof CommandFailure
-            ? error.message
-            : "Operation failed: the registered executor could not complete.",
+          error instanceof CommandFailure ? error.message : "Operation failed: the registered executor could not complete.",
         ),
       );
     }
@@ -868,24 +707,15 @@ function createFixtureRegistry(
     }
     const matches: SearchMatch[] = [];
     const scores = new Map<string, number>();
-    const capabilities = [...byId.values()].sort((left, right) =>
-      left.id.localeCompare(right.id),
-    );
+    const capabilities = [...byId.values()].sort((left, right) => left.id.localeCompare(right.id));
     for (const capability of capabilities) {
       if (!permitsCommand(capability.id, true)) continue;
-      const legacyAliases = ACTION_ALIASES.filter(
-        (entry) => entry.actionId === capability.id,
-      ).map((entry) => entry.alias);
+      const legacyAliases = ACTION_ALIASES.filter((entry) => entry.actionId === capability.id).map((entry) => entry.alias);
       const ancestors = capability.id
         .split(".")
-        .map((_segment, index, segments) =>
-          byNode.get(segments.slice(0, index + 1).join(".")),
-        )
+        .map((_segment, index, segments) => byNode.get(segments.slice(0, index + 1).join(".")))
         .filter((node): node is CommandNode => Boolean(node));
-      const aliases = [
-        ...legacyAliases,
-        ...ancestors.flatMap((node) => node.aliases),
-      ];
+      const aliases = [...legacyAliases, ...ancestors.flatMap((node) => node.aliases)];
       const syntax = shownSyntax(capability);
       const fields = [
         { reason: "canonical ID", text: capability.id, weight: 90 },
@@ -903,45 +733,29 @@ function createFixtureRegistry(
         { reason: "description", text: capability.description, weight: 30 },
         { reason: "syntax", text: syntax, weight: 20 },
       ];
-      const reasons = fields.filter((field) =>
-        field.text.toLowerCase().includes(needle),
-      );
+      const reasons = fields.filter((field) => field.text.toLowerCase().includes(needle));
       const segments = needle.split(".");
       const aliasPath =
         segments.length === ancestors.length &&
         segments.every((segment, index) => {
           const node = ancestors[index];
-          return [node.id.split(".").at(-1)!, ...node.aliases].some((name) =>
-            name.startsWith(segment),
-          );
+          return [node.id.split(".").at(-1)!, ...node.aliases].some((name) => name.startsWith(segment));
         });
       const haystack = fields
         .map((field) => field.text)
         .join("\n")
         .toLowerCase();
       const terms = needle.split(/\s+/).filter(Boolean);
-      const contentTerms = terms.filter(
-        (term) => term.length > 2 && !SEARCH_STOP.has(term),
-      );
+      const contentTerms = terms.filter((term) => term.length > 2 && !SEARCH_STOP.has(term));
       const matchedTerms = contentTerms.filter(
-        (term) =>
-          haystack.includes(term) ||
-          (term.length > 6 &&
-            term.endsWith("s") &&
-            haystack.includes(term.slice(0, -1))),
+        (term) => haystack.includes(term) || (term.length > 6 && term.endsWith("s") && haystack.includes(term.slice(0, -1))),
       );
       const allTerms = terms.every((term) => haystack.includes(term));
-      const partial =
-        matchedTerms.length >= 2 &&
-        matchedTerms.length >= Math.ceil(contentTerms.length * 0.5);
+      const partial = matchedTerms.length >= 2 && matchedTerms.length >= Math.ceil(contentTerms.length * 0.5);
       if (!reasons.length && !aliasPath && !allTerms && !partial) continue;
       const exactId = capability.id === needle;
-      const exactAlias = aliases.some(
-        (alias) => alias.toLowerCase() === needle,
-      );
-      const idHit = contentTerms.includes(capability.id.split(".").at(-1) ?? "")
-        ? 40
-        : 0;
+      const exactAlias = aliases.some((alias) => alias.toLowerCase() === needle);
+      const idHit = contentTerms.includes(capability.id.split(".").at(-1) ?? "") ? 40 : 0;
       scores.set(
         capability.id,
         (exactId
@@ -950,36 +764,23 @@ function createFixtureRegistry(
             ? 95
             : aliasPath
               ? 92
-              : Math.max(
-                  10,
-                  ...reasons.map((reason) => reason.weight),
-                  matchedTerms.length * 12,
-                )) + idHit,
+              : Math.max(10, ...reasons.map((reason) => reason.weight), matchedTerms.length * 12)) + idHit,
       );
-      const hitAliases = aliases.filter((alias) =>
-        alias.toLowerCase().includes(needle),
-      );
+      const hitAliases = aliases.filter((alias) => alias.toLowerCase().includes(needle));
       matches.push({
         id: capability.id,
         kind: capability.kind,
         syntax,
         example: capability.example,
         description: capability.description,
-        reasons: (aliasPath
-          ? ["alias path"]
-          : reasons.length
-            ? reasons.map((reason) => reason.reason)
-            : ["query terms"]
-        ).slice(0, 3),
+        reasons: (aliasPath ? ["alias path"] : reasons.length ? reasons.map((reason) => reason.reason) : ["query terms"]).slice(0, 3),
         ...(hitAliases.length > 0 ? { aliases: hitAliases } : {}),
       });
     }
     for (const command of LOCAL_COMMANDS) {
       if (activeInvocation()) continue;
       if (command.actionId) continue;
-      const haystack = [command.name, command.syntax, command.blurb]
-        .join("\n")
-        .toLowerCase();
+      const haystack = [command.name, command.syntax, command.blurb].join("\n").toLowerCase();
       if (!haystack.includes(needle)) continue;
       matches.push({
         id: `/${command.name}`,
@@ -990,11 +791,7 @@ function createFixtureRegistry(
       });
       scores.set(`/${command.name}`, command.name === needle ? 100 : 15);
     }
-    matches.sort(
-      (left, right) =>
-        (scores.get(right.id) ?? 0) - (scores.get(left.id) ?? 0) ||
-        left.id.localeCompare(right.id),
-    );
+    matches.sort((left, right) => (scores.get(right.id) ?? 0) - (scores.get(left.id) ?? 0) || left.id.localeCompare(right.id));
     return {
       query: needle,
       matches: matches.slice(0, SEARCH_LIMIT),
@@ -1008,10 +805,7 @@ function createFixtureRegistry(
     describe,
     invoke,
     resolve,
-    nodes: () =>
-      nodes
-        .filter((node) => visible(node.id))
-        .map((node) => ({ ...node, aliases: [...node.aliases] })),
+    nodes: () => nodes.filter((node) => visible(node.id)).map((node) => ({ ...node, aliases: [...node.aliases] })),
     normalize: (name, args) => {
       const resolution = resolve(name);
       const canonical = resolution.ok ? resolution.id : name;
@@ -1020,9 +814,7 @@ function createFixtureRegistry(
       const parsed = capability?.args.safeParse(cleaned);
       return {
         name: canonical,
-        args: parsed?.success
-          ? (parsed.data as Record<string, unknown>)
-          : cleaned,
+        args: parsed?.success ? (parsed.data as Record<string, unknown>) : cleaned,
       };
     },
   };
@@ -1034,9 +826,7 @@ export async function dispatchModelTool(
   rawArgs: unknown,
   context: ActionContext,
 ): Promise<ActionResult> {
-  return withInvocation(context.invocation, () =>
-    dispatchAuthorizedModelTool(registry, name, rawArgs, context),
-  );
+  return withInvocation(context.invocation, () => dispatchAuthorizedModelTool(registry, name, rawArgs, context));
 }
 
 async function dispatchAuthorizedModelTool(
@@ -1059,11 +849,7 @@ async function dispatchAuthorizedModelTool(
   if (name === "capabilities.list") {
     const parsed = listArgsSchema.safeParse(rawArgs ?? {});
     if (!parsed.success) {
-      return errorResult(
-        name,
-        "invalid_args",
-        'List accepts an optional category id such as "files".',
-      );
+      return errorResult(name, "invalid_args", 'List accepts an optional category id such as "files".');
     }
     const listed = registry.list(canonicalListArguments(parsed.data).category);
     const packed = fitListDetail(listed);
@@ -1074,10 +860,7 @@ async function dispatchAuthorizedModelTool(
       summary:
         listed.status === "error"
           ? (listed.summary ?? "List failed.")
-          : commandListSummary(
-              listed.category,
-              packed.detailsAvailable === true,
-            ),
+          : commandListSummary(listed.category, packed.detailsAvailable === true),
       detail: packed.detail,
       ...(packed.detailsAvailable ? { detailsAvailable: true } : {}),
     });
@@ -1085,19 +868,11 @@ async function dispatchAuthorizedModelTool(
   if (name === "capabilities.search") {
     const parsed = searchArgsSchema.safeParse(rawArgs ?? {});
     if (!parsed.success) {
-      return errorResult(
-        name,
-        "invalid_args",
-        "Search needs a query of two to sixty-four characters.",
-      );
+      return errorResult(name, "invalid_args", "Search needs a query of two to sixty-four characters.");
     }
     const found = registry.search(parsed.data.query);
     if (found.status === "error") {
-      return errorResult(
-        name,
-        found.code ?? "invalid_query",
-        found.summary ?? "Search failed.",
-      );
+      return errorResult(name, found.code ?? "invalid_query", found.summary ?? "Search failed.");
     }
     const packed = fitSearchDetail(found);
     const count = found.matches.length;
@@ -1117,11 +892,7 @@ async function dispatchAuthorizedModelTool(
   if (name === "capabilities.describe") {
     const parsed = describeArgsSchema.safeParse(rawArgs ?? {});
     if (!parsed.success) {
-      return errorResult(
-        name,
-        "invalid_args",
-        "Describe accepts a list of ids.",
-      );
+      return errorResult(name, "invalid_args", "Describe accepts a list of ids.");
     }
     const described = registry.describe(parsed.data.ids);
     const packed = fitDescribeDetail(described);
@@ -1140,32 +911,16 @@ async function dispatchAuthorizedModelTool(
   if (name === "actions.invoke") {
     const parsed = invokeArgsSchema.safeParse(rawArgs ?? {});
     if (!parsed.success) {
-      return errorResult(
-        name,
-        "invalid_args",
-        "Invoke accepts a registered name and arguments.",
-      );
+      return errorResult(name, "invalid_args", "Invoke accepts a registered name and arguments.");
     }
     return registry.invoke(parsed.data.name, parsed.data.args, context);
   }
-  return errorResult(
-    name,
-    "unknown_tool",
-    `Only ${PERMANENT_MODEL_TOOLS.join(", ")} are available.`,
-  );
+  return errorResult(name, "unknown_tool", `Only ${PERMANENT_MODEL_TOOLS.join(", ")} are available.`);
 }
 
 /** Model-loop fixtures only; production always forwards to Alo. */
-export function createRegistry(
-  ...args: Parameters<typeof createFixtureRegistry>
-): CapabilityRegistry {
+export function createRegistry(...args: Parameters<typeof createFixtureRegistry>): CapabilityRegistry {
   const registry = createFixtureRegistry(...args);
-  registry.forwardModelTool = (name, args, context) =>
-    dispatchModelTool(
-      { ...registry, forwardModelTool: undefined },
-      name,
-      args,
-      context,
-    );
+  registry.forwardModelTool = (name, args, context) => dispatchModelTool({ ...registry, forwardModelTool: undefined }, name, args, context);
   return registry;
 }

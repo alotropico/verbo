@@ -1,5 +1,6 @@
 export const IPC_CHANNELS = {
   replyNotification: "verbo:reply:notification",
+  replyVisibleThread: "verbo:reply:visibleThread",
   commandsReceipt: "verbo:commands:receipt",
   commandsSettings: "verbo:commands:settings",
   commandsSave: "verbo:commands:save",
@@ -79,6 +80,9 @@ export const IPC_CHANNELS = {
   servicesSnapshot: "verbo:services:snapshot",
   servicesStart: "verbo:services:start",
   servicesStop: "verbo:services:stop",
+  webSettingsGet: "verbo:web:settings:get",
+  webSettingsSet: "verbo:web:settings:set",
+  webStatus: "verbo:web:status",
   voiceSettingsGet: "verbo:voice:settings:get",
   voiceSettingsSet: "verbo:voice:settings:set",
   voiceStatus: "verbo:voice:status",

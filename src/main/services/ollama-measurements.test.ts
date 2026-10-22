@@ -128,4 +128,75 @@ describe("Ollama payloads and completion measurements", () => {
       );
     },
   );
+
+  it("resets its inactivity deadline as chunks arrive and aborts when the stream stalls", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(
+            new ReadableStream({
+              async start(controller) {
+                const enc = new TextEncoder();
+                controller.enqueue(
+                  enc.encode(`${JSON.stringify({ message: { content: "part1" } })}\n`),
+                );
+                await new Promise((r) => setTimeout(r, 25));
+                controller.enqueue(
+                  enc.encode(`${JSON.stringify({ message: { content: "part2" } })}\n`),
+                );
+                await new Promise((r) => setTimeout(r, 25));
+                controller.enqueue(enc.encode(`${JSON.stringify({ done: true })}\n`));
+                controller.close();
+              },
+            }),
+          ),
+      ),
+    );
+    let text = "";
+    await expect(
+      streamOllamaTurn(
+        [],
+        DEFAULT_CHAT_SETTINGS,
+        new AbortController().signal,
+        (snapshot) => {
+          text = snapshot;
+        },
+        { deadlineMs: 40 },
+      ),
+    ).resolves.toBeDefined();
+    expect(text).toBe("part1part2");
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(
+            new ReadableStream({
+              async start(controller) {
+                const enc = new TextEncoder();
+                controller.enqueue(
+                  enc.encode(`${JSON.stringify({ message: { content: "part1" } })}\n`),
+                );
+                await new Promise((r) => setTimeout(r, 70));
+                controller.enqueue(enc.encode(`${JSON.stringify({ done: true })}\n`));
+                controller.close();
+              },
+            }),
+          ),
+      ),
+    );
+    await expect(
+      streamOllamaTurn(
+        [],
+        DEFAULT_CHAT_SETTINGS,
+        new AbortController().signal,
+        () => undefined,
+        { deadlineMs: 30 },
+      ),
+    ).rejects.toMatchObject({
+      name: "TimeoutError",
+      message: "Ollama stream stalled.",
+    });
+  });
 });

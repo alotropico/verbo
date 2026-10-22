@@ -1,13 +1,10 @@
 import type { DatabaseSync } from "node:sqlite";
 import type { ChatMessage } from "../../shared/chat-ipc";
-import type { ContextMeters } from "../../shared/memory";
+import type { ContextMeters, MemorySnapshot, MemoryUsage } from "../../shared/memory";
 import { expandHistoryWithTurnEvents } from "../db/turn-events";
 import { createMemoryStore } from "../db/memory";
 import { buildTurnContext, contextTokens } from "./context-builder";
-import {
-  AGENT_PROFILES,
-  IMMUTABLE_AGENT_INSTRUCTIONS,
-} from "../agents/profiles";
+import { AGENT_PROFILES, IMMUTABLE_AGENT_INSTRUCTIONS } from "../agents/profiles";
 import type { AgentId } from "../../shared/workflows";
 import type { InferenceMeasurement } from "../../shared/inference-metrics";
 
@@ -38,10 +35,7 @@ function textFromStored(contentJson: string): string {
   }
 }
 
-function historyForThread(
-  database: DatabaseSync,
-  threadId: string | undefined,
-): ChatMessage[] {
+function historyForThread(database: DatabaseSync, threadId: string | undefined): ChatMessage[] {
   if (!threadId) return [];
   const rows = database
     .prepare(
@@ -61,21 +55,19 @@ function historyForThread(
   }));
 }
 
-export function estimateContextMeters(input: {
+export async function estimateContextMeters(input: {
   database: DatabaseSync;
   threadId?: string;
   numCtx: number;
   lastInference?: InferenceMeasurement | null;
   audience?: AgentId;
-}): ContextMeters {
-  const store = createMemoryStore(input.database);
+  memory?: { usage: MemoryUsage; snapshot: MemorySnapshot };
+}): Promise<ContextMeters> {
   const audience = input.audience ?? "conversational";
-  const usage = store.usage(audience);
-  const snapshot = store.snapshot(input.threadId, audience);
-  const history = expandHistoryWithTurnEvents(
-    input.database,
-    historyForThread(input.database, input.threadId),
-  );
+  const store = input.memory ? undefined : createMemoryStore(input.database);
+  const usage = input.memory ? input.memory.usage : await store!.usage(audience);
+  const snapshot = input.memory ? input.memory.snapshot : await store!.snapshot(input.threadId, audience);
+  const history = expandHistoryWithTurnEvents(input.database, historyForThread(input.database, input.threadId));
   const built = buildTurnContext({
     history,
     userText: "",
@@ -90,9 +82,7 @@ export function estimateContextMeters(input: {
       ...snapshot.alwaysThread,
     ].join("\n\n"),
   });
-  const contextTokensUsed = built.ok
-    ? contextTokens(built.messages)
-    : input.numCtx;
+  const contextTokensUsed = built.ok ? contextTokens(built.messages) : input.numCtx;
   return {
     memoryTokens: usage.tokens,
     memoryBudget: usage.budget,

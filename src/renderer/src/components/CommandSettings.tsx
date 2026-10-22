@@ -1,6 +1,7 @@
 import { useSettingsSession } from "@/hooks/settings-session-context";
 import { useSettingsDraft } from "@/hooks/use-settings-draft";
-import { Group, NavLink, Stack, Text } from "@mantine/core";
+import { useSettingsResource } from "@/hooks/use-settings-resource";
+import { Button, Group, NavLink, Stack, Text } from "@mantine/core";
 import { useLocalStorage } from "@mantine/hooks";
 import { type CommandSettings as CommandSettingsData } from "@shared/commands";
 import {
@@ -10,18 +11,13 @@ import {
   FolderOpenIcon,
   GlobeIcon,
   ListTreeIcon,
+  NotebookIcon,
+  RefreshCwIcon,
   Settings2Icon,
   TerminalIcon,
   type LucideIcon,
 } from "lucide-react";
-import {
-  useCallback,
-  useEffect,
-  useRef,
-  useState,
-  type ReactElement,
-  type ReactNode,
-} from "react";
+import { useEffect, useRef, type ReactElement, type ReactNode } from "react";
 import styles from "./ActionsSettings.module.css";
 import { CommandTable } from "./CommandTable";
 import { EntityCommandSettings } from "./EntityCommandSettings";
@@ -29,6 +25,8 @@ import { MemorySettings } from "./MemorySettings";
 import { useSettingsNavigation } from "./settings-navigation-context";
 import { SettingsDisclosure } from "./SettingsDisclosure";
 import { StatusMessage } from "./StatusMessage";
+import { SettingsLoading } from "./SettingsLoading";
+import { FileSettings } from "./FileSettings";
 
 const MODULES: Record<string, { title: string; icon: LucideIcon }> = {
   general: { title: "All commands", icon: ListTreeIcon },
@@ -39,28 +37,22 @@ const MODULES: Record<string, { title: string; icon: LucideIcon }> = {
   projects: { title: "Projects", icon: FolderOpenIcon },
   environment: { title: "Environment", icon: Settings2Icon },
   ags: { title: "AGS", icon: TerminalIcon },
+  obsidian: { title: "Obsidian", icon: NotebookIcon },
 };
 
-export function CommandSettings({
-  ags,
-  history,
-  files,
-}: {
-  ags?: ReactNode;
-  history?: ReactNode;
-  files?: ReactNode;
-}): ReactElement {
-  const [data, setData] = useState<CommandSettingsData | null>(null);
+export function CommandSettings({ ags, history, files }: { ags?: ReactNode; history?: ReactNode; files?: ReactNode }): ReactElement {
+  const {
+    data,
+    loading,
+    error,
+    reload: load,
+  } = useSettingsResource<CommandSettingsData>("commands", () => window.verbo.commands.settings());
   const { module: selected, selectModule } = useSettingsNavigation();
   const session = useSettingsSession();
-  const [epochs, setEpochs] = useSettingsDraft<Record<string, number>>(
-    "commands/epochs",
-    {},
-  );
+  const [epochs, setEpochs] = useSettingsDraft<Record<string, number>>("commands/epochs", {});
   const resetAliases = async (ids: string[]): Promise<void> => {
     for (const id of ids) await session.resetAutosaves(`command-alias/${id}/`);
   };
-  const [error, setError] = useSettingsDraft("commands/error", "");
   const [settingsOpen, setSettingsOpen] = useLocalStorage({
     key: "verbo:command-settings:settings-open",
     defaultValue: true,
@@ -72,18 +64,6 @@ export function CommandSettings({
     getInitialValueInEffect: false,
   });
   const contentRef = useRef<HTMLDivElement>(null);
-  const load = useCallback(async (): Promise<void> => {
-    await window.verbo.commands
-      .settings()
-      .then((next) => {
-        setData(next);
-        setError("");
-      })
-      .catch(() => setError("Commands could not be loaded."));
-  }, [setData, setError]);
-  useEffect(() => {
-    void load();
-  }, [load]);
   useEffect(() => {
     contentRef.current?.scrollTo({ top: 0 });
   }, [selected]);
@@ -93,17 +73,10 @@ export function CommandSettings({
     title: moduleId,
     icon: TerminalIcon,
   };
-  const count = data?.nodes.filter(
-    (node) =>
-      moduleId === "general" ||
-      node.id === moduleId ||
-      node.id.startsWith(`${moduleId}.`),
-  ).length;
+  const count = data?.nodes.filter((node) => moduleId === "general" || node.id === moduleId || node.id.startsWith(`${moduleId}.`)).length;
 
   const restored = (id: string): void => {
-    for (const node of data?.nodes ?? [])
-      if (node.id === id || node.id.startsWith(`${id}.`))
-        session.clear(`command-alias/${node.id}/`);
+    for (const node of data?.nodes ?? []) if (node.id === id || node.id.startsWith(`${id}.`)) session.clear(`command-alias/${node.id}/`);
     setEpochs((previous) => ({
       ...previous,
       ...Object.fromEntries(
@@ -117,8 +90,9 @@ export function CommandSettings({
     selectModule(id);
     contentRef.current?.scrollTo({ top: 0 });
   };
+  if (!data) return <SettingsLoading label="Loading command modules…" error={error} retry={() => void load()} />;
   return (
-    <div className={styles.commandsLayout}>
+    <div className={styles.commandsLayout} aria-busy={loading}>
       <nav aria-label="Command modules" className={styles.commandsNav}>
         {[{ id: "general" }, ...modules].map((module) => {
           const { title, icon: Icon } = MODULES[module.id] ?? {
@@ -152,16 +126,9 @@ export function CommandSettings({
             {error}
           </StatusMessage>
         ) : null}
-        <Stack
-          key={moduleId}
-          gap="md"
-          aria-label={`${MODULES[moduleId]?.title ?? moduleId} settings`}
-        >
-          <Group
-            className={styles.moduleHeading}
-            justify="space-between"
-            align="flex-start"
-          >
+        {loading ? <SettingsLoading label="Refreshing commands…" /> : null}
+        <Stack key={moduleId} gap="md" aria-label={`${MODULES[moduleId]?.title ?? moduleId} settings`}>
+          <Group className={styles.moduleHeading} justify="space-between" align="flex-start">
             <Stack gap={4} className={styles.moduleIntroduction}>
               <Group gap="sm" wrap="nowrap">
                 <Icon size={20} aria-hidden className={styles.moduleIcon} />
@@ -172,26 +139,30 @@ export function CommandSettings({
               <Text size="sm" c="dimmed">
                 {moduleId === "general"
                   ? "Manage command aliases across every module."
-                  : modules.find((module) => module.id === moduleId)
-                      ?.description}
+                  : modules.find((module) => module.id === moduleId)?.description}
               </Text>
             </Stack>
-            {count !== undefined ? (
-              <Text size="xs" c="dimmed" className={styles.moduleCount}>
-                {count} {count === 1 ? "command" : "commands"}
-              </Text>
-            ) : null}
+            <Group gap="sm">
+              <Button
+                size="xs"
+                variant="default"
+                leftSection={<RefreshCwIcon size={14} aria-hidden />}
+                disabled={loading}
+                onClick={() => void load()}
+              >
+                Refresh commands
+              </Button>
+              {count !== undefined ? (
+                <Text size="xs" c="dimmed" className={styles.moduleCount}>
+                  {count} {count === 1 ? "command" : "commands"}
+                </Text>
+              ) : null}
+            </Group>
           </Group>
           {moduleId === "general" ? (
             <>
               {data ? (
-                <CommandTable
-                  data={data}
-                  reload={load}
-                  resetAliases={resetAliases}
-                  epochs={epochs}
-                  onRestored={restored}
-                />
+                <CommandTable data={data} reload={load} resetAliases={resetAliases} epochs={epochs} onRestored={restored} />
               ) : (
                 <Text size="sm" c="dimmed">
                   Loading commands…
@@ -211,20 +182,16 @@ export function CommandSettings({
                 open={settingsOpen}
                 onOpenChange={setSettingsOpen}
               >
-                {!["memory", "files", "software", "projects", "ags"].includes(
-                  moduleId,
-                ) ? (
+                {!["memory", "files", "software", "projects", "ags", "obsidian"].includes(moduleId) ? (
                   <Text size="sm" c="dimmed">
-                    No additional settings for this module. Open Commands to
-                    manage its aliases and view usage details.
+                    No additional settings for this module. Open Commands to manage its aliases and view usage details.
                   </Text>
                 ) : null}
                 {moduleId === "memory" ? <MemorySettings /> : null}
                 {moduleId === "files" ? files : null}
+                {moduleId === "obsidian" ? <FileSettings kind="obsidian" /> : null}
                 {moduleId === "ags" ? ags : null}
-                {moduleId === "projects" || moduleId === "software" ? (
-                  <EntityCommandSettings module={moduleId} />
-                ) : null}
+                {moduleId === "projects" || moduleId === "software" ? <EntityCommandSettings module={moduleId} /> : null}
               </SettingsDisclosure>
               <SettingsDisclosure
                 title={

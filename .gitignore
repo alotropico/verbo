@@ -49,6 +49,14 @@ voice-service/**/__pycache__/
 voice-service/assets/*
 !voice-service/assets/README.md
 
+# Local web search runtime and generated settings
+web-service/.venv/
+web-service/.pytest_cache/
+web-service/**/__pycache__/
+web-service/.runtime/
+*web-token*
+web-settings.json
+
 node_modules/
 
 # Prepared standalone Alo bundle (recreated by alo:prepare)

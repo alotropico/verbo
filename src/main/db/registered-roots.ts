@@ -1,4 +1,5 @@
 import { createAloRootStore } from "../alo/data-client";
+import type { AsyncMethods } from "../alo/async";
 
 import type { DatabaseSync } from "node:sqlite";
 
@@ -18,7 +19,7 @@ export function createRootStore(
   _database: DatabaseSync,
   table: "registered_projects" | "ags_hosts",
   _noun: string,
-): RootStore {
+): AsyncMethods<RootStore> {
   void _noun; // Retain the existing app-facing signature; storage belongs to Alo.
 
   return createAloRootStore(table);

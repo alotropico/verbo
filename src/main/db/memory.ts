@@ -1,4 +1,5 @@
 import { createAloMemoryStore } from "../alo/data-client";
+import type { AsyncMethods } from "../alo/async";
 
 import type { DatabaseSync } from "node:sqlite";
 
@@ -73,9 +74,6 @@ export type MemoryStore = {
   recentChanges: (limit?: number) => MemoryChange[];
 };
 
-export function createMemoryStore(
-  database: DatabaseSync,
-  budget = ALWAYS_ON_MEMORY_TOKEN_BUDGET,
-): MemoryStore {
+export function createMemoryStore(database: DatabaseSync, budget = ALWAYS_ON_MEMORY_TOKEN_BUDGET): AsyncMethods<MemoryStore> {
   return createAloMemoryStore(database, budget);
 }

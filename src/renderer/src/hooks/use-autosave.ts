@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useState } from "react";
-import { AutosaveController, type AutosaveState } from "@/runtime/autosave";
+import { AutosaveController, SETTINGS_SAVE_DELAY, type AutosaveState } from "@/runtime/autosave";
 
 export function useAutosave<Value>(
   save: (value: Value) => Promise<void>,
@@ -9,9 +9,7 @@ export function useAutosave<Value>(
     status: "idle",
     error: "",
   });
-  const [controller] = useState(
-    () => new AutosaveController<Value>(save, setState, 350, merge),
-  );
+  const [controller] = useState(() => new AutosaveController<Value>(save, setState, SETTINGS_SAVE_DELAY, merge));
   useLayoutEffect(() => {
     controller.configure(save, setState, merge);
   }, [controller, save, merge]);

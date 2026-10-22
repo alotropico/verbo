@@ -4,23 +4,17 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
-const mark = JSON.parse(
-  await readFile(join(root, "src/renderer/src/assets/verbo-mark.json"), "utf8"),
-);
-const theme = await readFile(
-  join(root, "src/renderer/src/assets/globals.css"),
-  "utf8",
-);
+const mark = JSON.parse(await readFile(join(root, "src/renderer/src/assets/verbo-mark.json"), "utf8"));
+const theme = await readFile(join(root, "src/renderer/src/assets/globals.css"), "utf8");
 const darkTheme = theme.slice(theme.indexOf(".dark,"));
 const brand = theme.match(/--brand:\s*(#[\da-f]{6})\s*;/iu)?.[1];
 if (!brand) throw new Error("Missing hex brand token: --brand");
 const colors = { brand };
 
-// Export the existing OKLCH background as sRGB for native icon formats.
-for (const token of ["card"]) {
-  const match = darkTheme.match(
-    new RegExp(`--${token}:\\s*oklch\\(([^)]+)\\)`),
-  );
+// Reuse the existing colors, including the light theme's yellow warning color.
+for (const token of ["card", "chart-1", "chart-2", "chart-4", "destructive"]) {
+  const colorTheme = token === "chart-4" ? theme : darkTheme;
+  const match = colorTheme.match(new RegExp(`--${token}:\\s*oklch\\(([^)]+)\\)`));
   if (!match) throw new Error(`Missing dark theme token: --${token}`);
   const [lightness, chroma, hue] = match[1].trim().split(/\s+/).map(Number);
   const radians = (hue * Math.PI) / 180;
@@ -37,10 +31,7 @@ for (const token of ["card"]) {
   colors[token] = `#${rgb
     .map((channel) => {
       const bounded = Math.max(0, Math.min(1, channel));
-      const srgb =
-        bounded <= 0.0031308
-          ? 12.92 * bounded
-          : 1.055 * bounded ** (1 / 2.4) - 0.055;
+      const srgb = bounded <= 0.0031308 ? 12.92 * bounded : 1.055 * bounded ** (1 / 2.4) - 0.055;
       return Math.round(srgb * 255)
         .toString(16)
         .padStart(2, "0");
@@ -78,8 +69,7 @@ let png;
 for (let offset = 8; offset < icns.length;) {
   const type = icns.toString("ascii", offset, offset + 4);
   const length = icns.readUInt32BE(offset + 4);
-  if (length < 8 || offset + length > icns.length)
-    throw new Error("Invalid ICNS chunk");
+  if (length < 8 || offset + length > icns.length) throw new Error("Invalid ICNS chunk");
   if (type === "ic10") png = icns.subarray(offset + 8, offset + length);
   offset += length;
 }
@@ -87,6 +77,24 @@ if (!png || png.readUInt32BE(16) !== 1024 || png.readUInt32BE(20) !== 1024) {
   throw new Error("The icon tool did not produce a 1024px PNG");
 }
 await writeFile(join(buildDir, "icon.png"), png);
-console.log(
-  "Generated Verbo SVG, PNG, ICO, ICNS, and Linux icons from the shared mark and theme tokens.",
-);
+
+// Windows' native overlays have a fixed bottom-right position. Complete ICO
+// variants preserve the base mark and put its status dot at the top right.
+const replyColors = {
+  question: colors["chart-1"],
+  success: colors["chart-2"],
+  error: colors.destructive,
+  partial: colors["chart-4"],
+};
+for (const [state, color] of Object.entries(replyColors)) {
+  const outDir = join(buildDir, "replies", state);
+  await mkdir(outDir, { recursive: true });
+  const variant = svg.replace(
+    "</svg>",
+    `  <circle cx="27" cy="5" r="3" fill="${color}" stroke="${colors.card}" stroke-width="1.5"/>\n</svg>`,
+  );
+  const inputFile = join(outDir, "icon.svg");
+  await writeFile(inputFile, variant);
+  await runIconsTool({ inputFile, outputFormat: "ico", outDir });
+}
+console.log("Generated Verbo icons and four top-right reply-status variants from the shared mark and theme tokens.");

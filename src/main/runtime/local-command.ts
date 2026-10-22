@@ -1,54 +1,47 @@
 import type { ActionResult } from "../../shared/action-contract";
-import {
-  LOCAL_COMMANDS,
-  parseLocalCommand,
-  routeUtterance,
-  type LocalCommandResult,
-} from "../../shared/local-commands";
-import type {
-  CapabilityRegistry,
-  SearchResult,
-} from "../capabilities/registry";
+import { LOCAL_COMMANDS, parseLocalCommand, routeUtterance, type LocalCommandResult } from "../../shared/local-commands";
+import type { CapabilityRegistry, DescribeResult, SearchResult } from "../capabilities/registry";
 import type { MemoryStore } from "../db/memory";
+import type { AsyncMethods } from "../alo/async";
 
 function presentAction(result: ActionResult): LocalCommandResult {
-  const handled =
-    result.status === "success" ||
-    result.status === "partial" ||
-    result.status === "requires_confirmation";
-  const summary = result.detail
-    ? `${result.summary}\n${result.detail}`
-    : result.summary;
+  const handled = result.status === "success" || result.status === "partial" || result.status === "requires_confirmation";
+  const summary = result.detail ? `${result.summary}\n${result.detail}` : result.summary;
   return { status: handled ? "success" : "error", summary, receipt: result };
 }
 
-function helpText(registry: CapabilityRegistry): string {
+async function describeEntries(registry: CapabilityRegistry, ids: string[]): Promise<Map<string, DescribeResult["entries"][number]>> {
+  const entries = new Map<string, DescribeResult["entries"][number]>();
+  for (let offset = 0; offset < ids.length; offset += 8) {
+    for (const entry of (await registry.describe(ids.slice(offset, offset + 8))).entries) entries.set(entry.id, entry);
+  }
+  return entries;
+}
+
+async function helpText(registry: CapabilityRegistry): Promise<string> {
+  const nodes = await registry.nodes();
+  const entries = await describeEntries(registry, [
+    ...new Set([...nodes.map((node) => node.id), ...LOCAL_COMMANDS.flatMap((command) => (command.actionId ? [command.actionId] : []))]),
+  ]);
   const conveniences = LOCAL_COMMANDS.map((command) => {
     if (!command.actionId) return `${command.syntax} — ${command.blurb}`;
-    const described = registry.describe([command.actionId]).entries[0];
+    const described = entries.get(command.actionId);
     const detail = described?.description ?? command.blurb;
     return `${command.syntax} — ${command.actionId}. ${detail}`;
   });
-  const definitions = registry.nodes().map((node) => {
-    const described = registry.describe([node.id]).entries[0];
+  const definitions = nodes.map((node) => {
+    const described = entries.get(node.id);
     const aliases = node.aliases.length ? ` (${node.aliases.join(", ")})` : "";
     return `${described?.kind === "category" ? node.id : `/${node.id} ${described?.syntax ?? "{}"}`}${aliases} — ${node.description}`;
   });
-  return [
-    ...conveniences,
-    "",
-    "Canonical paths and aliases accept JSON arguments:",
-    ...definitions,
-  ].join("\n");
+  return [...conveniences, "", "Canonical paths and aliases accept JSON arguments:", ...definitions].join("\n");
 }
 
 function searchText(found: SearchResult): string {
   if (found.status === "error") return found.summary ?? "Search failed.";
   if (found.matches.length === 0) return `No commands match ${found.query}.`;
   const lines = found.matches.map((match) => {
-    const aliases = match.aliases?.length
-      ? ` (${match.aliases.join(", ")})`
-      : "";
+    const aliases = match.aliases?.length ? ` (${match.aliases.join(", ")})` : "";
     const syntax = match.syntax ? `${match.syntax} ` : "";
     return `${match.id}${aliases} — ${syntax}${match.description}`;
   });
@@ -56,14 +49,17 @@ function searchText(found: SearchResult): string {
   return lines.join("\n");
 }
 
-function catalogText(registry: CapabilityRegistry): string {
+async function catalogText(registry: CapabilityRegistry): Promise<string> {
   const lines = ["Registered capabilities:"];
-  for (const node of registry.nodes()) {
-    const entry = registry.describe([node.id]).entries[0];
+  const nodes = await registry.nodes();
+  const entries = await describeEntries(
+    registry,
+    nodes.map((node) => node.id),
+  );
+  for (const node of nodes) {
+    const entry = entries.get(node.id);
     if (entry?.kind !== "category")
-      lines.push(
-        `${node.id}${node.aliases.length ? ` (${node.aliases.join(", ")})` : ""} — ${node.description}`,
-      );
+      lines.push(`${node.id}${node.aliases.length ? ` (${node.aliases.join(", ")})` : ""} — ${node.description}`);
   }
   return lines.join("\n");
 }
@@ -72,7 +68,7 @@ export async function executeLocalCommand(input: {
   text: string;
   source?: "typed" | "voice";
   threadId?: string;
-  store: MemoryStore;
+  store: MemoryStore | AsyncMethods<MemoryStore>;
   registry: CapabilityRegistry;
   turnId?: string;
   signal?: AbortSignal;
@@ -96,13 +92,13 @@ export async function executeLocalCommand(input: {
     return { status: "error", summary: parsed.summary };
   }
   if (parsed.name === "help") {
-    return { status: "success", summary: helpText(input.registry) };
+    return { status: "success", summary: await helpText(input.registry) };
   }
   if (parsed.name === "capabilities") {
-    return { status: "success", summary: catalogText(input.registry) };
+    return { status: "success", summary: await catalogText(input.registry) };
   }
   if (parsed.name === "search") {
-    const found = input.registry.search(parsed.query);
+    const found = await input.registry.search(parsed.query);
     return {
       status: found.status === "error" ? "error" : "success",
       summary: searchText(found),

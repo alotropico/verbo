@@ -81,6 +81,8 @@ export async function invokeAgent<T>(input: {
   gate: RequestGate;
   budget: TurnBudget;
   presentation?: boolean;
+  temperature?: number;
+  seed?: number;
   onUpdate?: (update: TurnUpdate) => void;
   awaitDecision?: Parameters<typeof runTurn>[0]["awaitDecision"];
   model?: (
@@ -111,6 +113,10 @@ export async function invokeAgent<T>(input: {
       1,
       Math.min(profile.timeoutMs, input.budget.remaining()),
     ),
+    ...(input.temperature !== undefined
+      ? { temperature: input.temperature }
+      : {}),
+    ...(input.seed !== undefined ? { seed: input.seed } : {}),
   };
   const inferenceSource = {
     threadId: input.context.threadId,

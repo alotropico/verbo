@@ -1,12 +1,6 @@
 import { recentActionAudits, recordActionAudit } from "../db/action-audit";
 import { randomUUID } from "node:crypto";
-import {
-  mkdirSync,
-  mkdtempSync,
-  readFileSync,
-  rmSync,
-  writeFileSync,
-} from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { DatabaseSync } from "node:sqlite";
@@ -17,20 +11,13 @@ import { createActionLedger } from "../agents/action-ledger";
 import { createInvocationPolicy } from "../agents/policy";
 import { registryForDatabase } from "../capabilities/catalog";
 import { readAgsCheck } from "../db/ags-check";
-import {
-  readEntitySettings,
-  saveApplicationRegistration,
-  saveProjectPreferences,
-} from "../db/application-registration";
+import { readEntitySettings, saveApplicationRegistration, saveProjectPreferences } from "../db/application-registration";
 import { saveCommandOverride } from "../db/command-overrides";
 import { readCommandReceipt } from "../db/command-receipts";
 import { loadThreadHistory } from "../db/history";
 import { createMemoryStore } from "../db/memory";
 import { migrateDatabase, VERBO_MIGRATIONS } from "../db/migrate";
-import {
-  readProjectImportSettings,
-  saveProjectImportSettings,
-} from "../db/project-import-settings";
+import { readProjectImportSettings, saveProjectImportSettings } from "../db/project-import-settings";
 import { createRootStore } from "../db/registered-roots";
 import { createScopeStore } from "../db/scopes";
 import { createWorkflowExecutionStore } from "../db/workflow-executions";
@@ -55,25 +42,18 @@ function fixture(): { database: DatabaseSync; root: string } {
   mkdirSync(root);
   const actual = new DatabaseSync(":memory:");
   migrateDatabase(actual, VERBO_MIGRATIONS);
-  actual
-    .prepare(
-      "INSERT INTO threads(id,title,created_at,updated_at) VALUES('thread','Fixture',1,1)",
-    )
-    .run();
+  actual.prepare("INSERT INTO threads(id,title,created_at,updated_at) VALUES('thread','Fixture',1,1)").run();
   const forbidden =
     /\b(memory_entries|memory_changes|file_scopes|file_read_grants|file_scope_generation|file_query_snapshots|file_query_items|file_query_dirs|file_query_cursors|operation_plans|operation_items|action_audit|registered_projects|ags_hosts|ags_check_command|command_overrides|command_receipts|command_module_settings|registered_applications|project_preferences|attachment_live_references|project_import_settings|context_note_audiences|action_audit)\b/i;
   const database = new Proxy(actual, {
     get(target, property) {
       if (property === "prepare")
         return (sql: string) => {
-          if (forbidden.test(sql))
-            throw new Error(`Verbo accessed command SQL: ${sql}`);
+          if (forbidden.test(sql)) throw new Error(`Verbo accessed command SQL: ${sql}`);
           return target.prepare(sql);
         };
       const value: unknown = Reflect.get(target, property);
-      return typeof value === "function"
-        ? (value.bind(target) as unknown)
-        : value;
+      return typeof value === "function" ? (value.bind(target) as unknown) : value;
     },
   });
   vi.stubEnv("VERBO_ALO_NODE", process.execPath);
@@ -96,54 +76,46 @@ it("settings, Memory context, files, review and confirmation work without Verbo 
     audiences: ["commander"],
   });
   expect(saved.ok).toBe(true);
-  expect(memory.snapshot("thread", "commander").alwaysThread).toEqual([
-    "Thread context",
-  ]);
-  expect(memory.snapshot("thread", "writer").alwaysThread).toEqual([]);
+  expect((await memory.snapshot("thread", "commander")).alwaysThread).toEqual(["Thread context"]);
+  expect((await memory.snapshot("thread", "writer")).alwaysThread).toEqual([]);
   const scopes = createScopeStore(database);
   expect(
-    scopes.apply({
-      removeIds: [],
-      updates: [],
-      additions: [
-        {
-          alias: "notes",
-          path: root,
-          read: true,
-          write: true,
-          defaultSave: false,
-        },
-      ],
-    }).ok,
+    (
+      await scopes.apply({
+        removeIds: [],
+        updates: [],
+        additions: [
+          {
+            alias: "notes",
+            path: root,
+            read: true,
+            write: true,
+            defaultSave: false,
+          },
+        ],
+      })
+    ).ok,
   ).toBe(true);
-  expect(scopes.list()[0]?.path.toLowerCase()).toBe(root.toLowerCase());
+  expect((await scopes.list())[0]?.path.toLowerCase()).toBe(root.toLowerCase());
   expect(
-    saveCommandOverride(database, [], {
-      nodeId: "environment.platform",
-      version: 1,
-      aliases: ["from-settings"],
-    }).ok,
+    (
+      await saveCommandOverride(database, [], {
+        nodeId: "environment.platform",
+        version: 1,
+        aliases: ["from-settings"],
+      })
+    ).ok,
   ).toBe(true);
   const registry = registryForDatabase(database);
-  expect(registry.resolve("env.from-settings")).toEqual({
+  expect(await registry.resolve("env.from-settings")).toEqual({
     ok: true,
     id: "environment.platform",
   });
   const context = { actor: "ui" as const, threadId: "thread" };
-  expect(
-    (
-      await registry.invoke(
-        "files.create",
-        { path: "notes:/note.md", kind: "file", content: "before" },
-        context,
-      )
-    ).status,
-  ).toBe("success");
-  const edit = await registry.invoke(
-    "files.edit",
-    { path: "notes:/note.md", mode: "full", content: "after" },
-    context,
+  expect((await registry.invoke("files.create", { path: "notes:/note.md", kind: "file", content: "before" }, context)).status).toBe(
+    "success",
   );
+  const edit = await registry.invoke("files.edit", { path: "notes:/note.md", mode: "full", content: "after" }, context);
   expect(edit.status).toBe("requires_confirmation");
   const input = {
     database,
@@ -152,66 +124,56 @@ it("settings, Memory context, files, review and confirmation work without Verbo 
     threadId: "thread",
     sessionId: "Verbo process session",
   };
-  expect(reviewOperation(input).ok).toBe(true);
-  expect(
-    (await decideOperation({ ...input, decision: "approve" })).status,
-  ).toBe("success");
+  expect((await reviewOperation(input)).ok).toBe(true);
+  expect((await decideOperation({ ...input, decision: "approve" })).status).toBe("success");
   expect(readFileSync(join(root, "note.md"), "utf8")).toBe("after");
-  expect(
-    readCommandReceipt(database, edit.operationId!, "thread")?.result.status,
-  ).toBe("success");
+  expect((await readCommandReceipt(database, edit.operationId!, "thread"))?.result.status).toBe("success");
 }, 30000);
-it("project, application, AGS and import settings have one owner", () => {
+it("project, application, AGS and import settings have one owner", async () => {
   const { database, root } = fixture();
-  const added = createRootStore(database, "registered_projects", "project").add(
-    "fixture",
-    root,
-  );
+  const added = await createRootStore(database, "registered_projects", "project").add("fixture", root);
   expect(added.ok).toBe(true);
   if (!added.ok) return;
   expect(
-    saveApplicationRegistration(database, {
-      name: "Fixture node",
-      aliases: ["fixture-node"],
-      executable: process.execPath,
-      enabled: true,
-      supportedTargets: ["folder"],
-      supportedPlatforms: ["win32"],
-      cwdPolicy: "project",
-      launchArguments: [{ target: "path" }],
-    }).ok,
+    (
+      await saveApplicationRegistration(database, {
+        name: "Fixture node",
+        aliases: ["fixture-node"],
+        executable: process.execPath,
+        enabled: true,
+        supportedTargets: ["folder"],
+        supportedPlatforms: ["win32"],
+        cwdPolicy: "project",
+        launchArguments: [{ target: "path" }],
+      })
+    ).ok,
   ).toBe(true);
-  const application = readEntitySettings(database).applications[0]!;
+  const application = (await readEntitySettings(database)).applications[0]!;
   expect(
-    saveProjectPreferences(database, {
-      id: added.root.id,
-      name: "Fixture project",
-      aliases: ["fixture-extra"],
-      enabled: true,
-      defaultApplicationId: application.id,
-      favoriteApplicationIds: [application.id],
-    }).ok,
+    (
+      await saveProjectPreferences(database, {
+        id: added.root.id,
+        name: "Fixture project",
+        aliases: ["fixture-extra"],
+        enabled: true,
+        defaultApplicationId: application.id,
+        favoriteApplicationIds: [application.id],
+      })
+    ).ok,
   ).toBe(true);
-  expect(readEntitySettings(database).projects[0]?.defaultApplicationId).toBe(
-    application.id,
-  );
+  expect((await readEntitySettings(database)).projects[0]?.defaultApplicationId).toBe(application.id);
   expect(
-    saveProjectImportSettings(database, {
-      enabled: true,
-      applicationIds: [application.id],
-    }).ok,
+    (
+      await saveProjectImportSettings(database, {
+        enabled: true,
+        applicationIds: [application.id],
+      })
+    ).ok,
   ).toBe(true);
-  expect(readProjectImportSettings(database).applicationIds).toEqual([
-    application.id,
-  ]);
-  expect(
-    createRootStore(database, "ags_hosts", "AGS host").add("fixture-ags", root)
-      .ok,
-  ).toBe(true);
-  expect(
-    createRootStore(database, "ags_hosts", "AGS host").list()[0]?.alias,
-  ).toBe("fixture-ags");
-  expect(readAgsCheck(database).configured).toBe(false);
+  expect((await readProjectImportSettings(database)).applicationIds).toEqual([application.id]);
+  expect((await createRootStore(database, "ags_hosts", "AGS host").add("fixture-ags", root)).ok).toBe(true);
+  expect((await createRootStore(database, "ags_hosts", "AGS host").list())[0]?.alias).toBe("fixture-ags");
+  expect((await readAgsCheck(database)).configured).toBe(false);
 }, 30000);
 it("real workflow attempts retain receipt IDs and replay known results from Alo", async () => {
   const { database } = fixture();
@@ -225,12 +187,7 @@ it("real workflow attempts retain receipt IDs and replay known results from Alo"
     parameters: {},
     firstStepId: "operate",
   });
-  const active = store.beginStep(
-    execution,
-    "operate",
-    "turn",
-    "commander.output.v1",
-  );
+  const active = store.beginStep(execution, "operate", "turn", "commander.output.v1");
   const ledger = createActionLedger({
     database,
     executionId: execution.id,
@@ -265,12 +222,8 @@ it("real workflow attempts retain receipt IDs and replay known results from Alo"
   expect(result.status).toBe("success");
   expect(store.attempts(execution.id)[0]?.receipt_id).toBe(result.receiptId);
   expect(store.attempts(execution.id)[0]?.state).toBe("completed");
-  expect(aloExecutionReceipts(database, execution.id, "thread")[0]?.id).toBe(
-    result.receiptId,
-  );
-  expect(
-    freezeWorkflowOutcome(database, active.execution).receiptIds,
-  ).toContain(result.receiptId);
+  expect((await aloExecutionReceipts(database, execution.id, "thread"))[0]?.id).toBe(result.receiptId);
+  expect((await freezeWorkflowOutcome(database, active.execution)).receiptIds).toContain(result.receiptId);
   const resumed = createInvocationPolicy({
     ...policy,
     ledger: createActionLedger({
@@ -287,7 +240,7 @@ it("real workflow attempts retain receipt IDs and replay known results from Alo"
     invocation: resumed,
   });
   expect(replay.receiptId).toBe(result.receiptId);
-  expect(createMemoryStore(database).list({}).entries).toHaveLength(1);
+  expect((await createMemoryStore(database).list({})).entries).toHaveLength(1);
   expect(store.attempts(execution.id)).toHaveLength(1);
   const unknown = store.claimAttempt({
     executionId: execution.id,
@@ -298,12 +251,8 @@ it("real workflow attempts retain receipt IDs and replay known results from Alo"
     preconditions: {},
   });
   store.transitionAttempt(unknown.id, "claimed", "dispatched");
-  database
-    .prepare(
-      "UPDATE workflow_action_attempts SET state='dispatched' WHERE receipt_id=?",
-    )
-    .run(result.receiptId!);
-  store.reconcileInterrupted();
+  database.prepare("UPDATE workflow_action_attempts SET state='dispatched' WHERE receipt_id=?").run(result.receiptId!);
+  await store.reconcileInterrupted();
   expect(store.attempts(execution.id)[0]?.state).toBe("completed");
   expect(store.attempts(execution.id)[1]?.state).toBe("uncertain");
   const uncertain = createInvocationPolicy({
@@ -322,26 +271,28 @@ it("real workflow attempts retain receipt IDs and replay known results from Alo"
     { actor: "model", threadId: "thread", invocation: uncertain },
   );
   expect(refused.code).toBe("needs_reconciliation");
-  expect(createMemoryStore(database).list({}).entries).toHaveLength(1);
+  expect((await createMemoryStore(database).list({})).entries).toHaveLength(1);
 }, 30000);
 
 it("approval settles the app-owned workflow attempt from the Alo receipt", async () => {
   const { database, root } = fixture();
   const scopes = createScopeStore(database);
   expect(
-    scopes.apply({
-      removeIds: [],
-      updates: [],
-      additions: [
-        {
-          alias: "notes",
-          path: root,
-          read: true,
-          write: true,
-          defaultSave: false,
-        },
-      ],
-    }).ok,
+    (
+      await scopes.apply({
+        removeIds: [],
+        updates: [],
+        additions: [
+          {
+            alias: "notes",
+            path: root,
+            read: true,
+            write: true,
+            defaultSave: false,
+          },
+        ],
+      })
+    ).ok,
   ).toBe(true);
   writeFileSync(join(root, "approved.md"), "before");
   const store = createWorkflowExecutionStore(database);
@@ -354,12 +305,7 @@ it("approval settles the app-owned workflow attempt from the Alo receipt", async
     parameters: {},
     firstStepId: "operate",
   });
-  const active = store.beginStep(
-    execution,
-    "operate",
-    "turn",
-    "commander.output.v1",
-  );
+  const active = store.beginStep(execution, "operate", "turn", "commander.output.v1");
   const policy = createInvocationPolicy({
     id: randomUUID(),
     agentId: "commander",
@@ -454,18 +400,15 @@ it.skipIf(process.env.VERBO_LIVE_ALO !== "1")(
     ).completion;
     const execution = createWorkflowExecutionStore(database).list("thread")[0];
     expect(execution?.workflowId).toBe("commander");
-    const receipts = aloExecutionReceipts(database, execution!.id, "thread");
+    const receipts = await aloExecutionReceipts(database, execution!.id, "thread");
     expect(
       receipts.some(
         (receipt) =>
-          (receipt.result as { action?: string; status?: string }).action ===
-            "environment.platform" &&
+          (receipt.result as { action?: string; status?: string }).action === "environment.platform" &&
           (receipt.result as { status?: string }).status === "success",
       ),
     ).toBe(true);
-    const messages = loadThreadHistory(database, "thread").messages.filter(
-      (item) => item.message.role === "assistant",
-    );
+    const messages = loadThreadHistory(database, "thread").messages.filter((item) => item.message.role === "assistant");
     const rendered = JSON.stringify(messages);
     expect(rendered.toLowerCase()).toMatch(/windows|win32/);
     expect(events.some((event) => event.type === "done")).toBe(true);
@@ -482,16 +425,16 @@ it.skipIf(process.env.VERBO_LIVE_ALO !== "1")(
   180000,
 );
 
-it("settings history is written and read by Alo without app command SQL", () => {
+it("settings history is written and read by Alo without app command SQL", async () => {
   const { database } = fixture();
-  recordActionAudit(database, {
+  await recordActionAudit(database, {
     actor: "ui",
     actionId: "projects.register",
     request: "fixture",
     summary: "Registered fixture",
     status: "success",
   });
-  expect(recentActionAudits(database)[0]).toMatchObject({
+  expect((await recentActionAudits(database))[0]).toMatchObject({
     actionId: "projects.register",
     summary: "Registered fixture",
   });

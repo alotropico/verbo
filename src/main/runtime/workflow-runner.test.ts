@@ -4,13 +4,14 @@ import { DatabaseSync } from "node:sqlite";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 import type { ChatEvent } from "../../shared/chat-ipc";
+import { replyAttention } from "../../shared/reply-attention";
 import { DEFAULT_CHAT_SETTINGS } from "../../shared/config";
 import type { GuidanceAssignment } from "../agents/guidance";
 import { invokeAgent } from "../agents/invoke";
 import { withInvocation } from "../agents/policy";
 import { routeGlobalRequest } from "../agents/routing";
 import { persistCommandReceipt } from "../test-support/receipts";
-import { loadThreadHistory } from "../db/history";
+import { appendStoredMessage, loadThreadHistory } from "../db/history";
 import { VERBO_MIGRATIONS, migrateDatabase } from "../db/migrate";
 import { createScopeStore } from "../db/scopes";
 import { createWorkflowExecutionStore } from "../db/workflow-executions";
@@ -19,14 +20,16 @@ import { createRegistry, type Capability } from "../test-support/registry";
 import { createTurnController } from "./controller";
 import { createRequestGate } from "./request-gate";
 import { createTurnDispatcher } from "./turn-dispatcher";
-import { runWorkflowTurn } from "./workflow-runner";
+import {
+  isRepetitiveConversationalReply,
+  runWorkflowTurn,
+} from "./workflow-runner";
 
 const directories: string[] = [];
 const databases: DatabaseSync[] = [];
 afterEach(() => {
   for (const database of databases.splice(0)) database.close();
-  for (const directory of directories.splice(0))
-    rmSync(directory, { recursive: true, force: true });
+  for (const directory of directories.splice(0)) rmSync(directory, { recursive: true, force: true });
 });
 function setup(
   route: typeof routeGlobalRequest,
@@ -35,9 +38,7 @@ function setup(
   capabilities: Capability[] = [],
 ): {
   database: DatabaseSync;
-  effects: import("vitest").Mock<
-    () => { action: string; status: "success"; summary: string }
-  >;
+  effects: import("vitest").Mock<() => { action: string; status: "success"; summary: string }>;
   controller: ReturnType<typeof createTurnController>;
   events: ChatEvent[];
   envelope: {
@@ -53,19 +54,13 @@ function setup(
   directory: string;
 } {
   mkdirSync(join(process.cwd(), ".tmp", "scratch"), { recursive: true });
-  const directory = mkdtempSync(
-    join(process.cwd(), ".tmp", "scratch", "2026-10-15-workflow-test-"),
-  );
+  const directory = mkdtempSync(join(process.cwd(), ".tmp", "scratch", "2026-10-15-workflow-test-"));
   directories.push(directory);
   mkdirSync(join(directory, "assets"));
   const database = new DatabaseSync(":memory:");
   databases.push(database);
   migrateDatabase(database, VERBO_MIGRATIONS);
-  database
-    .prepare(
-      "INSERT INTO threads(id,title,created_at,updated_at) VALUES('thread','Workflow',1,1)",
-    )
-    .run();
+  database.prepare("INSERT INTO threads(id,title,created_at,updated_at) VALUES('thread','Workflow',1,1)").run();
   const effects = vi.fn(() => ({
     action: "files.fixture",
     status: "success" as const,
@@ -127,11 +122,82 @@ function setup(
 }
 
 describe("Controller workflow integration", { timeout: 20_000 }, () => {
+  it.each(["commander", "conversational"] as const)("supplies current module awareness to %s", async (agentId) => {
+    const requests: Parameters<typeof invokeAgent>[0][] = [];
+    const invoke: typeof invokeAgent = async (input) => {
+      if (input.modelProfileId === "responder") throw new Error("Use deterministic presentation");
+      requests.push(input);
+      return {
+        output: agentId === "conversational" ? { body: "Available commands." } : { findings: [], receiptIds: [] },
+        outcome: { stop: "completed", content: "", results: [] },
+      } as never;
+    };
+    const fixture = setup(async () => ({ value: { kind: "new", workflowId: agentId }, corrections: 0 }), invoke);
+    await fixture.controller.admitTurn(fixture.envelope, () => undefined).completion;
+    expect(requests[0]?.cts.sourceIds).toContain("commands");
+    expect(requests[0]?.cts.instructions).toContain("- files:");
+    expect(requests[0]?.cts.instructions).toContain("capabilities.search");
+  });
+  it("gives Commander prior receipt identities only from the selected branch", async () => {
+    const requests: Parameters<typeof invokeAgent>[0][] = [];
+    const invoke: typeof invokeAgent = async (input) => {
+      if (input.modelProfileId === "responder") throw new Error("Use deterministic presentation");
+      requests.push(input);
+      return { output: { findings: [], receiptIds: [] }, outcome: { stop: "completed", content: "", results: [] } } as never;
+    };
+    const fixture = setup(async () => ({ value: { kind: "new", workflowId: "commander" }, corrections: 0 }), invoke);
+    const receiptId = "84488558-522d-40ad-af0a-dc2c515761d9";
+    appendStoredMessage(fixture.database, "thread", undefined, { id: "earlier-user", role: "user", content: [] });
+    appendStoredMessage(fixture.database, "thread", "earlier-user", {
+      id: "earlier-assistant",
+      role: "assistant",
+      content: [
+        {
+          type: "tool-call",
+          toolName: "actions.invoke",
+          result: {
+            action: "files.rename",
+            status: "success",
+            summary: "rename 1 item.",
+            receiptId,
+            detail: JSON.stringify({ operationId: receiptId }),
+          },
+        },
+      ],
+    });
+    await fixture.controller.admitTurn({ ...fixture.envelope, text: "Undo the rename", branchAnchor: "earlier-assistant" }, () => undefined)
+      .completion;
+    expect(requests[0]?.value).toMatchObject({ priorCommandResults: [{ messageId: "earlier-assistant", result: { receiptId } }] });
+    await fixture.controller.admitTurn(
+      {
+        ...fixture.envelope,
+        text: "Different branch",
+        branchAnchor: "earlier-user",
+        userMessageId: "alternate-user",
+        assistantMessageId: "alternate-assistant",
+      },
+      () => undefined,
+    ).completion;
+    expect(requests[1]?.value).toMatchObject({ priorCommandResults: [] });
+  });
+  it("marks a routing clarification as waiting for input, not successful completion", async () => {
+    const invoke = vi.fn(async () => {
+      throw new Error("A clarification must not invoke a worker.");
+    });
+    const { controller, envelope, events, effects } = setup(
+      async () => ({ value: { kind: "clarify", question: "Which folder should I use?" }, corrections: 0 }),
+      invoke,
+    );
+    await controller.admitTurn(envelope, (event) => events.push(event)).completion;
+    expect(events).toContainEqual(expect.objectContaining({ type: "input_required" }));
+    expect(replyAttention(events)).toBe("question");
+    expect(invoke).not.toHaveBeenCalled();
+    expect(effects).not.toHaveBeenCalled();
+  });
   it("gives Commander a usable folder root while retaining the selected registration ID", async () => {
     const requests: Parameters<typeof invokeAgent>[0][] = [];
     const invoke: typeof invokeAgent = async (input) => {
-      if (input.modelProfileId === "responder")
-        throw new Error("Use deterministic presentation");
+      if (input.modelProfileId === "responder") throw new Error("Use deterministic presentation");
       requests.push(input);
       return {
         output: { findings: ["Listed the folder"], receiptIds: [] },
@@ -145,7 +211,7 @@ describe("Controller workflow integration", { timeout: 20_000 }, () => {
       }),
       invoke,
     );
-    const saved = createScopeStore(fixture.database).apply({
+    const saved = await createScopeStore(fixture.database).apply({
       removeIds: [],
       updates: [],
       additions: [
@@ -161,24 +227,13 @@ describe("Controller workflow integration", { timeout: 20_000 }, () => {
     });
     expect(saved.ok).toBe(true);
     if (!saved.ok) return;
-    await fixture.controller.admitTurn(
-      { ...fixture.envelope, text: "List folders in garden" },
-      () => undefined,
-    ).completion;
+    await fixture.controller.admitTurn({ ...fixture.envelope, text: "List folders in garden" }, () => undefined).completion;
     expect(requests[0]?.value).toMatchObject({ target: "garden:/" });
-    expect(requests[0]?.cts.instructions).toContain(
-      "Selected folder root: garden:/",
-    );
+    expect(requests[0]?.cts.instructions).toContain("Selected folder root: garden:/");
     expect(requests[0]?.cts.instructions).toContain("files.next");
-    expect(requests[0]?.cts.instructions).toContain(
-      "never ask whether to continue",
-    );
-    const execution = fixture.database
-      .prepare("SELECT parameters_json FROM workflow_executions LIMIT 1")
-      .get();
-    expect(JSON.parse(String(execution?.parameters_json)).target).toBe(
-      saved.scopes[0].id,
-    );
+    expect(requests[0]?.cts.instructions).toContain("never ask whether to continue");
+    const execution = fixture.database.prepare("SELECT parameters_json FROM workflow_executions LIMIT 1").get();
+    expect(JSON.parse(String(execution?.parameters_json)).target).toBe(saved.scopes[0].id);
   });
   it("passes one selected branch history without redundant conversational excerpts", async () => {
     const requests: Parameters<typeof invokeAgent>[0][] = [];
@@ -193,7 +248,11 @@ describe("Controller workflow integration", { timeout: 20_000 }, () => {
           return [
             {
               done: true,
-              message: { content: JSON.stringify({ body: "unique reply" }) },
+              message: {
+                content: JSON.stringify({
+                  body: `unique reply ${requests.length}`,
+                }),
+              },
             },
           ];
         },
@@ -218,15 +277,8 @@ describe("Controller workflow integration", { timeout: 20_000 }, () => {
       () => undefined,
     ).completion;
     expect(requests[0]?.history).toEqual([]);
-    expect(requests[1]?.history?.map((message) => message.messageId)).toEqual([
-      "user-one",
-      "assistant-one",
-    ]);
-    expect(
-      requests[1]?.history?.some(
-        (message) => message.content === "current request",
-      ),
-    ).toBe(false);
+    expect(requests[1]?.history?.map((message) => message.messageId)).toEqual(["user-one", "assistant-one"]);
+    expect(requests[1]?.history?.some((message) => message.content === "current request")).toBe(false);
     expect(loadThreadHistory(database, "thread").messages).toHaveLength(4);
     await controller.admitTurn(
       {
@@ -238,14 +290,8 @@ describe("Controller workflow integration", { timeout: 20_000 }, () => {
       },
       () => undefined,
     ).completion;
-    expect(requests[2]?.history?.map((message) => message.messageId)).toEqual([
-      "user-one",
-    ]);
-    database
-      .prepare(
-        "INSERT INTO threads(id,title,created_at,updated_at) VALUES('other','Other',1,1)",
-      )
-      .run();
+    expect(requests[2]?.history?.map((message) => message.messageId)).toEqual(["user-one"]);
+    database.prepare("INSERT INTO threads(id,title,created_at,updated_at) VALUES('other','Other',1,1)").run();
     await controller.admitTurn(
       {
         ...envelope,
@@ -262,16 +308,8 @@ describe("Controller workflow integration", { timeout: 20_000 }, () => {
     "runs the %s Obsidian composition with retained body/identity and truthful unsupported results",
     async (operation) => {
       let originalRef = "";
-      const dispatched: { operation: string; args: Record<string, unknown> }[] =
-        [];
-      const capabilities = [
-        "read",
-        "create",
-        "edit",
-        "move",
-        "rename",
-        "delete",
-      ].map((name): Capability => ({
+      const dispatched: { operation: string; args: Record<string, unknown> }[] = [];
+      const capabilities = ["read", "create", "edit", "move", "rename", "delete"].map((name): Capability => ({
         id: `obsidian.${name}`,
         description: `Fixture ${name}`,
         kind: name === "read" ? "read" : "mutation",
@@ -289,12 +327,8 @@ describe("Controller workflow integration", { timeout: 20_000 }, () => {
           dispatched.push({ operation: name, args });
           return {
             action: `obsidian.${name}`,
-            status: ["edit", "delete"].includes(name)
-              ? "not_supported"
-              : "success",
-            summary: ["edit", "delete"].includes(name)
-              ? `Fixture ${name} semantics are unsupported.`
-              : `Fixture ${name} verified.`,
+            status: ["edit", "delete"].includes(name) ? "not_supported" : "success",
+            summary: ["edit", "delete"].includes(name) ? `Fixture ${name} semantics are unsupported.` : `Fixture ${name} verified.`,
             ...(name === "read"
               ? {
                   data: {
@@ -309,15 +343,12 @@ describe("Controller workflow integration", { timeout: 20_000 }, () => {
       }));
       const invoked: string[] = [];
       const invoke: typeof invokeAgent = async (input) => {
-        if (input.modelProfileId === "responder")
-          throw new Error("Deterministic fallback");
+        if (input.modelProfileId === "responder") throw new Error("Deterministic fallback");
         invoked.push(input.agentId);
         const value = input.value as Record<string, unknown>;
         let output: unknown;
-        const results: import("../../shared/action-contract").ActionResult[] =
-          [];
-        if (input.agentId === "decision")
-          output = { kind: "selected", value: operation };
+        const results: import("../../shared/action-contract").ActionResult[] = [];
+        if (input.agentId === "decision") output = { kind: "selected", value: operation };
         else if (input.agentId === "writer") {
           if (operation === "edit")
             expect(value).toMatchObject({
@@ -327,17 +358,14 @@ describe("Controller workflow integration", { timeout: 20_000 }, () => {
             });
           output = { body: "Composed fixture body" };
         } else {
-          const name =
-            value.operation === "write" ? "create" : String(value.operation);
+          const name = value.operation === "write" ? "create" : String(value.operation);
           if (name === "edit")
             expect(value).toMatchObject({
               path: "Inbox/Exact.md",
               revision: "a".repeat(64),
             });
           if (typeof value.contentRef === "string")
-            expect(fixture.assets.text("thread", value.contentRef)).toBe(
-              "Composed fixture body",
-            );
+            expect(await fixture.assets.text("thread", value.contentRef)).toBe("Composed fixture body");
           const result = await withInvocation(input.cts.policy, () =>
             input.registry.invoke(
               `obsidian.${name}`,
@@ -376,20 +404,22 @@ describe("Controller workflow integration", { timeout: 20_000 }, () => {
       );
       mkdirSync(join(fixture.directory, ".obsidian"));
       expect(
-        createScopeStore(fixture.database).apply({
-          removeIds: [],
-          updates: [],
-          additions: [
-            {
-              alias: "garden",
-              path: fixture.directory,
-              kind: "obsidian",
-              read: true,
-              write: true,
-              defaultSave: false,
-            },
-          ],
-        }).ok,
+        (
+          await createScopeStore(fixture.database).apply({
+            removeIds: [],
+            updates: [],
+            additions: [
+              {
+                alias: "garden",
+                path: fixture.directory,
+                kind: "obsidian",
+                read: true,
+                write: true,
+                defaultSave: false,
+              },
+            ],
+          })
+        ).ok,
       ).toBe(true);
       const original = fixture.assets.put({
         threadId: "thread",
@@ -399,25 +429,12 @@ describe("Controller workflow integration", { timeout: 20_000 }, () => {
       });
       if (!original.ok) throw new Error(original.summary);
       originalRef = original.attachment.id;
-      await fixture.controller.admitTurn(fixture.envelope, () => undefined)
-        .completion;
-      const execution = createWorkflowExecutionStore(fixture.database).list(
-        "thread",
-      )[0]!;
-      expect(execution.status).toBe(
-        ["edit", "delete"].includes(operation) ? "failed" : "completed",
-      );
-      expect(execution.outcome?.status).toBe(
-        operation === "edit"
-          ? "partial"
-          : operation === "delete"
-            ? "blocked"
-            : "completed",
-      );
+      await fixture.controller.admitTurn(fixture.envelope, () => undefined).completion;
+      const execution = createWorkflowExecutionStore(fixture.database).list("thread")[0]!;
+      expect(execution.status).toBe(["edit", "delete"].includes(operation) ? "failed" : "completed");
+      expect(execution.outcome?.status).toBe(operation === "edit" ? "partial" : operation === "delete" ? "blocked" : "completed");
       expect(dispatched.map((entry) => entry.operation)).toEqual(
-        operation === "edit"
-          ? ["read", "edit"]
-          : [operation === "write" ? "create" : operation],
+        operation === "edit" ? ["read", "edit"] : [operation === "write" ? "create" : operation],
       );
       expect(invoked).toEqual(
         operation === "write"
@@ -484,8 +501,7 @@ describe("Controller workflow integration", { timeout: 20_000 }, () => {
         invoke,
         () => assignments,
       );
-      await fixture.controller.admitTurn(fixture.envelope, () => undefined)
-        .completion;
+      await fixture.controller.admitTurn(fixture.envelope, () => undefined).completion;
       const store = createWorkflowExecutionStore(fixture.database);
       const waiting = store.list("thread")[0]!;
       expect(waiting.status).toBe("awaiting_input");
@@ -494,9 +510,7 @@ describe("Controller workflow integration", { timeout: 20_000 }, () => {
           ? []
           : assignments.map((entry) => ({
               ...entry,
-              ...(change === "reassigned"
-                ? { audiences: ["commander" as const] }
-                : { reference: "work:/other.md" }),
+              ...(change === "reassigned" ? { audiences: ["commander" as const] } : { reference: "work:/other.md" }),
             }));
       await fixture.controller.admitTurn(
         {
@@ -517,8 +531,10 @@ describe("Controller workflow integration", { timeout: 20_000 }, () => {
   );
   it("delivers one tool-free conversational invocation without a Responder, and retains draft references", async () => {
     const calls: string[] = [];
+    let capturedInput: Parameters<typeof invokeAgent>[0] | undefined;
     const invoke: typeof invokeAgent = async (input) => {
       calls.push(input.modelProfileId);
+      capturedInput = input;
       return {
         output: input.outputSchema.parse({ body: "Hello from conversation" }),
         outcome: {
@@ -540,33 +556,76 @@ describe("Controller workflow integration", { timeout: 20_000 }, () => {
     );
     await controller.admitTurn(envelope, () => undefined).completion;
     expect(calls).toEqual(["conversational"]);
+    expect(capturedInput?.value).toMatchObject({
+      request: "Create the fixture",
+      contentRefs: [],
+      attachments: "",
+    });
+    expect(capturedInput?.value).not.toHaveProperty("answers");
+    expect(capturedInput?.value).not.toHaveProperty("completedReceipts");
+    expect(capturedInput?.cts.instructions).toContain(
+      "Reference facts about Verbo and this workspace",
+    );
+    expect(capturedInput?.cts.instructions).not.toContain("Untrusted task data (notes.conversational)");
     const execution = createWorkflowExecutionStore(database).list("thread")[0]!;
     expect(execution.status).toBe("completed");
     const output = execution.checkpoint.outputs.reply as { contentRef: string };
-    expect(assets.text("thread", output.contentRef)).toBe(
-      "Hello from conversation",
-    );
+    expect(await assets.text("thread", output.contentRef)).toBe("Hello from conversation");
     expect(assets.remove("thread", output.contentRef)).toBe(false);
-    expect(JSON.stringify(execution.checkpoint)).not.toContain(
-      "Hello from conversation",
+    expect(JSON.stringify(execution.checkpoint)).not.toContain("Hello from conversation");
+    expect(loadThreadHistory(database, "thread").messages.at(-1)?.message.content).toContainEqual({
+      type: "text",
+      text: "Hello from conversation",
+    });
+  });
+
+  it("handles conversational invocation failure directly without responder, recording status failed", async () => {
+    let responderCalled = false;
+    const invoke: typeof invokeAgent = async (input) => {
+      if (input.modelProfileId === "responder") {
+        responderCalled = true;
+        throw new Error("responder should not be called");
+      }
+      if (input.agentId === "conversational") {
+        throw new Error("The conversational invocation reached its time limit.");
+      }
+      return { output: { body: "ok" } } as never;
+    };
+    const emittedEvents: ChatEvent[] = [];
+    const { controller, envelope, database } = setup(
+      async () => ({
+        value: { kind: "new", workflowId: "conversational" },
+        corrections: 0,
+      }),
+      invoke,
     );
-    expect(
-      loadThreadHistory(database, "thread").messages.at(-1)?.message.content,
-    ).toContainEqual({ type: "text", text: "Hello from conversation" });
+    await controller.admitTurn(envelope, (event) => emittedEvents.push(event)).completion;
+
+    expect(responderCalled).toBe(false);
+    const store = createWorkflowExecutionStore(database);
+    const executions = store.list("thread");
+    expect(executions).toHaveLength(1);
+    expect(executions[0]?.status).toBe("failed");
+    expect(executions[0]?.outcome?.status).toBe("failed");
+
+    const deltas = emittedEvents.filter((e) => e.type === "delta");
+    expect(deltas.map((d) => (d as { type: "delta"; text: string }).text).join("")).toContain(
+      "The conversational invocation reached its time limit.",
+    );
+
+    expect(loadThreadHistory(database, "thread").messages.at(-1)?.message.content).toContainEqual({
+      type: "text",
+      text: "The conversational invocation reached its time limit.",
+    });
   });
 
   it("resumes a required answer without repeating an already completed mutation even when the worker asks again", async () => {
     let commanderCalls = 0;
     const invoke: typeof invokeAgent = async (input) => {
-      if (input.modelProfileId === "responder")
-        throw new Error("Responder unavailable");
+      if (input.modelProfileId === "responder") throw new Error("Responder unavailable");
       commanderCalls += 1;
       const result = await withInvocation(input.cts.policy, () =>
-        input.registry.invoke(
-          "files.fixture",
-          { text: "saved body" },
-          { ...input.context, invocation: input.cts.policy },
-        ),
+        input.registry.invoke("files.fixture", { text: "saved body" }, { ...input.context, invocation: input.cts.policy }),
       );
       const output = {
         findings: [],
@@ -604,18 +663,12 @@ describe("Controller workflow integration", { timeout: 20_000 }, () => {
             corrections: 0,
           }
         : { value: { kind: "new", workflowId: "commander" }, corrections: 0 };
-    const { controller, envelope, database, effects, events } = setup(
-      route,
-      invoke,
-    );
-    await controller.admitTurn(envelope, (event) => events.push(event))
-      .completion;
+    const { controller, envelope, database, effects, events } = setup(route, invoke);
+    await controller.admitTurn(envelope, (event) => events.push(event)).completion;
     const waiting = createWorkflowExecutionStore(database).list("thread")[0]!;
     expect(waiting.status).toBe("awaiting_input");
     expect(effects).toHaveBeenCalledTimes(1);
-    const firstReceipt = createWorkflowExecutionStore(database).attempts(
-      waiting.id,
-    )[0]?.receipt_id;
+    const firstReceipt = createWorkflowExecutionStore(database).attempts(waiting.id)[0]?.receipt_id;
     await controller.admitTurn(
       {
         ...envelope,
@@ -630,19 +683,10 @@ describe("Controller workflow integration", { timeout: 20_000 }, () => {
     expect(finished.status).toBe("completed");
     expect(commanderCalls).toBe(2);
     expect(effects).toHaveBeenCalledTimes(1);
-    expect(
-      createWorkflowExecutionStore(database).attempts(waiting.id),
-    ).toHaveLength(1);
-    expect(
-      createWorkflowExecutionStore(database).attempts(waiting.id)[0]
-        ?.receipt_id,
-    ).toBe(firstReceipt);
+    expect(createWorkflowExecutionStore(database).attempts(waiting.id)).toHaveLength(1);
+    expect(createWorkflowExecutionStore(database).attempts(waiting.id)[0]?.receipt_id).toBe(firstReceipt);
     expect(finished.outcome?.receiptIds).toContain(firstReceipt);
-    expect(
-      loadThreadHistory(database, "thread").messages.filter(
-        (item) => item.message.role === "assistant",
-      ),
-    ).toHaveLength(2);
+    expect(loadThreadHistory(database, "thread").messages.filter((item) => item.message.role === "assistant")).toHaveLength(2);
   });
 
   it("suspends preexisting pending work when a queued yes is promoted, without binding it as an answer", async () => {
@@ -709,15 +753,97 @@ describe("Controller workflow integration", { timeout: 20_000 }, () => {
       },
       () => undefined,
     ).completion;
-    expect(createWorkflowExecutionStore(database).read(first.id)).toMatchObject(
+    expect(createWorkflowExecutionStore(database).read(first.id)).toMatchObject({
+      status: "suspended",
+      reason: "queued_interruption",
+      parameters: { target: null },
+    });
+    expect(createWorkflowExecutionStore(database).read(first.id)?.parameters.answers).toBeUndefined();
+  });
+
+  it("retries a conversational reply with higher temperature, seed, and anti-repetition directive when repetitive", async () => {
+    const requests: Parameters<typeof invokeAgent>[0][] = [];
+    let callCount = 0;
+    const firstReply =
+      "I am Verbo, a local desktop AI assistant running on your machine with Electron, Ollama for inference, and local SQLite persistence.";
+    const diversifiedReply =
+      "Under the hood, Verbo coordinates three distinct workflows: conversational, commander, and obsidian. It provides speech recognition and local TTS.";
+    const invoke: typeof invokeAgent = async (input) => {
+      requests.push(input);
+      callCount += 1;
+      const body = callCount === 1 ? firstReply : callCount === 2 ? firstReply : diversifiedReply;
+      return {
+        output: input.outputSchema.parse({ body }),
+        outcome: {
+          stop: "completed",
+          content: JSON.stringify({ body }),
+          results: [],
+          rounds: 1,
+          toolRequests: 0,
+          removedCount: 0,
+        },
+      };
+    };
+    const route: typeof routeGlobalRequest = async () => ({
+      value: { kind: "new", workflowId: "conversational" },
+      corrections: 0,
+    });
+    const fixture = setup(route, invoke);
+    await fixture.controller.admitTurn(fixture.envelope, () => undefined).completion;
+
+    await fixture.controller.admitTurn(
       {
-        status: "suspended",
-        reason: "queued_interruption",
-        parameters: { target: null },
+        ...fixture.envelope,
+        text: "Tell me more about yourself",
+        branchAnchor: "assistant-one",
+        userMessageId: "user-two",
+        assistantMessageId: "assistant-two",
       },
-    );
-    expect(
-      createWorkflowExecutionStore(database).read(first.id)?.parameters.answers,
-    ).toBeUndefined();
+      () => undefined,
+    ).completion;
+
+    expect(callCount).toBe(3);
+    const retryInvocation = requests[2]!;
+    expect(retryInvocation.temperature).toBeGreaterThanOrEqual(0.75);
+    expect(typeof retryInvocation.seed).toBe("number");
+    expect(retryInvocation.seed).toBeGreaterThan(0);
+    expect(retryInvocation.value).toMatchObject({
+      avoidRepeatingPriorReplies: [firstReply],
+      diversificationDirective: expect.stringContaining("repeated an earlier assistant message"),
+    });
+    const history = loadThreadHistory(fixture.database, "thread").messages;
+    expect(history).toHaveLength(4);
+    expect(history.at(-1)?.message.content).toContainEqual({
+      type: "text",
+      text: diversifiedReply,
+    });
+  });
+});
+
+describe("isRepetitiveConversationalReply", () => {
+  it("detects exact duplicate replies", () => {
+    const reply = "I am Verbo, a local desktop AI assistant.";
+    expect(isRepetitiveConversationalReply(reply, [reply])).toBe(true);
+  });
+
+  it("detects near-duplicates differing only by a word or two", () => {
+    const prior =
+      "Verbo is a desktop assistant running on your machine with Electron, Ollama for inference, and local SQLite persistence. It helps you think through problems and explore ideas without cloud dependencies.";
+    const candidate =
+      "Verbo is a desktop assistant running directly on your machine with Electron, Ollama for inference, and local SQLite persistence. It helps you think through problems and explore ideas without cloud dependencies.";
+    expect(isRepetitiveConversationalReply(candidate, [prior])).toBe(true);
+  });
+
+  it("returns false for genuinely distinct follow-up replies", () => {
+    const prior =
+      "Verbo is a desktop assistant running on your machine with Electron, Ollama for inference, and local SQLite persistence. It helps you think through problems and explore ideas without cloud dependencies.";
+    const candidate =
+      "Under the hood, Verbo coordinates three distinct workflows: conversational, commander, and obsidian. It provides speech recognition via Whisper and local TTS.";
+    expect(isRepetitiveConversationalReply(candidate, [prior])).toBe(false);
+  });
+
+  it("returns false when candidate is blank or prior replies list is empty", () => {
+    expect(isRepetitiveConversationalReply("", ["prior reply text"])).toBe(false);
+    expect(isRepetitiveConversationalReply("some response", [])).toBe(false);
   });
 });

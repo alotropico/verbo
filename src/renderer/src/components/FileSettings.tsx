@@ -1,25 +1,11 @@
 import { FolderCheckIcon, FolderPlusIcon, Trash2Icon } from "lucide-react";
 import { Button, Group, Select, Switch, Text, TextInput } from "@mantine/core";
-import {
-  useCallback,
-  useEffect,
-  useEffectEvent,
-  useState,
-  type ReactElement,
-} from "react";
-import {
-  displayFinalPath,
-  scopeAliasListSchema,
-  type FileScopeRecord,
-  type FileScopeProposal,
-  type ScopePatch,
-  type FolderKind,
-} from "@shared/files";
-import {
-  useSettingsAutosave,
-  useSettingsDraft,
-  useSettingsRef,
-} from "@/hooks/use-settings-draft";
+import { useEffect, useEffectEvent, type ReactElement } from "react";
+import { displayFinalPath, scopeAliasListSchema, type FileScopeRecord, type ScopePatch, type FolderKind } from "@shared/files";
+import { useSettingsAutosave, useSettingsDraft, useSettingsRef } from "@/hooks/use-settings-draft";
+import { useSettingsResource } from "@/hooks/use-settings-resource";
+import { LONG_TEXT_SAVE_DELAY } from "@/runtime/autosave";
+import { SettingsLoading } from "./SettingsLoading";
 import { notify } from "@/lib/notify";
 import { SettingsLabel } from "./SettingsLabel";
 import { SettingsSection } from "./SettingsSection";
@@ -28,13 +14,7 @@ import { StatusMessage } from "./StatusMessage";
 import { useConfirmation } from "./confirmation-context";
 import styles from "./FileSettings.module.css";
 
-function FolderRow({
-  scope,
-  reload,
-}: {
-  scope: FileScopeRecord;
-  reload: () => void;
-}): ReactElement {
+function FolderRow({ scope, reload }: { scope: FileScopeRecord; reload: () => void }): ReactElement {
   const key = `folder/${scope.id}/`;
   const [draft, setDraft] = useSettingsDraft(key + "draft", {
     alias: scope.aliases.join(", "),
@@ -62,13 +42,19 @@ function FolderRow({
           routingDescription: saved.routingDescription ?? "",
         });
       window.dispatchEvent(new Event("verbo:entities-changed"));
-      reload();
     },
     (previous, next) => ({ ...previous, ...next }),
+    {
+      id: scope.id,
+      alias: scope.aliases.join(", "),
+      write: scope.write,
+      defaultSave: scope.defaultSave,
+      kind: scope.kind ?? "none",
+      routingDescription: scope.routingDescription ?? "",
+    },
   );
   const synchronize = useEffectEvent(() => {
-    if (autosave.state.status === "saving" || autosave.state.status === "error")
-      return;
+    if (autosave.state.status === "saving" || autosave.state.status === "error") return;
     const next = {
       alias: scope.aliases.join(", "),
       write: scope.write,
@@ -80,27 +66,23 @@ function FolderRow({
       draftRef.current = next;
       setDraft(next);
       baselineRef.current = JSON.stringify(next);
+      autosave.controller.acceptBaseline({ id: scope.id, ...next });
     }
   });
   useEffect(() => {
     synchronize();
   }, [scope]);
-  const patch = (value: Partial<typeof draft>): void => {
+  const patch = (value: Partial<typeof draft>, delay?: number): void => {
     const next = { ...draftRef.current, ...value };
     draftRef.current = next;
     setDraft(next);
-    autosave.controller.schedule({ id: scope.id, ...value });
+    autosave.controller.schedule({ id: scope.id, ...value }, delay);
   };
   return (
     <li className={styles.entry}>
       <Group align="flex-start" grow>
         <TextInput
-          label={
-            <SettingsLabel
-              label="Aliases"
-              tip="Short lowercase folder names, separated by commas. Valid edits save automatically."
-            />
-          }
+          label={<SettingsLabel label="Aliases" tip="Short lowercase folder names, separated by commas. Valid edits save automatically." />}
           value={draft.alias}
           error={aliasError}
           onChange={(event) => {
@@ -119,11 +101,7 @@ function FolderRow({
           }}
           onBlur={() => {
             const parsed = scopeAliasListSchema.safeParse(draft.alias);
-            setAliasError(
-              parsed.success
-                ? ""
-                : (parsed.error.issues[0]?.message ?? "Check the aliases."),
-            );
+            setAliasError(parsed.success ? "" : (parsed.error.issues[0]?.message ?? "Check the aliases."));
             void autosave.controller.flush();
           }}
         />
@@ -151,9 +129,7 @@ function FolderRow({
         description="Help Verbo recognize what belongs here. Up to 1,000 characters."
         maxLength={1000}
         value={draft.routingDescription}
-        onChange={(event) =>
-          patch({ routingDescription: event.currentTarget.value })
-        }
+        onChange={(event) => patch({ routingDescription: event.currentTarget.value }, LONG_TEXT_SAVE_DELAY)}
         onBlur={() => void autosave.controller.flush()}
       />
       <Text className={styles.path} size="xs">
@@ -164,7 +140,7 @@ function FolderRow({
           label={
             <SettingsLabel
               label="Write"
-              tip="Allow changing files in this folder. Read access is included."
+              tip="Allow Verbo and its agent to create and change files here, including notes in Obsidian vaults. Read access is included."
             />
           }
           checked={draft.write}
@@ -176,17 +152,10 @@ function FolderRow({
           }
         />
         <Switch
-          label={
-            <SettingsLabel
-              label="Default save"
-              tip="Bare filenames are saved here. Write must be enabled."
-            />
-          }
+          label={<SettingsLabel label="Default save" tip="Bare filenames are saved here. Write must be enabled." />}
           disabled={!draft.write}
           checked={draft.defaultSave}
-          onChange={(event) =>
-            patch({ defaultSave: event.currentTarget.checked })
-          }
+          onChange={(event) => patch({ defaultSave: event.currentTarget.checked })}
         />
         <Button
           leftSection={<Trash2Icon aria-hidden size={16} />}
@@ -216,32 +185,18 @@ function FolderRow({
           Remove folder
         </Button>
       </Group>
-      <AutosaveStatus
-        state={autosave.state}
-        retry={() => autosave.controller.retry()}
-      />
+      <AutosaveStatus state={autosave.state} retry={() => autosave.controller.retry()} />
     </li>
   );
 }
 
-export function FileSettings(): ReactElement {
-  const [scopes, setScopes] = useState<FileScopeRecord[]>([]);
-  const [proposal, setProposal] = useSettingsDraft<FileScopeProposal | null>(
-    "files/proposal",
-    null,
-  );
+export function FileSettings({ kind }: { kind?: FolderKind } = {}): ReactElement {
+  const { data, loading, error: loadError, reload: load } = useSettingsResource("files", () => window.verbo.files.list());
+  const scopes = data?.scopes ?? [];
+  const shownScopes = kind ? scopes.filter((scope) => scope.kind === kind) : scopes;
+  const proposal = data?.proposal;
   const [busy, setBusy] = useSettingsDraft("files/busy", false);
   const [error, setError] = useSettingsDraft("files/error", "");
-  const load = useCallback((): void => {
-    void window.verbo.files
-      .list()
-      .then((result) => {
-        setScopes(result.scopes);
-        setProposal(result.proposal);
-      })
-      .catch(() => setError("Could not load folders."));
-  }, [setScopes, setProposal, setError]);
-  useEffect(load, [load]);
   const add = async (): Promise<void> => {
     setBusy(true);
     setError("");
@@ -254,8 +209,7 @@ export function FileSettings(): ReactElement {
       const used = new Set(scopes.flatMap((scope) => scope.aliases));
       let alias = pick.suggestedAlias;
       let suffix = 2;
-      while (used.has(alias))
-        alias = `${pick.suggestedAlias.slice(0, 25)}-${suffix++}`;
+      while (used.has(alias)) alias = `${pick.suggestedAlias.slice(0, 25)}-${suffix++}`;
       const result = await window.verbo.files.commit({
         removeIds: [],
         updates: [],
@@ -266,28 +220,31 @@ export function FileSettings(): ReactElement {
             read: true,
             write: false,
             defaultSave: false,
-            kind: pick.kind,
+            kind: kind ?? pick.kind,
           },
         ],
         acceptDefault: false,
       });
       if (!result.ok) throw new Error(result.summary);
-      setScopes(result.scopes);
       notify({ message: result.summary, tone: "success" });
       window.dispatchEvent(new Event("verbo:entities-changed"));
     } catch (cause) {
-      setError(
-        cause instanceof Error ? cause.message : "Could not add the folder.",
-      );
+      setError(cause instanceof Error ? cause.message : "Could not add the folder.");
     } finally {
       setBusy(false);
     }
   };
+  if (!data) return <SettingsLoading label="Loading folders…" error={loadError} retry={() => void load()} />;
   return (
     <SettingsSection
-      title="Folders"
-      description="Choose folder aliases, access and type. New folders detect project containers or Obsidian vaults automatically."
+      title={kind === "obsidian" ? "Vault folders" : "Folders"}
+      description={
+        kind === "obsidian"
+          ? "Enable Write for each vault to allow note changes. Notes use the same folder permissions as other files. Moves and renames do not rewrite note links."
+          : "Choose folder aliases, access and type. Write allows Verbo and its agent to change files inside that folder."
+      }
     >
+      {loading || loadError ? <SettingsLoading label="Refreshing folders…" error={loadError} retry={() => void load()} /> : null}
       {error ? (
         <StatusMessage display="plain" tone="error">
           {error}
@@ -308,22 +265,16 @@ export function FileSettings(): ReactElement {
                   tone: "success",
                 }),
               )
-              .catch(() =>
-                setError("Routing inventory could not be refreshed."),
-              )
+              .catch(() => setError("Routing inventory could not be refreshed."))
               .finally(() => setBusy(false));
           }}
         >
           Refresh routing inventory
         </Button>
-        <Button
-          leftSection={<FolderPlusIcon aria-hidden size={16} />}
-          loading={busy}
-          onClick={() => void add()}
-        >
-          Add folder
+        <Button leftSection={<FolderPlusIcon aria-hidden size={16} />} loading={busy} onClick={() => void add()}>
+          {kind === "obsidian" ? "Add vault folder" : "Add folder"}
         </Button>
-        {proposal && !proposal.saved ? (
+        {!kind && proposal && !proposal.saved ? (
           <Button
             leftSection={<FolderCheckIcon aria-hidden size={16} />}
             variant="default"
@@ -340,8 +291,7 @@ export function FileSettings(): ReactElement {
                 .then((result) => {
                   if (!result.ok) setError(result.summary);
                   else {
-                    setScopes(result.scopes);
-                    load();
+                    window.dispatchEvent(new Event("verbo:entities-changed"));
                   }
                 })
                 .finally(() => setBusy(false));
@@ -351,15 +301,15 @@ export function FileSettings(): ReactElement {
           </Button>
         ) : null}
       </Group>
-      {scopes.length ? (
+      {shownScopes.length ? (
         <ul className={styles.list}>
-          {scopes.map((scope) => (
+          {shownScopes.map((scope) => (
             <FolderRow key={scope.id} scope={scope} reload={load} />
           ))}
         </ul>
       ) : (
         <Text size="sm" c="dimmed">
-          No folders registered.
+          {kind === "obsidian" ? "No vault folders registered. Add a vault folder, then enable Write." : "No folders registered."}
         </Text>
       )}
     </SettingsSection>

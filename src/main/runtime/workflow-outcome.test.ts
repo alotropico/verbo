@@ -1,8 +1,5 @@
 import { describe, expect, it } from "vitest";
-import {
-  verifiedOutcomeSchema,
-  type VerifiedOutcome,
-} from "../../shared/workflows";
+import { verifiedOutcomeSchema, type VerifiedOutcome } from "../../shared/workflows";
 import {
   commandResultFindings,
   isListingCompletionStatement,
@@ -36,6 +33,73 @@ function outcome(): VerifiedOutcome {
 }
 
 describe("workflow presentation", () => {
+  it("retains verified digest and comparison facts instead of only operation counts", () => {
+    for (const [action, detail, fact] of [
+      [
+        "files.hash",
+        { items: [{ path: "owned:/left.txt", algorithm: "sha256", sha256: "a".repeat(64), bytes: 15 }], errors: [] },
+        "a".repeat(64),
+      ],
+      [
+        "files.compare",
+        { left: "owned:/left.txt", right: "owned:/right.txt", match: false, truncated: false, text: "-before\n+after" },
+        "-before",
+      ],
+      ["files.stat", { items: [{ path: "owned:/left.txt", size: 15, type: "file" }] }, '"size": 15'],
+      [
+        "files.inspect_image",
+        { items: [{ path: "owned:/tiny.png", width: 1, height: 1, format: "png", bytes: 68, payload: "omit image payload" }] },
+        '"width": 1',
+      ],
+    ] as const) {
+      const findings = commandResultFindings({ action, status: "success", summary: "Query completed.", detail: JSON.stringify(detail) });
+      expect(findings.join("\n")).toContain(fact);
+      expect(findings.join("\n")).not.toContain("omit image payload");
+      expect(validatePresentation({ ...outcome(), findings }, { text: "Query completed." })).toBeUndefined();
+    }
+  });
+  it("retains verified read content and JSON pointer values through final presentation", () => {
+    for (const detail of [{ text: "café second\nthird: 42" }, { text: '"trk-raven-5841"' }]) {
+      const expected = detail.text;
+      const findings = commandResultFindings({
+        action: "files.read",
+        status: "success",
+        summary: "Read the requested range.",
+        detail: JSON.stringify(detail),
+      });
+      expect(findings.join("\n")).toContain(expected);
+      const report = { ...outcome(), status: "completed" as const, findings, errors: [] };
+      expect(validatePresentation(report, { text: "The requested range was read." })).toBeUndefined();
+      expect(deterministicPresentation(report)).toContain(expected);
+    }
+    expect(
+      commandResultFindings({
+        action: "files.read",
+        status: "error",
+        summary: "Read failed",
+        detail: JSON.stringify({ text: "unverified" }),
+      }),
+    ).toEqual(["Read failed"]);
+  });
+
+  it("retains verified environment names, paths and platform values instead of counts alone", () => {
+    const paths = commandResultFindings({
+      action: "environment.paths",
+      status: "success",
+      summary: "One alias.",
+      detail: JSON.stringify({ folders: [{ name: "home", path: "C:/home" }], aliases: [{ name: "owned", path: "C:/owned" }] }),
+    });
+    expect(paths.join("\n")).toContain("home: C:/home");
+    expect(paths.join("\n")).toContain("owned: C:/owned");
+    const platform = commandResultFindings({
+      action: "environment.platform",
+      status: "success",
+      summary: "win32 x64",
+      detail: JSON.stringify({ platform: "win32", arch: "x64", release: "10.0.example" }),
+    });
+    expect(platform.join("\n")).toContain("10.0.example");
+  });
+
   it("does not turn a verified listing completion statement into a required question", () => {
     const result = {
       action: "files.list",
@@ -48,16 +112,8 @@ describe("workflow presentation", () => {
     };
     expect(isListingCompletionStatement(result, "List complete.")).toBe(true);
     const offer = "Do you need a summary of the directory structure?";
-    expect(
-      isListingCompletionStatement(result, offer, "List the folders"),
-    ).toBe(true);
-    expect(
-      isListingCompletionStatement(
-        result,
-        offer,
-        "List the folders and ask whether I want a summary",
-      ),
-    ).toBe(false);
+    expect(isListingCompletionStatement(result, offer, "List the folders")).toBe(true);
+    expect(isListingCompletionStatement(result, offer, "List the folders and ask whether I want a summary")).toBe(false);
     expect(
       isListingCompletionStatement(
         {
@@ -70,25 +126,13 @@ describe("workflow presentation", () => {
         offer,
       ),
     ).toBe(false);
-    expect(
-      isListingCompletionStatement(
-        result,
-        "Do you want to move these folders?",
-      ),
-    ).toBe(false);
+    expect(isListingCompletionStatement(result, "Do you want to move these folders?")).toBe(false);
 
     expect(
-      isListingCompletionStatement(
-        result,
-        "Directory listing complete: 64 directories found. Would you like to explore a subdirectory?",
-      ),
+      isListingCompletionStatement(result, "Directory listing complete: 64 directories found. Would you like to explore a subdirectory?"),
     ).toBe(true);
-    expect(
-      isListingCompletionStatement(result, "Which folder should I open?"),
-    ).toBe(false);
-    expect(isListingCompletionStatement(result, "Is the list complete?")).toBe(
-      false,
-    );
+    expect(isListingCompletionStatement(result, "Which folder should I open?")).toBe(false);
+    expect(isListingCompletionStatement(result, "Is the list complete?")).toBe(false);
     expect(
       isListingCompletionStatement(
         {
@@ -101,12 +145,7 @@ describe("workflow presentation", () => {
         "List complete.",
       ),
     ).toBe(false);
-    expect(
-      isListingCompletionStatement(
-        { ...result, status: "error" },
-        "List complete.",
-      ),
-    ).toBe(false);
+    expect(isListingCompletionStatement({ ...result, status: "error" }, "List complete.")).toBe(false);
   });
   it("retains directory names from verified query results and rejects a reply that drops them", () => {
     const findings = commandResultFindings({
@@ -136,9 +175,7 @@ describe("workflow presentation", () => {
       findings,
       errors: [],
     };
-    expect(
-      validatePresentation(report, { text: "Two directories were listed." }),
-    ).toBeUndefined();
+    expect(validatePresentation(report, { text: "Two directories were listed." })).toBeUndefined();
     expect(
       validatePresentation(report, {
         text: "Directories: nous:/inbox and nous:/work.",
@@ -183,12 +220,8 @@ describe("workflow presentation", () => {
         binding: "folder",
       },
     };
-    expect(readableReportInput(questioned).question).toBe(
-      "Which folder should be used?",
-    );
-    expect(JSON.stringify(readableReportInput(questioned))).not.toContain(
-      receiptId,
-    );
+    expect(readableReportInput(questioned).question).toBe("Which folder should be used?");
+    expect(JSON.stringify(readableReportInput(questioned))).not.toContain(receiptId);
     expect(
       validatePresentation(questioned, {
         text: "The folder was too large. Which folder should be used?",

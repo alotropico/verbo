@@ -32,13 +32,17 @@ describe("sanitizeGeneratedTitle", () => {
     expect(sanitizeGeneratedTitle("   \n  ")).toBeUndefined();
   });
 
-  it("keeps at most three words and 24 characters", () => {
+  it("keeps at most five words and 48 characters", () => {
     expect(
-      sanitizeGeneratedTitle("Planning the weekend getaway together"),
-    ).toBe("Planning the weekend");
-    expect(sanitizeGeneratedTitle("One two three four")).toBe("One two three");
+      sanitizeGeneratedTitle("Planning the weekend getaway together soon"),
+    ).toBe("Planning the weekend getaway together");
+    expect(sanitizeGeneratedTitle("One two three four five six")).toBe(
+      "One two three four five",
+    );
     expect(
-      sanitizeGeneratedTitle("Supercalifragilisticexpialidocious notes"),
-    ).toBe("Supercalifragilisticexpi");
+      sanitizeGeneratedTitle(
+        "Supercalifragilisticexpialidociousandextracharactersbeyondlimit notes",
+      ),
+    ).toBe("Supercalifragilisticexpialidociousandextracharac");
   });
 });

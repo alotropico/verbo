@@ -1,10 +1,7 @@
 import { useSettingsNavigation } from "@/components/settings-navigation-context";
 import { Thread } from "@/components/assistant-ui/elements/thread.aui";
 import { ThreadListSidebar } from "@/components/assistant-ui/elements/threadlist-sidebar.aui";
-import {
-  ChatSelectionBar,
-  ChatSelectionProvider,
-} from "@/components/ChatSelection";
+import { ChatSelectionBar, ChatSelectionProvider } from "@/components/ChatSelection";
 import { QueueLifecycleProvider } from "@/components/QueueSidebar";
 import { VoiceSessionProvider } from "@/components/VoiceSession";
 import { ServiceControls } from "@/components/ServiceControls";
@@ -12,6 +9,8 @@ import { WindowControls } from "@/components/WindowControls";
 import { VerboRuntimeProvider } from "@/runtime/VerboRuntimeProvider";
 import { useAui, useAuiState, type AssistantState } from "@assistant-ui/react";
 import { chatPlaceholderTitle } from "@shared/thread-title";
+import { savedRemoteThreadId } from "@shared/thread-identity";
+import { observeReplyVisibility } from "@/runtime/reply-visibility";
 import { ActionIcon, AppShell } from "@mantine/core";
 import { useDisclosure, useMediaQuery } from "@mantine/hooks";
 import { PanelLeftIcon } from "lucide-react";
@@ -32,9 +31,7 @@ function currentThreadTitle(state: AssistantState): string {
   const title = current.title?.trim() ?? "";
   const placeholder = chatPlaceholderTitle(current.id);
   const requested = title.length > 0 && title !== placeholder;
-  const isNewChat =
-    state.thread.messages.length === 0 &&
-    (!state.thread.isLoading || state.threads.isLoading);
+  const isNewChat = state.thread.messages.length === 0 && (!state.thread.isLoading || state.threads.isLoading);
 
   if (isNewChat && !requested) return "";
   return requested ? title : placeholder;
@@ -57,6 +54,11 @@ function VerboShell(): ReactElement {
   const aui = useAui();
   const { opened, showChat } = useSettingsNavigation();
   const selectedChat = useAuiState((state) => state.threads.mainThreadId);
+  const visibleChat = useAuiState((state) =>
+    savedRemoteThreadId(state.threads.threadItems.find((item) => item.id === state.threads.mainThreadId)),
+  );
+  const chatLoading = useAuiState((state) => state.thread.isLoading);
+  useEffect(() => observeReplyVisibility(opened || chatLoading ? null : visibleChat), [opened, chatLoading, visibleChat]);
   const previousChat = useRef(selectedChat);
   useEffect(() => {
     if (previousChat.current !== selectedChat) showChat();
@@ -105,11 +107,7 @@ function VerboShell(): ReactElement {
         <AppShell.Main className={styles.inset}>
           <header className={styles.header} data-window-chrome>
             {showHeaderToggle ? (
-              <ActionIcon
-                variant="transparent"
-                aria-label="Toggle Sidebar"
-                onClick={toggleSidebar}
-              >
+              <ActionIcon variant="transparent" aria-label="Toggle Sidebar" onClick={toggleSidebar}>
                 <PanelLeftIcon size={18} />
               </ActionIcon>
             ) : null}

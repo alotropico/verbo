@@ -2,7 +2,7 @@ import { lstatSync, readdirSync, realpathSync } from "node:fs";
 import { join, relative, isAbsolute } from "node:path";
 import type { FileScopeRecord } from "../../shared/files";
 import type { DatabaseSync } from "node:sqlite";
-import { createScopeStore } from "../db/scopes";
+import { aloDataAsync } from "../alo/data-client";
 let invalidationVersion = 0;
 export function invalidateRoutingInventories(): void {
   invalidationVersion += 1;
@@ -35,8 +35,7 @@ function shallowDirectories(
   const directories: string[] = [];
   if (!scope.read) return { directories, available: false, truncated: false };
   try {
-    if (lstatSync(scope.path).isSymbolicLink())
-      return { directories, available: false, truncated: false };
+    if (lstatSync(scope.path).isSymbolicLink()) return { directories, available: false, truncated: false };
     const root = realpathSync(scope.path);
     const pending = [{ path: root, depth: 0 }];
     const maxDepth = scope.kind === "projects" ? 1 : 2;
@@ -44,21 +43,14 @@ function shallowDirectories(
     let truncated = false;
     while (pending.length) {
       const current = pending.shift()!;
-      const entries = readdirSync(current.path, { withFileTypes: true }).sort(
-        (a, b) => a.name.localeCompare(b.name),
-      );
+      const entries = readdirSync(current.path, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name));
       for (const entry of entries) {
         visited += 1;
         if (visited > maxEntries * 4 || directories.length >= maxEntries) {
           truncated = true;
           break;
         }
-        if (
-          !entry.isDirectory() ||
-          entry.isSymbolicLink() ||
-          entry.name.startsWith(".")
-        )
-          continue;
+        if (!entry.isDirectory() || entry.isSymbolicLink() || entry.name.startsWith(".")) continue;
         const path = join(current.path, entry.name);
         if (
           scopes.some(
@@ -66,9 +58,7 @@ function shallowDirectories(
               !nested.read &&
               (() => {
                 const rel = relative(nested.path, path);
-                return (
-                  rel === "" || (!rel.startsWith("..") && !isAbsolute(rel))
-                );
+                return rel === "" || (!rel.startsWith("..") && !isAbsolute(rel));
               })(),
           )
         )
@@ -77,8 +67,7 @@ function shallowDirectories(
         const rel = relative(root, realpathSync(path));
         if (!rel || rel.startsWith("..") || isAbsolute(rel)) continue;
         directories.push(rel.replace(/\\/gu, "/").slice(0, 200));
-        if (current.depth + 1 < maxDepth)
-          pending.push({ path, depth: current.depth + 1 });
+        if (current.depth + 1 < maxDepth) pending.push({ path, depth: current.depth + 1 });
       }
       if (truncated) break;
     }
@@ -121,10 +110,7 @@ export function createRoutingInventory(input: {
         defaultSave: scope.defaultSave,
         ...(input.scan ?? shallowDirectories)(scope, 40, scopes),
       };
-      if (
-        Buffer.byteLength(JSON.stringify([...folders, card])) >
-        (input.maxBytes ?? 20_000)
-      ) {
+      if (Buffer.byteLength(JSON.stringify([...folders, card])) > (input.maxBytes ?? 20_000)) {
         truncated = true;
         break;
       }
@@ -145,28 +131,31 @@ export function createRoutingInventory(input: {
       cached = undefined;
     },
     get: (): RoutingInventory =>
-      cached &&
-      cacheVersion === invalidationVersion &&
-      cached.generation === input.generation()
-        ? structuredClone(cached)
-        : refresh(),
+      cached && cacheVersion === invalidationVersion && cached.generation === input.generation() ? structuredClone(cached) : refresh(),
   };
 }
 
 const inventories = new WeakMap<
   DatabaseSync,
-  ReturnType<typeof createRoutingInventory>
+  { get: () => Promise<RoutingInventory>; refresh: () => Promise<RoutingInventory>; invalidate: () => void }
 >();
-export function routingInventoryForDatabase(
-  database: DatabaseSync,
-): ReturnType<typeof createRoutingInventory> {
+export function routingInventoryForDatabase(database: DatabaseSync): {
+  get: () => Promise<RoutingInventory>;
+  refresh: () => Promise<RoutingInventory>;
+  invalidate: () => void;
+} {
   let inventory = inventories.get(database);
   if (!inventory) {
-    const scopes = createScopeStore(database);
-    inventory = createRoutingInventory({
-      scopes: scopes.list,
-      generation: scopes.generation,
+    let snapshot: { scopes: FileScopeRecord[]; generation: number } = { scopes: [], generation: 0 };
+    const cached = createRoutingInventory({
+      scopes: () => snapshot.scopes,
+      generation: () => snapshot.generation,
     });
+    const read = async (refresh: boolean): Promise<RoutingInventory> => {
+      snapshot = await aloDataAsync("settings.scopes.read");
+      return refresh ? cached.refresh() : cached.get();
+    };
+    inventory = { get: () => read(false), refresh: () => read(true), invalidate: cached.invalidate };
     inventories.set(database, inventory);
   }
   return inventory;
@@ -176,19 +165,11 @@ export function resolveVaultTarget(
   scopes: FileScopeRecord[],
   hint?: string,
   purpose: "read" | "write" = "write",
-):
-  | { status: "selected"; scope: FileScopeRecord }
-  | { status: "clarify" | "blocked"; question: string; candidates: string[] } {
+): { status: "selected"; scope: FileScopeRecord } | { status: "clarify" | "blocked"; question: string; candidates: string[] } {
   const vaults = scopes.filter((scope) => scope.kind === "obsidian");
   const matched = hint
     ? vaults.filter(
-        (scope) =>
-          scope.id === hint ||
-          scope.aliases.some(
-            (alias) =>
-              alias.toLowerCase() ===
-              hint.trim().toLowerCase().replace(/:$/u, ""),
-          ),
+        (scope) => scope.id === hint || scope.aliases.some((alias) => alias.toLowerCase() === hint.trim().toLowerCase().replace(/:$/u, "")),
       )
     : vaults;
   if (!matched.length)

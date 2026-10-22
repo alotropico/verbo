@@ -27,26 +27,12 @@ import { createRegistry, type Capability } from "../test-support/registry";
 it.skipIf(process.env.VERBO_QWEN_OBSIDIAN_BENCHMARK !== "1")(
   "measures all five real-Qwen Obsidian compositions with CLI effects disabled",
   async () => {
-    const root = mkdtempSync(
-      join(
-        process.cwd(),
-        ".tmp",
-        "scratch",
-        `${new Date().toISOString().slice(0, 10)}-qwen-obsidian-`,
-      ),
-    );
+    const root = mkdtempSync(join(process.cwd(), ".tmp", "scratch", `${new Date().toISOString().slice(0, 10)}-qwen-obsidian-`));
     const vault = join(root, "Fixture Garden");
     mkdirSync(join(vault, ".obsidian"), { recursive: true });
     let settings = DEFAULT_CHAT_SETTINGS;
     try {
-      settings = chatSettingsSchema.parse(
-        JSON.parse(
-          readFileSync(
-            join(process.env.APPDATA ?? "", "verbo", "settings.json"),
-            "utf8",
-          ),
-        ),
-      );
+      settings = chatSettingsSchema.parse(JSON.parse(readFileSync(join(process.env.APPDATA ?? "", "verbo", "settings.json"), "utf8")));
     } catch {
       /* Installed configured default. */
     }
@@ -58,46 +44,22 @@ it.skipIf(process.env.VERBO_QWEN_OBSIDIAN_BENCHMARK !== "1")(
       effects: "disabled; fixture-only registry, no production handlers or CLI",
       cases: [] as unknown[],
     };
-    const save = (): void =>
-      writeFileSync(
-        join(root, "results.json"),
-        JSON.stringify(record, null, 2),
-      );
+    const save = (): void => writeFileSync(join(root, "results.json"), JSON.stringify(record, null, 2));
     const gate = createRequestGate();
     for (const [operation, request] of [
-      [
-        "write",
-        "Create a new Obsidian note garden:/Inbox/New.md about local AI. Compose its body and save it.",
-      ],
-      [
-        "edit",
-        "Rewrite the introduction of Obsidian note garden:/Inbox/Exact.md to be more concise. Preserve its identity.",
-      ],
-      [
-        "move",
-        "Move Obsidian note garden:/Inbox/Exact.md to Archive/Exact.md.",
-      ],
-      [
-        "rename",
-        "Rename Obsidian note garden:/Inbox/Exact.md to Thought.md in the same folder.",
-      ],
+      ["write", "Create a new Obsidian note garden:/Inbox/New.md about local AI. Compose its body and save it."],
+      ["edit", "Rewrite the introduction of Obsidian note garden:/Inbox/Exact.md to be more concise. Preserve its identity."],
+      ["move", "Move Obsidian note garden:/Inbox/Exact.md to Archive/Exact.md."],
+      ["rename", "Rename Obsidian note garden:/Inbox/Exact.md to Thought.md in the same folder."],
       ["delete", "Delete Obsidian note garden:/Inbox/Exact.md."],
     ]) {
-      if (
-        process.env.VERBO_QWEN_OBSIDIAN_CASES &&
-        !process.env.VERBO_QWEN_OBSIDIAN_CASES.split(",").includes(operation!)
-      )
-        continue;
+      if (process.env.VERBO_QWEN_OBSIDIAN_CASES && !process.env.VERBO_QWEN_OBSIDIAN_CASES.split(",").includes(operation!)) continue;
       const database = new DatabaseSync(join(root, `${operation}.sqlite`));
       migrateDatabase(database, VERBO_MIGRATIONS);
       const threadId = randomUUID();
-      database
-        .prepare(
-          "INSERT INTO threads(id,title,created_at,updated_at) VALUES(?,?,1,1)",
-        )
-        .run(threadId, "Fixture");
+      database.prepare("INSERT INTO threads(id,title,created_at,updated_at) VALUES(?,?,1,1)").run(threadId, "Fixture");
       const scopes = createScopeStore(database);
-      const added = scopes.apply({
+      const added = await scopes.apply({
         removeIds: [],
         updates: [],
         additions: [
@@ -112,17 +74,12 @@ it.skipIf(process.env.VERBO_QWEN_OBSIDIAN_BENCHMARK !== "1")(
         ],
       });
       if (!added.ok) throw new Error(added.summary);
-      const assets = createAssetStore(
-        database,
-        join(root, `${operation}-assets`),
-      );
+      const assets = createAssetStore(database, join(root, `${operation}-assets`));
       const body = assets.put({
         threadId,
         name: "original.md",
         mediaType: "text/markdown",
-        bytes: Buffer.from(
-          "# Exact\nA long introduction to the original fixture note about reliable local workflows.\n",
-        ),
+        bytes: Buffer.from("# Exact\nA long introduction to the original fixture note about reliable local workflows.\n"),
       });
       if (!body.ok) throw new Error(body.summary);
       const dispatches: string[] = [];
@@ -134,52 +91,50 @@ it.skipIf(process.env.VERBO_QWEN_OBSIDIAN_BENCHMARK !== "1")(
         rename: obsidianTransferSchema,
         delete: obsidianDeleteSchema,
       };
-      const capabilities = Object.entries(schemas).map(
-        ([name, args]): Capability => ({
-          id: `obsidian.${name}`,
-          description: `${name} an exact Obsidian fixture note. Effects are disabled for this evaluation.`,
-          kind: name === "read" ? "read" : "mutation",
-          approval: "none",
-          args,
-          example:
-            name === "create"
-              ? { vault: "garden", path: "Inbox/New.md", content: "Body" }
-              : name === "edit"
+      const capabilities = Object.entries(schemas).map(([name, args]): Capability => ({
+        id: `obsidian.${name}`,
+        description: `${name} an exact Obsidian fixture note. Effects are disabled for this evaluation.`,
+        kind: name === "read" ? "read" : "mutation",
+        approval: "none",
+        args,
+        example:
+          name === "create"
+            ? { vault: "garden", path: "Inbox/New.md", content: "Body" }
+            : name === "edit"
+              ? {
+                  vault: "garden",
+                  path: "Inbox/Exact.md",
+                  revision: "a".repeat(64),
+                  content: "Body",
+                }
+              : ["move", "rename"].includes(name)
                 ? {
                     vault: "garden",
                     path: "Inbox/Exact.md",
-                    revision: "a".repeat(64),
-                    content: "Body",
+                    to: "Archive/Exact.md",
                   }
-                : ["move", "rename"].includes(name)
-                  ? {
-                      vault: "garden",
-                      path: "Inbox/Exact.md",
-                      to: "Archive/Exact.md",
-                    }
-                  : { vault: "garden", path: "Inbox/Exact.md" },
-          execute: () => {
-            dispatches.push(name);
-            return name === "read"
-              ? {
-                  action: "obsidian.read",
-                  status: "success",
-                  summary: "Read the exact fixture note.",
-                  data: {
-                    contentRef: body.attachment.id,
-                    path: "Inbox/Exact.md",
-                    revision: "a".repeat(64),
-                  },
-                }
-              : {
-                  action: `obsidian.${name}`,
-                  status: "not_supported",
-                  code: "fixture_effects_disabled",
-                  summary: `The ${name} CLI effect is disabled in this fixture. Nothing was changed.`,
-                };
-          },
-        }),
-      );
+                : { vault: "garden", path: "Inbox/Exact.md" },
+        execute: () => {
+          dispatches.push(name);
+          return name === "read"
+            ? {
+                action: "obsidian.read",
+                status: "success",
+                summary: "Read the exact fixture note.",
+                data: {
+                  contentRef: body.attachment.id,
+                  path: "Inbox/Exact.md",
+                  revision: "a".repeat(64),
+                },
+              }
+            : {
+                action: `obsidian.${name}`,
+                status: "not_supported",
+                code: "fixture_effects_disabled",
+                summary: `The ${name} CLI effect is disabled in this fixture. Nothing was changed.`,
+              };
+        },
+      }));
       const registry = createRegistry(capabilities, {
         finalize: (value) => persistCommandReceipt(database, value),
       });
@@ -188,7 +143,7 @@ it.skipIf(process.env.VERBO_QWEN_OBSIDIAN_BENCHMARK !== "1")(
         database,
         dispatcher,
         retryDelays: [],
-        work: (input) =>
+        work: async (input) =>
           runWorkflowTurn({
             ...input,
             database,
@@ -199,7 +154,7 @@ it.skipIf(process.env.VERBO_QWEN_OBSIDIAN_BENCHMARK !== "1")(
             inventory: {
               folders: [
                 {
-                  id: scopes.list()[0]!.id,
+                  id: (await scopes.list())[0]!.id,
                   aliases: ["garden"],
                   kind: "obsidian",
                   description: "Explicit isolated Obsidian fixture vault",
@@ -211,7 +166,7 @@ it.skipIf(process.env.VERBO_QWEN_OBSIDIAN_BENCHMARK !== "1")(
                   truncated: false,
                 },
               ],
-              generation: scopes.generation(),
+              generation: await scopes.generation(),
               refreshedAt: Date.now(),
               truncated: false,
             },
@@ -232,15 +187,10 @@ it.skipIf(process.env.VERBO_QWEN_OBSIDIAN_BENCHMARK !== "1")(
             attachmentIds: [],
           },
           (event) => {
-            if (
-              ["tools", "tool_result"].includes(event.type) &&
-              toolEvents.length < 100
-            )
-              toolEvents.push(event);
+            if (["tools", "tool_result"].includes(event.type) && toolEvents.length < 100) toolEvents.push(event);
           },
         ).completion;
-        const execution =
-          createWorkflowExecutionStore(database).list(threadId)[0];
+        const execution = createWorkflowExecutionStore(database).list(threadId)[0];
         record.cases.push({
           operation,
           request,

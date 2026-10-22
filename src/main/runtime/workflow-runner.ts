@@ -3,49 +3,33 @@ import type { DatabaseSync } from "node:sqlite";
 import { z } from "zod";
 import type { ChatEvent, ChatTurnStop } from "../../shared/chat-ipc";
 import type { ChatSettings } from "../../shared/config";
-import {
-  validQuestionAnswer,
-  type AgentId,
-  type PendingQuestion,
-  type StepResult,
-  type WorkflowAttribution,
-} from "../../shared/workflows";
+import { validQuestionAnswer, type AgentId, type PendingQuestion, type StepResult, type WorkflowAttribution } from "../../shared/workflows";
 import { createActionLedger } from "../agents/action-ledger";
+import { commandContextSource } from "../agents/command-context";
 import { resolveCTS, type ContextSource } from "../agents/cts";
 import { constrainedDecision, localDecisionSchema } from "../agents/decision";
-import {
-  guidanceConfigurationVersion,
-  resolveAssignedGuidance,
-  type GuidanceAssignment,
-} from "../agents/guidance";
+import { guidanceConfigurationVersion, resolveAssignedGuidance, type GuidanceAssignment } from "../agents/guidance";
 import { createTurnBudget, invokeAgent } from "../agents/invoke";
 import { routeGlobalRequest } from "../agents/routing";
 import { aloExecutionReceipts } from "../alo/data-client";
+import { withAloSignal } from "../alo/client";
 import type { CapabilityRegistry } from "../capabilities/registry";
 import { loadThreadHistory } from "../db/history";
 import { createMemoryStore } from "../db/memory";
 import { createScopeStore } from "../db/scopes";
-import {
-  createWorkflowExecutionStore,
-  type WorkflowExecution,
-} from "../db/workflow-executions";
+import { createWorkflowExecutionStore, type WorkflowExecution } from "../db/workflow-executions";
 import type { AssetStore } from "../files/asset-store";
 import type { RoutingInventory } from "../files/routing-inventory";
 import type { WorkflowStep } from "../workflows/definition";
-import {
-  interpretWorkflow,
-  type WorkflowCheckpoint,
-} from "../workflows/interpreter";
+import { interpretWorkflow, type WorkflowCheckpoint } from "../workflows/interpreter";
 import { createWorkflowRegistry } from "../workflows/registry";
 import { commanderOutputSchema, writerBodySchema } from "../workflows/schemas";
+import type { ContextMessage } from "./context-builder";
 import type { TurnWork } from "./controller";
 import { refreshModelVision } from "./model-vision";
 import type { RequestGate } from "./request-gate";
 import type { TurnUpdate } from "./turn";
-import {
-  applyExecutionDisposition,
-  executionOnBranch,
-} from "./workflow-continuation";
+import { applyExecutionDisposition, executionOnBranch } from "./workflow-continuation";
 import {
   commandResultFindings,
   isListingCompletionStatement,
@@ -57,29 +41,118 @@ import {
   validatePresentation,
 } from "./workflow-outcome";
 import { resolveWorkflowTarget } from "./workflow-target";
+import { priorCommandContext } from "./prior-command-context";
 
 function plainText(content: unknown): string {
   if (typeof content === "string") return content;
   if (!Array.isArray(content)) return "";
   return content
-    .flatMap((part: unknown) =>
-      part &&
-      typeof part === "object" &&
-      "text" in part &&
-      typeof part.text === "string"
-        ? [part.text]
-        : [],
-    )
+    .flatMap((part: unknown) => (part && typeof part === "object" && "text" in part && typeof part.text === "string" ? [part.text] : []))
     .join("\n");
 }
-function parametersRecord(value: unknown): Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : {};
+
+function normalizeReplyText(text: string): string {
+  return text
+    .toLowerCase()
+    .replace(/[*_`#>~-]/g, " ")
+    .replace(/[^\p{L}\p{N}\s]/gu, " ")
+    .replace(/\s+/g, " ")
+    .trim();
 }
-function executionSummary(
-  execution: WorkflowExecution,
-): import("../../shared/workflows").ExecutionSummary {
+
+function wordShingles(words: readonly string[], size = 3): Set<string> {
+  if (words.length < size) return new Set(words);
+  const set = new Set<string>();
+  for (let index = 0; index <= words.length - size; index += 1) {
+    set.add(words.slice(index, index + size).join(" "));
+  }
+  return set;
+}
+
+export function isRepetitiveConversationalReply(
+  candidate: string,
+  priorAssistantReplies: readonly string[],
+): boolean {
+  const normalizedCandidate = normalizeReplyText(candidate);
+  if (!normalizedCandidate) return false;
+  const candidateWords = normalizedCandidate.split(" ").filter(Boolean);
+  const candidateShingles = wordShingles(candidateWords);
+  for (const prior of priorAssistantReplies) {
+    const normalizedPrior = normalizeReplyText(prior);
+    if (!normalizedPrior) continue;
+    if (normalizedCandidate === normalizedPrior) return true;
+    if (
+      normalizedCandidate.length >= 80 &&
+      normalizedPrior.length >= 80 &&
+      normalizedCandidate.slice(0, 80) === normalizedPrior.slice(0, 80)
+    ) {
+      return true;
+    }
+    const priorWords = normalizedPrior.split(" ").filter(Boolean);
+    if (candidateWords.length >= 10 && priorWords.length >= 10) {
+      const priorShingles = wordShingles(priorWords);
+      let intersection = 0;
+      for (const item of candidateShingles) {
+        if (priorShingles.has(item)) intersection += 1;
+      }
+      const union = candidateShingles.size + priorShingles.size - intersection;
+      if (union > 0 && intersection / union >= 0.55) return true;
+    }
+  }
+  return false;
+}
+
+type MessageExcerptRef = {
+  messageId: string;
+  excerpt: string;
+};
+
+type AttachmentExcerptList = ReturnType<AssetStore["excerpt"]>;
+
+type ConversationalTaskValue = {
+  request: string;
+  contentRefs: MessageExcerptRef[];
+  attachments: AttachmentExcerptList;
+  avoidRepeatingPriorReplies?: string[];
+  diversificationDirective?: string;
+};
+
+type WriterTaskValue = {
+  request: string;
+  target?: string | null;
+  source?: string;
+  sourceRef?: string;
+  revision?: string;
+  path?: string;
+  answers: Record<string, unknown>;
+  completedReceipts: { id: string; result: unknown }[];
+  contentRefs: MessageExcerptRef[];
+  attachments: AttachmentExcerptList;
+};
+
+type DecisionTaskValue = Record<string, unknown> & {
+  choices: readonly (string | boolean)[];
+  answers: Record<string, unknown>;
+  completedReceipts: { id: string; result: unknown }[];
+  contentRefs: MessageExcerptRef[];
+  attachments: AttachmentExcerptList;
+  correction?: string;
+};
+
+type CommanderTaskValue = Record<string, unknown> & {
+  target?: string | null;
+  source?: string;
+  answers: Record<string, unknown>;
+  completedReceipts: { id: string; result: unknown }[];
+  priorCommandResults: ReturnType<typeof priorCommandContext>;
+  contentRefs: MessageExcerptRef[];
+  attachments: AttachmentExcerptList;
+};
+
+function parametersRecord(value: unknown): Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
+}
+function executionSummary(execution: WorkflowExecution): import("../../shared/workflows").ExecutionSummary {
   return {
     id: execution.id,
     workflowId: execution.workflowId,
@@ -94,7 +167,11 @@ function executionSummary(
 }
 
 /** Workflow collaborator of the Controller; it never releases a slot or finalizes a visible turn. */
-export async function runWorkflowTurn(
+export function runWorkflowTurn(input: Parameters<typeof runWorkflowTurnImpl>[0]): ReturnType<typeof runWorkflowTurnImpl> {
+  return withAloSignal(input.signal, () => runWorkflowTurnImpl(input));
+}
+
+async function runWorkflowTurnImpl(
   input: Parameters<TurnWork>[0] & {
     database: DatabaseSync;
     settings: ChatSettings;
@@ -116,8 +193,8 @@ export async function runWorkflowTurn(
   const invoke = input.invoke ?? invokeAgent;
   const memory = createMemoryStore(database);
   const guidanceVersion = guidanceConfigurationVersion(input.guidance ?? []);
-  const notes = (audience: AgentId): ContextSource[] => {
-    const snapshot = memory.snapshot(envelope.threadId, audience);
+  const notes = async (audience: AgentId): Promise<ContextSource[]> => {
+    const snapshot = await memory.snapshot(envelope.threadId, audience);
     return [
       {
         id: `notes.${audience}`,
@@ -148,18 +225,11 @@ export async function runWorkflowTurn(
     .filter(
       (execution) =>
         ["awaiting_input", "suspended"].includes(execution.status) &&
-        executionOnBranch(
-          database,
-          execution.id,
-          envelope.threadId,
-          envelope.branchAnchor,
-        ),
+        executionOnBranch(database, execution.id, envelope.threadId, envelope.branchAnchor),
     );
   const queuedInterruption = envelope.admission === "promoted";
   if (queuedInterruption) {
-    for (const execution of pending.filter(
-      (entry) => entry.status === "awaiting_input",
-    )) {
+    for (const execution of pending.filter((entry) => entry.status === "awaiting_input")) {
       const suspended = store.update(execution.id, execution.revision, {
         status: "suspended",
         checkpoint: execution.checkpoint,
@@ -171,13 +241,7 @@ export async function runWorkflowTurn(
       .list(envelope.threadId)
       .filter(
         (execution) =>
-          execution.status === "suspended" &&
-          executionOnBranch(
-            database,
-            execution.id,
-            envelope.threadId,
-            envelope.branchAnchor,
-          ),
+          execution.status === "suspended" && executionOnBranch(database, execution.id, envelope.threadId, envelope.branchAnchor),
       );
   }
   const routingInvocationId = randomUUID();
@@ -193,9 +257,7 @@ export async function runWorkflowTurn(
       ...(selected
         ? {
             disposition: selected.kind,
-            ...(selected.kind === "new"
-              ? { workflowId: selected.workflowId }
-              : {}),
+            ...(selected.kind === "new" ? { workflowId: selected.workflowId } : {}),
           }
         : {}),
     };
@@ -216,7 +278,7 @@ export async function runWorkflowTurn(
       pending: pending.map(executionSummary),
       queuedInterruption,
       contentRefs,
-      sources: notes("decision"),
+      sources: await notes("decision"),
       registry: input.registry,
       gate: input.gate,
       budget,
@@ -227,20 +289,24 @@ export async function runWorkflowTurn(
   }
   routingStage("succeeded", routed.value);
   const decision = routed.value;
-  const present = async (
-    outcome: ReturnType<typeof freezeWorkflowOutcome>,
-    stop: ChatTurnStop,
-  ): Promise<string> => {
+  const present = async (outcome: Awaited<ReturnType<typeof freezeWorkflowOutcome>>, stop: ChatTurnStop): Promise<string> => {
     const fallback = deterministicPresentation(outcome);
     input.emit({ type: "trace_clock", reporting: true, stop });
     input.checkpointPresentation(fallback, stop);
-    if (budget.signal.aborted) return fallback;
+    if (
+      budget.signal.aborted ||
+      ((outcome.status === "failed" || outcome.status === "cancelled") &&
+        outcome.findings.length === 0 &&
+        !outcome.question)
+    ) {
+      return fallback;
+    }
     try {
       const cts = resolveCTS({
         invocationId: randomUUID(),
         agentId: "writer",
         ceiling: { modules: [], actions: [] },
-        sources: notes("writer"),
+        sources: await notes("writer"),
         trustedInstructions: PRESENTATION_INSTRUCTION,
       });
       const response = await invoke({
@@ -270,16 +336,14 @@ export async function runWorkflowTurn(
   let execution: WorkflowExecution;
   let resuming = false;
   if (decision.kind === "clarify") {
+    emit({ type: "input_required" });
     emit({ type: "delta", text: decision.question });
     return { stop: "completed" };
   }
   if (decision.kind !== "new") {
     const current = store.read(decision.executionId);
     if (!current) throw new Error("That execution is unavailable.");
-    const definition = workflows.get(
-      current.workflowId,
-      current.definitionVersion,
-    );
+    const definition = workflows.get(current.workflowId, current.definitionVersion);
     execution = applyExecutionDisposition({
       database,
       threadId: envelope.threadId,
@@ -296,10 +360,9 @@ export async function runWorkflowTurn(
       relation: decision.kind === "cancel" ? "cancel" : "resume",
     });
     if (execution.status !== "running") {
-      const outcome = freezeWorkflowOutcome(database, execution);
+      const outcome = await freezeWorkflowOutcome(database, execution);
       emit({ type: "execution", execution: executionSummary(execution) });
-      const stop: ChatTurnStop =
-        execution.status === "cancelled" ? "cancelled" : "completed";
+      const stop: ChatTurnStop = execution.status === "cancelled" ? "cancelled" : "completed";
       const text = await present(outcome, stop);
       persist("assistant_text", { content: text });
       emit({ type: "delta", text });
@@ -307,9 +370,7 @@ export async function runWorkflowTurn(
     }
     resuming = true;
   } else {
-    for (const prior of pending.filter(
-      (entry) => entry.status === "awaiting_input",
-    )) {
+    for (const prior of pending.filter((entry) => entry.status === "awaiting_input")) {
       const suspended = store.update(prior.id, prior.revision, {
         status: "suspended",
         checkpoint: prior.checkpoint,
@@ -326,13 +387,9 @@ export async function runWorkflowTurn(
       requestMessageId: envelope.userMessageId,
       parameters: {
         target: decision.targetHint
-          ? (scopes
-              .list()
-              .find(
-                (scope) =>
-                  scope.id === decision.targetHint ||
-                  scope.aliases.includes(decision.targetHint!.toLowerCase()),
-              )?.id ?? decision.targetHint)
+          ? ((await scopes.list()).find(
+              (scope) => scope.id === decision.targetHint || scope.aliases.includes(decision.targetHint!.toLowerCase()),
+            )?.id ?? decision.targetHint)
           : null,
         contentRefs: contentRefs.map((ref) => ref.messageId),
         attachmentIds: envelope.attachmentIds,
@@ -349,38 +406,59 @@ export async function runWorkflowTurn(
       relation: "start",
     });
   }
-  const definition = workflows.get(
-    execution.workflowId,
-    execution.definitionVersion,
-  );
-  if (execution.stateSchemaVersion !== 1)
-    throw new Error(
-      "The execution state version is incompatible; review is required.",
-    );
+  const definition = workflows.get(execution.workflowId, execution.definitionVersion);
+  if (execution.stateSchemaVersion !== 1) throw new Error("The execution state version is incompatible; review is required.");
   const originalMessage = byId.get(execution.requestMessageId)?.message;
-  if (!originalMessage)
-    throw new Error(
-      "The original request reference is unavailable. It will not be regenerated.",
-    );
+  if (!originalMessage) throw new Error("The original request reference is unavailable. It will not be regenerated.");
   const request = plainText(originalMessage.content);
   const answers = parametersRecord(execution.parameters.answers);
   const attachmentIds = Array.isArray(execution.parameters.attachmentIds)
-    ? execution.parameters.attachmentIds.filter(
-        (id): id is string => typeof id === "string",
-      )
+    ? execution.parameters.attachmentIds.filter((id): id is string => typeof id === "string")
     : [];
-  const imagePayloads = input.assets.imagePayloads(
+  const attachmentExcerpts = input.assets.excerpt(
     envelope.threadId,
     attachmentIds,
   );
-  const images =
-    imagePayloads.length && (await refreshModelVision(input.settings.model))
-      ? imagePayloads
-      : [];
-  let selectedTarget: string | null =
-    typeof execution.parameters.target === "string"
-      ? execution.parameters.target
-      : null;
+  const dialogueContextSource = (): ContextSource => {
+    const folderLines =
+      input.inventory.folders.length > 0
+        ? input.inventory.folders.map(
+            (folder) =>
+              `- ${folder.aliases[0] ?? folder.id} (kind: ${folder.kind}, read: ${folder.read}, write: ${folder.write}${folder.description ? `, description: ${folder.description}` : ""})`,
+          )
+        : ["- None configured in this profile."];
+    const workflowLines = workflows
+      .cards()
+      .map((card) => `- ${card.id}: ${card.description}`);
+    return {
+      id: "dialogue",
+      audience: ["conversational"],
+      kind: "instructions",
+      text: [
+        "Reference facts about Verbo and this workspace (use progressively when relevant or when the user asks for more detail; do not dump all at once):",
+        "- Local stack: Electron desktop app, Ollama local model inference (default Qwen 3.5), SQLite conversation and workflow storage, and a separate Alo command engine for deterministic permissions and receipts.",
+        "- Workflows:",
+        ...workflowLines,
+        "- Registered command capabilities (via commander/obsidian, never shell scripts): reading, listing, searching, comparing, hashing, and inspecting files in registered folders; creating, editing, moving, renaming, or trashing files (with operation preview/approval cards and Windows Recycle Bin support); reading and writing Obsidian vault notes; saving and recalling memories (/remember, /memories, /forget); opening registered projects in trusted desktop apps; inspecting environment paths and platform info.",
+        "- Additional features: Local English and Spanish speech recognition (faster-whisper) and spoken replies (Piper TTS), persistent per-chat turn queue, message branching and regeneration, and image attachments for vision-capable models.",
+        "- Configured workspace folders and vaults:",
+        ...folderLines,
+        `- Prior messages on the active conversation branch: ${branch.length}.`,
+      ].join("\n"),
+    };
+  };
+  const attachmentContextSource = (): ContextSource => ({
+    id: "attachments",
+    audience: ["conversational"],
+    kind: "data",
+    text:
+      attachmentExcerpts.length > 0
+        ? JSON.stringify(attachmentExcerpts)
+        : "",
+  });
+  const imagePayloads = input.assets.imagePayloads(envelope.threadId, attachmentIds);
+  const images = imagePayloads.length && (await refreshModelVision(input.settings.model)) ? imagePayloads : [];
+  let selectedTarget: string | null = typeof execution.parameters.target === "string" ? execution.parameters.target : null;
   const saveContent = (text: string, name: string): string => {
     const stored = input.assets.put({
       threadId: envelope.threadId,
@@ -414,12 +492,10 @@ export async function runWorkflowTurn(
     persist("stage", value);
     emit({ type: "stage", stage: value });
   };
-  const guidanceChanged =
-    resuming && execution.targets.guidanceConfiguration !== guidanceVersion;
-  const targetBinding =
-    execution.workflowId === "obsidian" ? "vault" : "target";
+  const guidanceChanged = resuming && execution.targets.guidanceConfiguration !== guidanceVersion;
+  const targetBinding = execution.workflowId === "obsidian" ? "vault" : "target";
   const chosen = resolveWorkflowTarget({
-    scopes: scopes.list(),
+    scopes: await scopes.list(),
     target: selectedTarget,
     answer: answers[targetBinding],
     prior: execution.targets[targetBinding],
@@ -442,25 +518,19 @@ export async function runWorkflowTurn(
   if (resuming && !guidanceProblem) {
     try {
       const versions: Record<string, string> = {};
-      for (const agentId of [
-        "decision",
-        "conversational",
-        "writer",
-        "commander",
-      ] as const)
+      for (const agentId of ["decision", "conversational", "writer", "commander"] as const)
         Object.assign(
           versions,
           resolveAssignedGuidance({
             assignments: input.guidance ?? [],
             agentId,
-            scopes: scopes.list(),
+            scopes: await scopes.list(),
             selectedScopeId: selectedTarget,
           }).versions,
         );
       const prior = parametersRecord(execution.targets.guidanceVersions);
       if (Object.keys(prior).some((id) => versions[id] !== prior[id]))
-        guidanceProblem =
-          "Previously used guidance is no longer approved for this target. Review it and start a new execution.";
+        guidanceProblem = "Previously used guidance is no longer approved for this target. Review it and start a new execution.";
     } catch {
       guidanceProblem =
         "Assigned guidance changed or became unavailable. Review it before continuing; retained work has not been replayed.";
@@ -468,8 +538,8 @@ export async function runWorkflowTurn(
   }
   let activeStepRunId: string | undefined;
   let activeAttribution: WorkflowAttribution | undefined;
-  const completedReceipts = (): { id: string; result: unknown }[] =>
-    aloExecutionReceipts(database, execution.id, execution.threadId);
+  const completedReceipts = async (): Promise<{ id: string; result: unknown }[]> =>
+    await aloExecutionReceipts(database, execution.id, execution.threadId);
   const onUpdate = (update: TurnUpdate): void => {
     if (update.type === "notice") {
       persist("backend_notice", update.notice);
@@ -518,12 +588,7 @@ export async function runWorkflowTurn(
       checkpoint: execution.checkpoint,
       signal: budget.signal,
       run: async (step, bound): Promise<StepResult> => {
-        const claim = store.beginStep(
-          execution,
-          step.id,
-          envelope.turnId,
-          step.outputSchemaId,
-        );
+        const claim = store.beginStep(execution, step.id, envelope.turnId, step.outputSchemaId);
         execution = claim.execution;
         activeStepRunId = claim.stepRunId;
         const invocationId = randomUUID();
@@ -546,17 +611,14 @@ export async function runWorkflowTurn(
             code: "guidance_changed",
             summary: guidanceProblem,
           };
-        if (preconditionQuestion)
-          return { status: "awaiting_input", question: preconditionQuestion };
+        if (preconditionQuestion) return { status: "awaiting_input", question: preconditionQuestion };
         const guidance = resolveAssignedGuidance({
           assignments: input.guidance ?? [],
           agentId,
-          scopes: scopes.list(),
+          scopes: await scopes.list(),
           selectedScopeId: selectedTarget,
         });
-        const priorVersions = parametersRecord(
-          execution.targets.guidanceVersions,
-        );
+        const priorVersions = parametersRecord(execution.targets.guidanceVersions);
         if (Object.keys(guidance.versions).length)
           execution = store.update(execution.id, execution.revision, {
             status: "running",
@@ -566,6 +628,7 @@ export async function runWorkflowTurn(
               guidanceVersions: { ...priorVersions, ...guidance.versions },
             },
           });
+        const commandNodes = await input.registry.nodes();
         const cts = resolveCTS({
           invocationId,
           agentId,
@@ -575,22 +638,25 @@ export async function runWorkflowTurn(
             ? {
                 step: {
                   ...step.context,
-                  include: [
-                    ...(step.context?.include ?? []),
-                    ...guidance.sources.map((source) => source.id),
-                  ],
+                  include: [...(step.context?.include ?? []), ...guidance.sources.map((source) => source.id)],
                 },
               }
             : {}),
           capabilities: step.type === "agent" ? step.capabilities : undefined,
           ceiling: {
-            modules: input.registry
-              .nodes()
-              .filter((node) => !node.id.includes("."))
-              .map((node) => node.id),
+            modules: commandNodes.filter((node) => !node.id.includes(".")).map((node) => node.id),
             actions: [],
           },
-          sources: [...notes(agentId), ...guidance.sources],
+          sources: [
+            ...(await notes(agentId)),
+            ...(["commander", "conversational"].includes(agentId)
+              ? [commandContextSource(commandNodes)]
+              : []),
+            ...(agentId === "conversational"
+              ? [dialogueContextSource(), attachmentContextSource()]
+              : []),
+            ...guidance.sources,
+          ],
           attribution,
           ledger:
             agentId === "commander"
@@ -600,7 +666,7 @@ export async function runWorkflowTurn(
                   stepRunId: claim.stepRunId,
                   resuming,
                   preconditions: {
-                    scopeGeneration: scopes.generation(),
+                    scopeGeneration: await scopes.generation(),
                     targets: execution.targets,
                   },
                 })
@@ -613,46 +679,138 @@ export async function runWorkflowTurn(
                 : undefined,
         });
         const boundData = parametersRecord(bound);
-        const sourceRef =
-          typeof boundData.sourceRef === "string"
-            ? boundData.sourceRef
-            : undefined;
-        const source = sourceRef
-          ? input.assets.text(envelope.threadId, sourceRef)
-          : undefined;
+        if (step.type === "agent" && step.agentId === "conversational") {
+          const conversationalHistory: ContextMessage[] = branch.flatMap((item) =>
+            item.message.role === "user" || item.message.role === "assistant"
+              ? [
+                  {
+                    role: item.message.role,
+                    content: plainText(item.message.content),
+                    messageId: item.message.id,
+                  },
+                ]
+              : [],
+          );
+          const priorAssistantReplies = conversationalHistory
+            .filter((item) => item.role === "assistant")
+            .map((item) => item.content)
+            .filter((text) => text.trim().length > 0);
+          const conversationalValue: ConversationalTaskValue = {
+            request: typeof boundData.request === "string" ? boundData.request : request,
+            contentRefs,
+            attachments: attachmentExcerpts,
+          };
+          const result = await invoke({
+            agentId: "conversational",
+            modelProfileId: step.modelProfileId,
+            configured: input.settings,
+            cts,
+            value: conversationalValue,
+            renderValue: (history): ConversationalTaskValue => {
+              const represented = new Set(
+                history.map((message) => message.messageId),
+              );
+              return {
+                ...conversationalValue,
+                contentRefs: contentRefs.filter(
+                  (ref) => !represented.has(ref.messageId),
+                ),
+              };
+            },
+            outputSchema: writerBodySchema,
+            outputJsonSchema: z.toJSONSchema(writerBodySchema),
+            registry: input.registry,
+            context: {
+              actor: "model",
+              threadId: envelope.threadId,
+              turnId: envelope.turnId,
+            },
+            gate: input.gate,
+            budget,
+            history: conversationalHistory,
+            images,
+          });
+          let body = result.output.body;
+          if (
+            priorAssistantReplies.length > 0 &&
+            isRepetitiveConversationalReply(body, priorAssistantReplies)
+          ) {
+            const retryTemperature = Math.min(
+              1,
+              Math.max(input.settings.temperature + 0.35, 0.75),
+            );
+            const retrySeed = Math.floor(Math.random() * 2_000_000_000) + 1;
+            const retryValue: ConversationalTaskValue = {
+              ...conversationalValue,
+              avoidRepeatingPriorReplies: priorAssistantReplies.slice(-2),
+              diversificationDirective:
+                "Your previous draft repeated an earlier assistant message in this conversation. Write a completely different reply that does not repeat those sentences or headings. Explore new aspects, deeper technical details, or concrete examples that were not covered yet, and do not apologize or mention system instructions.",
+            };
+            const retried = await invoke({
+              agentId: "conversational",
+              modelProfileId: step.modelProfileId,
+              configured: input.settings,
+              cts,
+              value: retryValue,
+              renderValue: (history): ConversationalTaskValue => {
+                const represented = new Set(
+                  history.map((message) => message.messageId),
+                );
+                return {
+                  ...retryValue,
+                  contentRefs: contentRefs.filter(
+                    (ref) => !represented.has(ref.messageId),
+                  ),
+                };
+              },
+              outputSchema: writerBodySchema,
+              outputJsonSchema: z.toJSONSchema(writerBodySchema),
+              registry: input.registry,
+              context: {
+                actor: "model",
+                threadId: envelope.threadId,
+                turnId: envelope.turnId,
+              },
+              gate: input.gate,
+              budget,
+              history: conversationalHistory,
+              images,
+              temperature: retryTemperature,
+              seed: retrySeed,
+            });
+            body = retried.output.body;
+          }
+          return {
+            status: "succeeded",
+            output: {
+              contentRef: saveContent(body, "workflow-draft.md"),
+            },
+          };
+        }
+        const sourceRef = typeof boundData.sourceRef === "string" ? boundData.sourceRef : undefined;
+        const source = sourceRef ? await input.assets.text(envelope.threadId, sourceRef) : undefined;
         if (sourceRef && source === null)
           return {
             status: "blocked",
             code: "content_unavailable",
-            summary:
-              "The retained original note body is unavailable. Read it again explicitly; it will not be recreated from intent.",
+            summary: "The retained original note body is unavailable. Read it again explicitly; it will not be recreated from intent.",
           };
-        const value = {
-          ...boundData,
-          ...(execution.workflowId === "commander" && chosen.scope
-            ? { target: `${chosen.scope.alias}:/` }
-            : {}),
-          ...(source !== undefined ? { source } : {}),
-          answers,
-          completedReceipts: completedReceipts(),
-          contentRefs,
-          attachments: input.assets.excerpt(
-            envelope.threadId,
-            Array.isArray(execution.parameters.attachmentIds)
-              ? (execution.parameters.attachmentIds as string[])
-              : [],
-          ),
-        };
+        const receiptsForExecution = await completedReceipts();
         if (step.type === "decide") {
-          if (
-            typeof answers.operation === "string" &&
-            step.choices.includes(answers.operation)
-          )
+          if (typeof answers.operation === "string" && step.choices.includes(answers.operation))
             return {
               status: "succeeded",
               output: { value: answers.operation },
             };
           const schema = localDecisionSchema(step.choices);
+          const decisionValue: DecisionTaskValue = {
+            ...boundData,
+            choices: step.choices,
+            answers,
+            completedReceipts: receiptsForExecution,
+            contentRefs,
+            attachments: attachmentExcerpts,
+          };
           const result = await constrainedDecision({
             schema,
             invoke: async (correction) =>
@@ -663,8 +821,7 @@ export async function runWorkflowTurn(
                   configured: input.settings,
                   cts,
                   value: {
-                    ...value,
-                    choices: step.choices,
+                    ...decisionValue,
                     ...(correction ? { correction } : {}),
                   },
                   outputSchema: schema,
@@ -693,26 +850,24 @@ export async function runWorkflowTurn(
               };
         }
         if (step.agentId !== "commander") {
+          const writerValue: WriterTaskValue = {
+            request: typeof boundData.request === "string" ? boundData.request : request,
+            ...(typeof boundData.target === "string" || boundData.target === null ? { target: boundData.target } : {}),
+            ...(typeof source === "string" ? { source } : {}),
+            ...(sourceRef !== undefined ? { sourceRef } : {}),
+            ...(typeof boundData.revision === "string" ? { revision: boundData.revision } : {}),
+            ...(typeof boundData.path === "string" ? { path: boundData.path } : {}),
+            answers,
+            completedReceipts: receiptsForExecution,
+            contentRefs,
+            attachments: attachmentExcerpts,
+          };
           const result = await invoke({
             agentId: step.agentId,
             modelProfileId: step.modelProfileId,
             configured: input.settings,
             cts,
-            value,
-            renderValue:
-              step.agentId === "conversational"
-                ? (history) => {
-                    const represented = new Set(
-                      history.map((message) => message.messageId),
-                    );
-                    return {
-                      ...value,
-                      contentRefs: contentRefs.filter(
-                        (ref) => !represented.has(ref.messageId),
-                      ),
-                    };
-                  }
-                : undefined,
+            value: writerValue,
             outputSchema: writerBodySchema,
             outputJsonSchema: z.toJSONSchema(writerBodySchema),
             registry: input.registry,
@@ -723,21 +878,7 @@ export async function runWorkflowTurn(
             },
             gate: input.gate,
             budget,
-            history:
-              step.agentId === "conversational"
-                ? branch.flatMap((item) =>
-                    item.message.role === "user" ||
-                    item.message.role === "assistant"
-                      ? [
-                          {
-                            role: item.message.role,
-                            content: plainText(item.message.content),
-                            messageId: item.message.id,
-                          },
-                        ]
-                      : [],
-                  )
-                : [],
+            history: [],
             images,
           });
           return {
@@ -747,23 +888,30 @@ export async function runWorkflowTurn(
             },
           };
         }
+        const commanderValue: CommanderTaskValue = {
+          ...boundData,
+          ...(execution.workflowId === "commander" && chosen.scope ? { target: `${chosen.scope.alias}:/` } : {}),
+          ...(typeof source === "string" ? { source } : {}),
+          answers,
+          completedReceipts: receiptsForExecution,
+          priorCommandResults: priorCommandContext(branch),
+          contentRefs,
+          attachments: attachmentExcerpts,
+        };
         const operated = await invoke<z.infer<typeof commanderOutputSchema>>({
           agentId: "commander",
           modelProfileId: step.modelProfileId,
           configured: input.settings,
           cts,
-          value,
+          value: commanderValue,
           outputSchema: commanderOutputSchema,
           terminalOutput:
             execution.workflowId === "obsidian"
               ? (result) => {
                   const expectedAction = `obsidian.${boundData.operation === "write" ? "create" : String(boundData.operation)}`;
                   return result.status === "not_supported" ||
-                    ["effect_uncertain", "receipt_failed"].includes(
-                      result.code ?? "",
-                    ) ||
-                    (result.action === expectedAction &&
-                      ["success", "partial"].includes(result.status))
+                    ["effect_uncertain", "receipt_failed"].includes(result.code ?? "") ||
+                    (result.action === expectedAction && ["success", "partial"].includes(result.status))
                     ? {
                         findings: [result.summary],
                         receiptIds: result.receiptId ? [result.receiptId] : [],
@@ -784,73 +932,39 @@ export async function runWorkflowTurn(
           awaitDecision: input.awaitDecision,
         });
         // Only registry results can supply receipt IDs and read-note identity.
-        const receipts = operated.outcome.results.filter(
-          (result) => result.receiptId,
-        );
-        const lastDomainReceipt = receipts.findLast(
-          (result) =>
-            result.action.startsWith("obsidian.") &&
-            result.action !== "obsidian.help",
-        );
-        const uncertainReceipt = receipts.find((result) =>
-          ["effect_uncertain", "receipt_failed"].includes(result.code ?? ""),
-        );
+        const receipts = operated.outcome.results.filter((result) => result.receiptId);
+        const lastDomainReceipt = receipts.findLast((result) => result.action.startsWith("obsidian.") && result.action !== "obsidian.help");
+        const uncertainReceipt = receipts.find((result) => ["effect_uncertain", "receipt_failed"].includes(result.code ?? ""));
         if (uncertainReceipt)
           return {
             status: "blocked",
             code: uncertainReceipt.code!,
             summary: uncertainReceipt.summary.slice(0, 2000),
           };
-        if (
-          execution.workflowId === "obsidian" &&
-          lastDomainReceipt?.status === "not_supported"
-        )
+        if (execution.workflowId === "obsidian" && lastDomainReceipt?.status === "not_supported")
           return {
             status: "not_supported",
             code: lastDomainReceipt.code ?? "not_supported",
             summary: lastDomainReceipt.summary.slice(0, 2000),
           };
-        const original = receipts.findLast(
-          (result) =>
-            result.action === "obsidian.read" && result.status === "success",
-        );
+        const original = receipts.findLast((result) => result.action === "obsidian.read" && result.status === "success");
         const identity = original ? parametersRecord(original.data) : {};
-        if (typeof identity.contentRef === "string")
-          store.pin(execution.id, identity.contentRef);
+        if (typeof identity.contentRef === "string") store.pin(execution.id, identity.contentRef);
         const output = {
           findings: receipts.flatMap(commandResultFindings).slice(0, 30),
           receiptIds: receipts.map((receipt) => receipt.receiptId!),
-          ...(typeof identity.contentRef === "string"
-            ? { contentRef: identity.contentRef }
-            : {}),
+          ...(typeof identity.contentRef === "string" ? { contentRef: identity.contentRef } : {}),
           ...(typeof identity.path === "string" ? { path: identity.path } : {}),
-          ...(typeof identity.revision === "string"
-            ? { revision: identity.revision }
-            : {}),
-          ...(operated.output.question
-            ? { question: operated.output.question }
-            : {}),
+          ...(typeof identity.revision === "string" ? { revision: identity.revision } : {}),
+          ...(operated.output.question ? { question: operated.output.question } : {}),
         };
-        if (
-          output.question &&
-          isListingCompletionStatement(
-            receipts.at(-1),
-            output.question.text,
-            envelope.text,
-          )
-        )
-          delete output.question;
-        if (
-          execution.workflowId === "obsidian" &&
-          boundData.operation === "read" &&
-          original
-        ) {
+        if (output.question && isListingCompletionStatement(receipts.at(-1), output.question.text, envelope.text)) delete output.question;
+        if (execution.workflowId === "obsidian" && boundData.operation === "read" && original) {
           if (!output.contentRef || !output.path || !output.revision)
             return {
               status: "blocked",
               code: "read_identity_unavailable",
-              summary:
-                "The original note read did not retain a complete body, path and revision. Editing cannot continue.",
+              summary: "The original note read did not retain a complete body, path and revision. Editing cannot continue.",
             };
           const readOutput = { ...output };
           delete readOutput.question;
@@ -883,18 +997,11 @@ export async function runWorkflowTurn(
           delete settledOutput.question;
           return { status: "succeeded", output: settledOutput };
         }
-        return output.question
-          ? { status: "awaiting_input", question: output.question, output }
-          : { status: "succeeded", output };
+        return output.question ? { status: "awaiting_input", question: output.question, output } : { status: "succeeded", output };
       },
       settle: (step, state) => {
         if (!activeStepRunId || execution.currentStepId !== step.id) {
-          const claim = store.beginStep(
-            execution,
-            step.id,
-            envelope.turnId,
-            step.type === "branch" ? "branch.v1" : step.outputSchemaId,
-          );
+          const claim = store.beginStep(execution, step.id, envelope.turnId, step.type === "branch" ? "branch.v1" : step.outputSchemaId);
           execution = claim.execution;
           activeStepRunId = claim.stepRunId;
           activeAttribution = undefined;
@@ -907,10 +1014,7 @@ export async function runWorkflowTurn(
           stepRunId,
           state.result!.status,
           activeAttribution,
-          state.result!.status !== "succeeded" &&
-            state.result!.status !== "awaiting_input"
-            ? state.result!.summary
-            : undefined,
+          state.result!.status !== "succeeded" && state.result!.status !== "awaiting_input" ? state.result!.summary : undefined,
         );
         activeStepRunId = undefined;
         activeAttribution = undefined;
@@ -924,10 +1028,7 @@ export async function runWorkflowTurn(
       result: {
         status: cancelled ? "cancelled" : "failed",
         code: "workflow_interrupted",
-        summary: (error instanceof Error
-          ? error.message
-          : "Workflow interrupted"
-        ).slice(0, 2000),
+        summary: (error instanceof Error ? error.message : "Workflow interrupted").slice(0, 2000),
       },
     };
     execution = store.update(execution.id, execution.revision, {
@@ -935,11 +1036,7 @@ export async function runWorkflowTurn(
       checkpoint: finalState,
     });
   }
-  if (
-    finalState.status === "cancelled" &&
-    !input.signal.aborted &&
-    budget.signal.aborted
-  ) {
+  if (finalState.status === "cancelled" && !input.signal.aborted && budget.signal.aborted) {
     finalState = {
       ...finalState,
       status: "failed",
@@ -955,30 +1052,49 @@ export async function runWorkflowTurn(
     });
   }
   emit({ type: "execution", execution: executionSummary(execution) });
-  if (
-    execution.workflowId === "conversational" &&
-    finalState.status === "completed"
-  ) {
-    const result = parametersRecord(finalState.outputs.reply);
-    const body =
-      typeof result.contentRef === "string"
-        ? input.assets.text(envelope.threadId, result.contentRef)
-        : null;
-    if (body === null)
-      throw new Error("The saved conversational content is unavailable.");
-    persist("assistant_text", { content: body });
-    emit({ type: "delta", text: body });
-    return { stop: "completed" };
+  if (execution.workflowId === "conversational") {
+    if (finalState.status === "completed") {
+      emit({ type: "execution", execution: executionSummary(execution) });
+      const result = parametersRecord(finalState.outputs.reply);
+      const body =
+        typeof result.contentRef === "string"
+          ? await input.assets.text(envelope.threadId, result.contentRef)
+          : null;
+      if (body === null)
+        throw new Error("The saved conversational content is unavailable.");
+      persist("assistant_text", { content: body });
+      emit({ type: "delta", text: body });
+      return { stop: "completed" };
+    }
+    const outcome = await freezeWorkflowOutcome(database, execution);
+    execution = store.update(execution.id, execution.revision, {
+      status: execution.status,
+      checkpoint: execution.checkpoint,
+      outcome,
+    });
+    emit({ type: "execution", execution: executionSummary(execution) });
+    const stop: ChatTurnStop =
+      execution.status === "cancelled" ? "cancelled" : "failed";
+    const text =
+      stop === "cancelled"
+        ? "You stopped this reply."
+        : finalState.result &&
+            finalState.result.status !== "succeeded" &&
+            finalState.result.status !== "awaiting_input"
+          ? finalState.result.summary
+          : "The conversational reply could not be completed.";
+    persist("assistant_text", { content: text });
+    emit({ type: "delta", text });
+    return { stop, summary: text };
   }
-  const outcome = freezeWorkflowOutcome(database, execution);
+  const outcome = await freezeWorkflowOutcome(database, execution);
   execution = store.update(execution.id, execution.revision, {
     status: execution.status,
     checkpoint: execution.checkpoint,
     outcome,
   });
   emit({ type: "execution", execution: executionSummary(execution) });
-  const stop: ChatTurnStop =
-    execution.status === "cancelled" ? "cancelled" : "completed";
+  const stop: ChatTurnStop = execution.status === "cancelled" ? "cancelled" : "completed";
   const text = await present(outcome, stop);
   persist("assistant_text", { content: text });
   emit({ type: "delta", text });

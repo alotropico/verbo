@@ -1,5 +1,6 @@
 import { useEffect, useState, type ReactElement } from "react";
 import { Button } from "@mantine/core";
+import { useAuiState } from "@assistant-ui/react";
 import type { ActionResult } from "@shared/action-contract";
 import {
   operationInventoryLine,
@@ -7,6 +8,7 @@ import {
   type OperationReviewFailure,
 } from "@shared/file-mutation";
 import { StatusMessage } from "@/components/StatusMessage";
+import { operationReviewThreadId } from "@/runtime/operation-review-identity";
 import styles from "./operation-review.module.css";
 
 type ReviewResponse = OperationReview | OperationReviewFailure;
@@ -31,22 +33,15 @@ function parseJson(value: string): unknown {
   }
 }
 
-function threadIdFrom(result: ActionResult): string | null {
-  const detail = result.detail ? parseJson(result.detail) : null;
-  if (!detail || typeof detail !== "object" || !("threadId" in detail))
-    return null;
-  const threadId = detail.threadId;
-  return typeof threadId === "string" ? threadId : null;
-}
-
 export function OperationReviewCard({
   result,
 }: {
   result: unknown;
 }): ReactElement | null {
+  const ownerThreadId = useAuiState((state) => state.threadListItem.remoteId);
   const action = readResult(result);
   const operationId = action?.operationId;
-  const threadId = action ? threadIdFrom(action) : null;
+  const threadId = action ? operationReviewThreadId(action, ownerThreadId) : null;
   const [review, setReview] = useState<ReviewResponse | null>(null);
   const [receipt, setReceipt] = useState<ActionResult | null>(null);
   const [busy, setBusy] = useState(false);
@@ -73,7 +68,7 @@ export function OperationReviewCard({
   const waiting = action.status === "requires_confirmation" && !receipt;
 
   return (
-    <section className={styles.card} aria-label="File operation">
+    <section className={styles.card} aria-label="Operation review">
       <p className={styles.summary}>
         {receipt?.summary ?? shown?.summary ?? action.summary}
       </p>
@@ -108,7 +103,7 @@ export function OperationReviewCard({
       {waiting && window.verbo?.operations ? (
         <div className={styles.actions}>
           <Button
-            disabled={busy}
+            disabled={busy || !threadId}
             variant="default"
             onClick={() => {
               if (!operationId || !threadId) return;
@@ -127,7 +122,7 @@ export function OperationReviewCard({
             Deny
           </Button>
           <Button
-            disabled={busy}
+            disabled={busy || !threadId}
             onClick={() => {
               if (!operationId || !threadId) return;
               setBusy(true);

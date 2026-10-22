@@ -1,10 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { ipcMain, type BrowserWindow, type IpcMainEvent } from "electron";
 import { z } from "zod";
-import {
-  ASSISTANT_STREAM_CHANNEL,
-  type ChatEvent,
-} from "../../shared/chat-ipc";
+import { ASSISTANT_STREAM_CHANNEL, type ChatEvent } from "../../shared/chat-ipc";
 import { IPC_CHANNELS } from "../../shared/ipc-channels";
 import { persistedThreadIdSchema } from "../../shared/thread-identity";
 import { chatSettingsSchema } from "../../shared/storage-ipc";
@@ -12,13 +9,7 @@ import { getDatabase } from "../db/database";
 import { abandonPendingPlan } from "../files/mutation-plan";
 import { turnController } from "../runtime/controller-service";
 import { turnDispatcher } from "../runtime/queue-service";
-import {
-  liveById,
-  liveEvents,
-  liveTurnForThread,
-  requestTurnCancel,
-  setTurnCancelHandler,
-} from "../runtime/turn-session";
+import { liveById, liveEvents, liveTurnForThread, requestTurnCancel, setTurnCancelHandler } from "../runtime/turn-session";
 
 const chatRequestSchema = z
   .object({
@@ -47,13 +38,8 @@ const chatRequestSchema = z
 export function registerAssistantStreamIpc(mainWindow: BrowserWindow): void {
   const dispatcher = turnDispatcher();
   const controller = turnController();
-  const trusted = (
-    event: Pick<IpcMainEvent, "sender" | "senderFrame">,
-  ): void => {
-    if (
-      event.sender !== mainWindow.webContents ||
-      event.senderFrame !== mainWindow.webContents.mainFrame
-    )
+  const trusted = (event: Pick<IpcMainEvent, "sender" | "senderFrame">): void => {
+    if (event.sender !== mainWindow.webContents || event.senderFrame !== mainWindow.webContents.mainFrame)
       throw new Error("Untrusted IPC sender");
   };
   dispatcher.setOnPromoted((item) => {
@@ -88,15 +74,15 @@ export function registerAssistantStreamIpc(mainWindow: BrowserWindow): void {
         send,
       );
     } catch (error) {
-      dispatcher.setServiceHold(
-        error instanceof Error ? error.message : "Turn admission failed.",
-      );
+      dispatcher.setServiceHold(error instanceof Error ? error.message : "Turn admission failed.");
     }
   });
   setTurnCancelHandler((turnId) => {
     const live = liveById(turnId);
     if (live?.operationId)
-      abandonPendingPlan(getDatabase(), live.operationId, live.threadId);
+      void abandonPendingPlan(getDatabase(), live.operationId, live.threadId).catch((error) => {
+        console.error("Could not abandon the cancelled operation", error);
+      });
     // Cancellation requests abort work. Only the Controller may release the slot.
   });
   ipcMain.handle(IPC_CHANNELS.turnCancel, (event) => {
@@ -153,21 +139,15 @@ export function registerAssistantStreamIpc(mainWindow: BrowserWindow): void {
     try {
       const parsed = chatRequestSchema.parse(request);
       const latest = parsed.messages.at(-1);
-      if (!latest || latest.role !== "user")
-        throw new Error("A turn needs a user message.");
+      if (!latest || latest.role !== "user") throw new Error("A turn needs a user message.");
       const admission = controller.admitTurn(
         {
           threadId: parsed.threadId,
           userMessageId: latest.id ?? parsed.parentId ?? randomUUID(),
           assistantMessageId: parsed.assistantMessageId,
-          ...(parsed.messages.at(-2)?.id
-            ? { branchAnchor: parsed.messages.at(-2)!.id }
-            : {}),
+          ...(parsed.messages.at(-2)?.id ? { branchAnchor: parsed.messages.at(-2)!.id } : {}),
           ...(parsed.queueItemId ? { queueItemId: parsed.queueItemId } : {}),
-          source:
-            (parsed.queueItemId
-              ? dispatcher.queuedSource(parsed.queueItemId)
-              : null) ?? "typed",
+          source: (parsed.queueItemId ? dispatcher.queuedSource(parsed.queueItemId) : null) ?? "typed",
           admission: "immediate",
           text: latest.content,
           attachmentIds: parsed.attachmentIds ?? [],
@@ -178,8 +158,7 @@ export function registerAssistantStreamIpc(mainWindow: BrowserWindow): void {
     } catch (error) {
       send({
         type: "error",
-        message:
-          error instanceof Error ? error.message : "Invalid chat request.",
+        message: error instanceof Error ? error.message : "Invalid chat request.",
       });
       port.close();
     }

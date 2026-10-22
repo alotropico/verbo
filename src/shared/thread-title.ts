@@ -1,10 +1,13 @@
 export const LOCAL_THREAD_ID_PREFIX = "__LOCALID_";
 
+export const MAX_TITLE_WORDS = 5;
+export const MAX_TITLE_CHARS = 48;
+
 const PLACEHOLDER_GLYPHS = "§¤¶†‡•◦∙∞≈≠±×÷√∆∑∏∫∴⋆";
 const PLACEHOLDER_GLYPH_COUNT = 5;
 
 export const TITLE_SYSTEM_PROMPT =
-  "Reply with a chat title only. At most 3 words. At most 24 characters. No quotes. No explanation.";
+  "Summarize the user's message as a short topic title for a chat sidebar. Do not answer the user's question or speak in first person. Reply with the title only: at most 5 words, at most 48 characters, no quotes, and no explanation.";
 
 function placeholderSeed(id: string): number {
   let hash = 0x811c9dc5;
@@ -37,14 +40,17 @@ export function sanitizeGeneratedTitle(raw: string): string | undefined {
       .find((line) => line.length > 0) ?? "";
   text = text.replace(/^["'`]+|["'`]+$/g, "").trim();
   text = text.replace(/^(title|name)\s*:\s*/i, "").trim();
-  const words = text.split(/\s+/).filter((word) => word.length > 0).slice(0, 3);
+  const words = text
+    .split(/\s+/)
+    .filter((word) => word.length > 0)
+    .slice(0, MAX_TITLE_WORDS);
   let title = "";
   for (const word of words) {
     const next = title.length > 0 ? `${title} ${word}` : word;
-    if (next.length > 24) break;
+    if (next.length > MAX_TITLE_CHARS) break;
     title = next;
   }
-  if (!title && words[0]) title = words[0].slice(0, 24);
+  if (!title && words[0]) title = words[0].slice(0, MAX_TITLE_CHARS);
   if (!title) return undefined;
   return title;
 }

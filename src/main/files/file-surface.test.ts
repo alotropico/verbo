@@ -17,14 +17,14 @@ afterEach(() => {
   }
 });
 
-function scope(root: string): ReturnType<typeof createScopeStore> {
+async function scope(root: string): Promise<ReturnType<typeof createScopeStore>> {
   const directory = mkdtempSync(join(tmpdir(), "verbo-surface-db-"));
   directories.push(directory);
   const db = new DatabaseSync(join(directory, "verbo.sqlite"));
   databases.push(db);
   migrateDatabase(db, VERBO_MIGRATIONS);
   const store = createScopeStore(db);
-  const saved = store.apply({
+  const saved = await store.apply({
     removeIds: [],
     updates: [],
     additions: [
@@ -46,13 +46,13 @@ describe("file surface", () => {
     const root = mkdtempSync(join(tmpdir(), "verbo-surface-"));
     directories.push(root);
     writeFileSync(join(root, "note.md"), "hello file");
-    const store = scope(root);
+    const store = await scope(root);
     const opened: string[] = [];
     const revealed: string[] = [];
     const copied: string[] = [];
     const ports = {
-      scopes: store.list(),
-      grants: store.activeGrants(),
+      scopes: await store.list(),
+      grants: await store.activeGrants(),
       openPath: async (absolute: string) => {
         opened.push(absolute);
         return "";
@@ -94,10 +94,10 @@ describe("file surface", () => {
     directories.push(root);
     mkdirSync(join(root, "box"));
     writeFileSync(join(root, "bin.dat"), Buffer.from([0x00, 0x01]));
-    const store = scope(root);
+    const store = await scope(root);
     const ports = {
-      scopes: store.list(),
-      grants: store.activeGrants(),
+      scopes: await store.list(),
+      grants: await store.activeGrants(),
       openPath: async () => "",
       showItemInFolder: () => undefined,
       writeClipboard: () => undefined,

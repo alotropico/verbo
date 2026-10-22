@@ -2,21 +2,9 @@ import type { ActionResult } from "./action-contract";
 import type { ChatSettings } from "./config";
 import type { BackendNotice } from "./backend-notice";
 import type { ExecutionTrace } from "./execution-trace";
-import type {
-  WorkflowStage,
-  ExecutionSummary,
-  RoutingStage,
-  WorkflowAttribution,
-} from "./workflows";
+import type { WorkflowStage, ExecutionSummary, RoutingStage, WorkflowAttribution } from "./workflows";
 
-export type ChatTurnStop =
-  | "completed"
-  | "paused"
-  | "cancelled"
-  | "limit"
-  | "capacity"
-  | "no_progress"
-  | "failed";
+export type ChatTurnStop = "completed" | "paused" | "cancelled" | "limit" | "capacity" | "no_progress" | "failed";
 
 export const USER_ABORT_NOTICE = "You stopped this reply.";
 
@@ -68,6 +56,7 @@ export type ChatEvent = (
     }
   | { type: "backend_notice"; notice: BackendNotice }
   | { type: "delta"; text: string }
+  | { type: "input_required" }
   | {
       type: "tools";
       content: string;
@@ -123,8 +112,5 @@ export type LatestInteraction = {
 };
 
 export type AssistantAI = {
-  streamChat(
-    request: ChatRequest,
-    onEvent: (event: ChatEvent) => void,
-  ): () => void;
+  streamChat(request: ChatRequest, onEvent: (event: ChatEvent) => void): () => void;
 };

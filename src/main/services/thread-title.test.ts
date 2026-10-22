@@ -42,8 +42,8 @@ describe("generateThreadTitle", () => {
       });
       expect(messages).toHaveLength(2);
       expect(messages[1]?.content).toBe("first request");
-      expect(title.split(" ").length).toBeLessThanOrEqual(3);
-      expect(title.length).toBeLessThanOrEqual(24);
+      expect(title.split(" ").length).toBeLessThanOrEqual(5);
+      expect(title.length).toBeLessThanOrEqual(48);
       expect(configured.think).toBe(DEFAULT_CHAT_SETTINGS.think);
     },
   );

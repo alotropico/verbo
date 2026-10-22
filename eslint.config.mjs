@@ -7,7 +7,7 @@ import eslintPluginReactRefresh from "eslint-plugin-react-refresh";
 
 export default defineConfig(
   {
-    ignores: ["**/node_modules", "**/dist", "**/out", ".tmp/**", ".agents/**"],
+    ignores: ["**/node_modules", "**/.venv/**", "**/dist", "**/out", ".tmp/**", ".agents/**"],
   },
   tseslint.configs.recommended,
   eslintPluginReact.configs.flat.recommended,

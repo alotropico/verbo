@@ -1,9 +1,4 @@
-import {
-  FolderPlusIcon,
-  ScanSearchIcon,
-  ShieldPlusIcon,
-  Trash2Icon,
-} from "lucide-react";
+import { FolderPlusIcon, ScanSearchIcon, ShieldPlusIcon, Trash2Icon } from "lucide-react";
 import {
   Button,
   Checkbox,
@@ -18,7 +13,7 @@ import {
   Textarea,
   TextInput,
 } from "@mantine/core";
-import { useCallback, useEffect, useState, type ReactElement } from "react";
+import { useCallback, useEffect, type ReactElement } from "react";
 import {
   applicationRegistrationSchema,
   projectPreferencesSchema,
@@ -34,35 +29,21 @@ import { StatusMessage, type StatusFeedback } from "./StatusMessage";
 import { SettingsDisclosure } from "./SettingsDisclosure";
 import { SettingsSection } from "./SettingsSection";
 import { SettingsLabel } from "./SettingsLabel";
-import {
-  useSettingsAutosave,
-  useSettingsDraft,
-  useSettingsRef,
-  useSettingsForm,
-} from "@/hooks/use-settings-draft";
+import { useSettingsAutosave, useSettingsDraft, useSettingsRef, useSettingsForm } from "@/hooks/use-settings-draft";
 import { AutosaveStatus } from "./AutosaveStatus";
 import { useConfirmation } from "./confirmation-context";
 import { scopeAliasSchema } from "@shared/files";
 import styles from "./ActionsSettings.module.css";
+import { useSettingsResource } from "@/hooks/use-settings-resource";
+import { LONG_TEXT_SAVE_DELAY, SETTINGS_SAVE_DELAY } from "@/runtime/autosave";
+import { SettingsLoading } from "./SettingsLoading";
 
-function ApplicationEditor({
-  application,
-  reload,
-}: {
-  application?: RegisteredApplication;
-  reload: () => void;
-}): ReactElement {
+function ApplicationEditor({ application, reload }: { application?: RegisteredApplication; reload: () => void }): ReactElement {
   const key = `application/${application?.id ?? "new"}/`;
-  const [notice, setNotice] = useSettingsDraft<StatusFeedback | null>(
-    key + "notice",
-    null,
-  );
+  const [notice, setNotice] = useSettingsDraft<StatusFeedback | null>(key + "notice", null);
   const [busy, setBusy] = useSettingsDraft(key + "busy", false);
   const [opened, setOpened] = useSettingsDraft(key + "open", false);
-  const [aliasSearch, setAliasSearch] = useSettingsDraft(
-    key + "alias-search",
-    "",
-  );
+  const [aliasSearch, setAliasSearch] = useSettingsDraft(key + "alias-search", "");
   const confirm = useConfirmation();
   const autosave = useSettingsAutosave<ApplicationRegistrationInput>(
     key + "save",
@@ -71,11 +52,28 @@ function ApplicationEditor({
       if (!result.ok) throw new Error(result.summary);
       reload();
     },
+    undefined,
+    application
+      ? {
+          id: application.id,
+          name: application.name,
+          aliases: application.aliases,
+          executable: application.executable,
+          enabled: application.enabled,
+          supportedTargets: application.supportedTargets,
+          supportedPlatforms: application.supportedPlatforms,
+          launchArguments: application.launchArguments,
+          cwdPolicy: application.cwdPolicy,
+        }
+      : undefined,
   );
   const form = useSettingsForm(key + "form", {
     mode: "uncontrolled",
-    onValuesChange: () => {
-      if (application) void save();
+    onValuesChange: (values, previous) => {
+      if (application)
+        void save(
+          values.arguments !== previous.arguments || values.executable !== previous.executable ? LONG_TEXT_SAVE_DELAY : SETTINGS_SAVE_DELAY,
+        );
     },
     initialValues: {
       name: application?.name ?? "",
@@ -84,14 +82,10 @@ function ApplicationEditor({
       enabled: application?.enabled ?? true,
       cwdPolicy: application?.cwdPolicy ?? "project",
       arguments:
-        application?.launchArguments
-          .map((binding) =>
-            "literal" in binding ? binding.literal : "{project}",
-          )
-          .join("\n") ?? "{project}",
+        application?.launchArguments.map((binding) => ("literal" in binding ? binding.literal : "{project}")).join("\n") ?? "{project}",
     },
   });
-  const save = async (): Promise<void> => {
+  const save = async (delay = SETTINGS_SAVE_DELAY): Promise<void> => {
     const value = form.getValues();
     const parsed = applicationRegistrationSchema.safeParse({
       ...(application ? { id: application.id } : {}),
@@ -99,29 +93,21 @@ function ApplicationEditor({
       aliases: value.aliases,
       executable: value.executable,
       enabled: value.enabled,
-      supportedTargets: application?.supportedTargets ?? [
-        "folder",
-        "repository",
-      ],
+      supportedTargets: application?.supportedTargets ?? ["folder", "repository"],
       supportedPlatforms: ["win32"],
       cwdPolicy: value.cwdPolicy,
-      launchArguments: value.arguments
-        .split("\n")
-        .map((line) =>
-          line === "{project}" ? { target: "path" } : { literal: line },
-        ),
+      launchArguments: value.arguments.split("\n").map((line) => (line === "{project}" ? { target: "path" } : { literal: line })),
     });
     if (!parsed.success) {
       setNotice({
-        text:
-          parsed.error.issues[0]?.message ?? "Check the application settings.",
+        text: parsed.error.issues[0]?.message ?? "Check the application settings.",
         tone: "error",
       });
       return;
     }
     if (application) {
       setNotice(null);
-      autosave.controller.schedule(parsed.data);
+      autosave.controller.schedule(parsed.data, delay);
       return;
     }
     setBusy(true);
@@ -146,12 +132,7 @@ function ApplicationEditor({
       {!application ? <Text fw={500}>Register an application</Text> : null}
       <SimpleGrid type="container" cols={{ base: 1, "640px": 2 }} spacing="sm">
         <TextInput
-          label={
-            <SettingsLabel
-              label="Display name"
-              tip="The name shown for this application in Settings and project choices."
-            />
-          }
+          label={<SettingsLabel label="Display name" tip="The name shown for this application in Settings and project choices." />}
           key={form.key("name")}
           {...form.getInputProps("name")}
         />
@@ -170,12 +151,7 @@ function ApplicationEditor({
         />
       </SimpleGrid>
       <TextInput
-        label={
-          <SettingsLabel
-            label="Windows executable"
-            tip="Full path to the installed application’s .exe file."
-          />
-        }
+        label={<SettingsLabel label="Windows executable" tip="Full path to the installed application’s .exe file." />}
         placeholder="Choose the installed .exe path"
         key={form.key("executable")}
         {...form.getInputProps("executable")}
@@ -192,12 +168,7 @@ function ApplicationEditor({
         key={form.key("arguments")}
         {...form.getInputProps("arguments")}
       />
-      <SimpleGrid
-        type="container"
-        cols={{ base: 1, "640px": 2 }}
-        spacing="md"
-        className={styles.preferenceFields}
-      >
+      <SimpleGrid type="container" cols={{ base: 1, "640px": 2 }} spacing="md" className={styles.preferenceFields}>
         <Select
           label={
             <SettingsLabel
@@ -216,27 +187,19 @@ function ApplicationEditor({
         />
         <Switch
           label={
-            <SettingsLabel
-              label="Available for projects"
-              tip="Allow this trusted application to be selected when opening projects."
-            />
+            <SettingsLabel label="Available for projects" tip="Allow this trusted application to be selected when opening projects." />
           }
           key={form.key("enabled")}
           {...form.getInputProps("enabled", { type: "checkbox" })}
         />
       </SimpleGrid>
       <Text size="xs">
-        Registration trusts this executable and these arguments. Model launches
-        require confirmation. Launch receipts confirm that the program started.
+        Registration trusts this executable and these arguments. Model launches require confirmation. Launch receipts confirm that the
+        program started.
       </Text>
       <Group gap="xs">
         {!application ? (
-          <Button
-            leftSection={<ShieldPlusIcon aria-hidden size={16} />}
-            size="xs"
-            loading={busy}
-            onClick={() => void save()}
-          >
+          <Button leftSection={<ShieldPlusIcon aria-hidden size={16} />} size="xs" loading={busy} onClick={() => void save()}>
             Add and trust application
           </Button>
         ) : null}
@@ -255,9 +218,7 @@ function ApplicationEditor({
                 destructive: true,
                 onConfirm: async () => {
                   await autosave.controller.reset();
-                  const result = await window.verbo.commands.removeApplication(
-                    application.id,
-                  );
+                  const result = await window.verbo.commands.removeApplication(application.id);
                   if (!result.ok) throw new Error(result.summary);
                   reload();
                 },
@@ -268,12 +229,7 @@ function ApplicationEditor({
           </Button>
         ) : null}
       </Group>
-      {application ? (
-        <AutosaveStatus
-          state={autosave.state}
-          retry={() => autosave.controller.retry()}
-        />
-      ) : null}
+      {application ? <AutosaveStatus state={autosave.state} retry={() => autosave.controller.retry()} /> : null}
       {notice ? (
         <StatusMessage display="plain" size="sm" tone={notice.tone}>
           {notice.text}
@@ -282,11 +238,7 @@ function ApplicationEditor({
     </Stack>
   );
   return application ? (
-    <SettingsDisclosure
-      title={application.name}
-      open={opened}
-      onOpenChange={setOpened}
-    >
+    <SettingsDisclosure title={application.name} open={opened} onOpenChange={setOpened}>
       {editor}
     </SettingsDisclosure>
   ) : (
@@ -307,16 +259,22 @@ function ProjectEditor({
   const key = `project/${project.id}/`;
   const [error, setError] = useSettingsDraft(key + "error", "");
   const [opened, setOpened] = useSettingsDraft(key + "open", false);
-  const [aliasSearch, setAliasSearch] = useSettingsDraft(
-    key + "alias-search",
-    "",
-  );
+  const [aliasSearch, setAliasSearch] = useSettingsDraft(key + "alias-search", "");
   const autosave = useSettingsAutosave<ProjectPreferences>(
     key + "save",
     async (value) => {
       const result = await window.verbo.commands.saveProject(value);
       if (!result.ok) throw new Error(result.summary);
       reload();
+    },
+    undefined,
+    {
+      id: project.id,
+      name: project.name,
+      aliases: project.aliases.filter((alias) => alias !== project.alias),
+      enabled: project.enabled,
+      defaultApplicationId: project.defaultApplicationId,
+      favoriteApplicationIds: project.favoriteApplicationIds,
     },
   );
   const form = useSettingsForm(key + "form", {
@@ -331,11 +289,7 @@ function ProjectEditor({
     },
     onValuesChange: (values) => {
       const parsed = projectPreferencesSchema.safeParse(values);
-      setError(
-        parsed.success
-          ? ""
-          : (parsed.error.issues[0]?.message ?? "Check project settings."),
-      );
+      setError(parsed.success ? "" : (parsed.error.issues[0]?.message ?? "Check project settings."));
       if (parsed.success) autosave.controller.schedule(parsed.data);
     },
   });
@@ -343,20 +297,11 @@ function ProjectEditor({
     .filter((app) => app.enabled && app.supportedTargets.includes("folder"))
     .map((app) => ({ value: app.id, label: app.name }));
   return (
-    <SettingsDisclosure
-      title={project.name + " (" + project.alias + ")"}
-      open={opened}
-      onOpenChange={setOpened}
-    >
+    <SettingsDisclosure title={project.name + " (" + project.alias + ")"} open={opened} onOpenChange={setOpened}>
       <Text size="xs">{project.path}</Text>
       <SimpleGrid type="container" cols={{ base: 1, "640px": 2 }} spacing="sm">
         <TextInput
-          label={
-            <SettingsLabel
-              label="Display name"
-              tip="A readable name for this project folder."
-            />
-          }
+          label={<SettingsLabel label="Display name" tip="A readable name for this project folder." />}
           key={form.key("name")}
           {...form.getInputProps("name")}
         />
@@ -388,12 +333,7 @@ function ProjectEditor({
           {...form.getInputProps("defaultApplicationId")}
         />
         <MultiSelect
-          label={
-            <SettingsLabel
-              label="Favorite applications"
-              tip="Up to 16 applications to offer for this project."
-            />
-          }
+          label={<SettingsLabel label="Favorite applications" tip="Up to 16 applications to offer for this project." />}
           data={choices}
           maxValues={16}
           searchable
@@ -402,12 +342,7 @@ function ProjectEditor({
         />
       </SimpleGrid>
       <Switch
-        label={
-          <SettingsLabel
-            label="Available for opening"
-            tip="Allow Verbo to open this project with a trusted application."
-          />
-        }
+        label={<SettingsLabel label="Available for opening" tip="Allow Verbo to open this project with a trusted application." />}
         key={form.key("enabled")}
         {...form.getInputProps("enabled", { type: "checkbox" })}
       />
@@ -420,10 +355,7 @@ function ProjectEditor({
           onClick={() =>
             void confirm({
               title: "Remove project?",
-              message:
-                "Remove " +
-                project.name +
-                " from registered projects? The folder will remain.",
+              message: "Remove " + project.name + " from registered projects? The folder will remain.",
               confirmLabel: "Remove project",
               destructive: true,
               onConfirm: async () => {
@@ -438,10 +370,7 @@ function ProjectEditor({
           Remove project
         </Button>
       </Group>
-      <AutosaveStatus
-        state={autosave.state}
-        retry={() => autosave.controller.retry()}
-      />
+      <AutosaveStatus state={autosave.state} retry={() => autosave.controller.retry()} />
       {error ? (
         <StatusMessage display="plain" tone="error">
           {error}
@@ -451,35 +380,20 @@ function ProjectEditor({
   );
 }
 
-function ApplicationDiscovery({
-  data,
-  reload,
-}: {
-  data: EntitySettings;
-  reload: () => void;
-}): ReactElement {
-  const [candidates, setCandidates] = useSettingsDraft<
-    Array<{ name: string; aliases: string[]; executable: string }>
-  >("application-discovery/candidates", []);
+function ApplicationDiscovery({ data, reload }: { data: EntitySettings; reload: () => void }): ReactElement {
+  const [candidates, setCandidates] = useSettingsDraft<Array<{ name: string; aliases: string[]; executable: string }>>(
+    "application-discovery/candidates",
+    [],
+  );
   const [busy, setBusy] = useSettingsDraft("application-discovery/busy", false);
   const [error, setError] = useSettingsDraft("application-discovery/error", "");
-  const [detectionNotice, setDetectionNotice] = useSettingsDraft(
-    "application-discovery/notice",
-    "",
+  const [detectionNotice, setDetectionNotice] = useSettingsDraft("application-discovery/notice", "");
+  const [importSettings, setImportSettings] = useSettingsDraft<ProjectImportSettings>(
+    "application-discovery/import-settings",
+    data.projectImport ?? { enabled: false, applicationIds: [] },
   );
-  const [importSettings, setImportSettings] =
-    useSettingsDraft<ProjectImportSettings>(
-      "application-discovery/import-settings",
-      data.projectImport ?? { enabled: false, applicationIds: [] },
-    );
-  const currentRef = useSettingsRef(
-    "application-discovery/current",
-    importSettings,
-  );
-  const baselineRef = useSettingsRef(
-    "application-discovery/baseline",
-    JSON.stringify(importSettings),
-  );
+  const currentRef = useSettingsRef("application-discovery/current", importSettings);
+  const baselineRef = useSettingsRef("application-discovery/baseline", JSON.stringify(importSettings));
   const confirm = useConfirmation();
   const autosave = useSettingsAutosave<ProjectImportSettings>(
     "application-discovery/save",
@@ -489,6 +403,8 @@ function ApplicationDiscovery({
       baselineRef.current = JSON.stringify(value);
       reload();
     },
+    undefined,
+    data.projectImport ?? { enabled: false, applicationIds: [] },
   );
   useEffect(() => {
     if (JSON.stringify(currentRef.current) === baselineRef.current) {
@@ -496,22 +412,17 @@ function ApplicationDiscovery({
       currentRef.current = next;
       setImportSettings(next);
       baselineRef.current = JSON.stringify(next);
+      autosave.controller.acceptBaseline(next);
     }
-  }, [data.projectImport, currentRef, baselineRef, setImportSettings]);
+  }, [data.projectImport, currentRef, baselineRef, setImportSettings, autosave.controller]);
   const chooseFavorites = (applicationIds: string[]): void => {
     const next = { ...currentRef.current, applicationIds };
     setImportSettings(next);
     currentRef.current = next;
     autosave.controller.schedule(next);
   };
-  const toggle = async (
-    candidate: (typeof candidates)[number],
-    checked: boolean,
-  ): Promise<void> => {
-    const existing = data.applications.find(
-      (app) =>
-        app.executable.toLowerCase() === candidate.executable.toLowerCase(),
-    );
+  const toggle = async (candidate: (typeof candidates)[number], checked: boolean): Promise<void> => {
+    const existing = data.applications.find((app) => app.executable.toLowerCase() === candidate.executable.toLowerCase());
     if (!checked && existing) {
       await confirm({
         title: "Remove application?",
@@ -520,15 +431,9 @@ function ApplicationDiscovery({
         destructive: true,
         onConfirm: async () => {
           await autosave.controller.flush();
-          const result = await window.verbo.commands.removeApplication(
-            existing.id,
-          );
+          const result = await window.verbo.commands.removeApplication(existing.id);
           if (!result.ok) throw new Error(result.summary);
-          chooseFavorites(
-            currentRef.current.applicationIds.filter(
-              (id) => id !== existing.id,
-            ),
-          );
+          chooseFavorites(currentRef.current.applicationIds.filter((id) => id !== existing.id));
           reload();
         },
       });
@@ -542,8 +447,7 @@ function ApplicationDiscovery({
       if (!aliases.length) {
         let suffix = 2;
         let alias = `${candidate.aliases[0].slice(0, 25)}-${suffix}`;
-        while (used.has(alias))
-          alias = `${candidate.aliases[0].slice(0, 25)}-${++suffix}`;
+        while (used.has(alias)) alias = `${candidate.aliases[0].slice(0, 25)}-${++suffix}`;
         aliases = [alias];
       }
       const result = await window.verbo.commands.saveApplication({
@@ -558,21 +462,12 @@ function ApplicationDiscovery({
       });
       if (!result.ok) throw new Error(result.summary);
       const next = await window.verbo.commands.entities();
-      const added = next.applications.find(
-        (app) =>
-          app.executable.toLowerCase() === candidate.executable.toLowerCase(),
-      );
+      const added = next.applications.find((app) => app.executable.toLowerCase() === candidate.executable.toLowerCase());
       if (added && currentRef.current.applicationIds.length < 16)
-        chooseFavorites([
-          ...new Set([...currentRef.current.applicationIds, added.id]),
-        ]);
+        chooseFavorites([...new Set([...currentRef.current.applicationIds, added.id])]);
       reload();
     } catch (cause) {
-      setError(
-        cause instanceof Error
-          ? cause.message
-          : "Could not register the application.",
-      );
+      setError(cause instanceof Error ? cause.message : "Could not register the application.");
     } finally {
       setBusy(false);
     }
@@ -596,9 +491,7 @@ function ApplicationDiscovery({
                     : "No available programs were detected. You can add an application manually below.",
                 );
               })
-              .catch(() =>
-                setError("Available applications could not be detected."),
-              )
+              .catch(() => setError("Available applications could not be detected."))
               .finally(() => setBusy(false));
           }}
         >
@@ -611,8 +504,7 @@ function ApplicationDiscovery({
         </Text>
       ) : null}
       <Text size="xs" c="dimmed">
-        Select a program to add and trust it. Check its launch arguments below
-        if it needs a special folder option.
+        Select a program to add and trust it. Check its launch arguments below if it needs a special folder option.
       </Text>
       {candidates.map((candidate) => (
         <Checkbox
@@ -620,14 +512,8 @@ function ApplicationDiscovery({
           label={candidate.name}
           description={candidate.executable}
           disabled={busy}
-          checked={data.applications.some(
-            (app) =>
-              app.executable.toLowerCase() ===
-              candidate.executable.toLowerCase(),
-          )}
-          onChange={(event) =>
-            void toggle(candidate, event.currentTarget.checked)
-          }
+          checked={data.applications.some((app) => app.executable.toLowerCase() === candidate.executable.toLowerCase())}
+          onChange={(event) => void toggle(candidate, event.currentTarget.checked)}
         />
       ))}
       <Switch
@@ -649,11 +535,7 @@ function ApplicationDiscovery({
                     ...data.applications
                       .filter(
                         (app) =>
-                          candidates.some(
-                            (candidate) =>
-                              candidate.executable.toLowerCase() ===
-                              app.executable.toLowerCase(),
-                          ) &&
+                          candidates.some((candidate) => candidate.executable.toLowerCase() === app.executable.toLowerCase()) &&
                           app.enabled &&
                           app.supportedTargets.includes("folder"),
                       )
@@ -663,9 +545,7 @@ function ApplicationDiscovery({
               : currentRef.current.applicationIds,
           };
           if (next.applicationIds.length > 16) {
-            setError(
-              "Choose up to 16 applications as favorites for new projects.",
-            );
+            setError("Choose up to 16 applications as favorites for new projects.");
             return;
           }
           currentRef.current = next;
@@ -681,19 +561,14 @@ function ApplicationDiscovery({
           />
         }
         data={data.applications
-          .filter(
-            (app) => app.enabled && app.supportedTargets.includes("folder"),
-          )
+          .filter((app) => app.enabled && app.supportedTargets.includes("folder"))
           .map((app) => ({ value: app.id, label: app.name }))}
         value={importSettings.applicationIds}
         maxValues={16}
         searchable
         onChange={chooseFavorites}
       />
-      <AutosaveStatus
-        state={autosave.state}
-        retry={() => autosave.controller.retry()}
-      />
+      <AutosaveStatus state={autosave.state} retry={() => autosave.controller.retry()} />
       {error ? (
         <StatusMessage display="plain" tone="error">
           {error}
@@ -703,36 +578,28 @@ function ApplicationDiscovery({
   );
 }
 
-export function EntityCommandSettings({
-  module,
-}: {
-  module: "projects" | "software";
-}): ReactElement {
-  const [data, setData] = useState<EntitySettings | null>(null);
+export function EntityCommandSettings({ module }: { module: "projects" | "software" }): ReactElement {
+  const {
+    data,
+    loading,
+    error: loadError,
+    reload: load,
+  } = useSettingsResource<EntitySettings>("entities", () => window.verbo.commands.entities());
   const [error, setError] = useSettingsDraft(`${module}/error`, "");
   const [alias, setAlias] = useSettingsDraft(`${module}/alias`, "");
   const [busy, setBusy] = useSettingsDraft(`${module}/busy`, false);
-  const [manualOpen, setManualOpen] = useSettingsDraft(
-    "software/manual-open",
-    false,
-  );
-  const load = useCallback((): void => {
-    void window.verbo.commands
-      .entities()
-      .then((result) => {
-        setData(result);
-        setError("");
-      })
-      .catch(() => setError("Registrations could not be loaded."));
-  }, [setData, setError]);
+  const [manualOpen, setManualOpen] = useSettingsDraft("software/manual-open", false);
   const changed = useCallback((): void => {
     window.dispatchEvent(new Event("verbo:entities-changed"));
   }, []);
-  useEffect(() => {
-    load();
-    window.addEventListener("verbo:entities-changed", load);
-    return () => window.removeEventListener("verbo:entities-changed", load);
-  }, [load]);
+  if (!data)
+    return (
+      <SettingsLoading
+        label={`Loading ${module === "software" ? "applications" : "projects"}…`}
+        error={loadError}
+        retry={() => void load()}
+      />
+    );
   return (
     <SettingsSection
       title={module === "software" ? "Applications" : "Projects"}
@@ -742,6 +609,7 @@ export function EntityCommandSettings({
           : "Register project folders and choose their preferred applications."
       }
     >
+      {loading || loadError ? <SettingsLoading label="Refreshing registrations…" error={loadError} retry={() => void load()} /> : null}
       {error ? (
         <StatusMessage display="plain" tone="error">
           {error}
@@ -755,19 +623,11 @@ export function EntityCommandSettings({
       {module === "software" ? (
         <>
           {data ? <ApplicationDiscovery data={data} reload={changed} /> : null}
-          <SettingsDisclosure
-            title="Add an application manually"
-            open={manualOpen}
-            onOpenChange={setManualOpen}
-          >
+          <SettingsDisclosure title="Add an application manually" open={manualOpen} onOpenChange={setManualOpen}>
             <ApplicationEditor reload={changed} />
           </SettingsDisclosure>
           {data?.applications.map((app) => (
-            <ApplicationEditor
-              key={app.id}
-              application={app}
-              reload={changed}
-            />
+            <ApplicationEditor key={app.id} application={app} reload={changed} />
           ))}
         </>
       ) : (
@@ -798,8 +658,7 @@ export function EntityCommandSettings({
                   .pick()
                   .then(async (pick) => {
                     if (!pick.ok) {
-                      if (pick.code !== "cancelled")
-                        throw new Error(pick.summary);
+                      if (pick.code !== "cancelled") throw new Error(pick.summary);
                       return;
                     }
                     const result = await window.verbo.projects.add({
@@ -810,13 +669,7 @@ export function EntityCommandSettings({
                     setAlias("");
                     changed();
                   })
-                  .catch((cause: unknown) =>
-                    setError(
-                      cause instanceof Error
-                        ? cause.message
-                        : "Could not add the project.",
-                    ),
-                  )
+                  .catch((cause: unknown) => setError(cause instanceof Error ? cause.message : "Could not add the project."))
                   .finally(() => setBusy(false));
               }}
             >
@@ -829,12 +682,7 @@ export function EntityCommandSettings({
             </Text>
           ) : null}
           {data?.projects.map((project) => (
-            <ProjectEditor
-              key={project.id}
-              project={project}
-              applications={data.applications}
-              reload={changed}
-            />
+            <ProjectEditor key={project.id} project={project} applications={data.applications} reload={changed} />
           ))}
         </>
       )}

@@ -1,21 +1,12 @@
 import { randomUUID } from "node:crypto";
-import {
-  existsSync,
-  mkdirSync,
-  mkdtempSync,
-  readFileSync,
-  writeFileSync,
-} from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { it } from "vitest";
 import { z } from "zod";
 import { DEFAULT_CHAT_SETTINGS } from "../../shared/config";
 import { chatSettingsSchema } from "../../shared/storage-ipc";
-import {
-  persistCommandReceipt,
-  fixtureReceiptIds,
-} from "../test-support/receipts";
+import { persistCommandReceipt, fixtureReceiptIds } from "../test-support/receipts";
 import { loadThreadHistory } from "../db/history";
 import { VERBO_MIGRATIONS, migrateDatabase } from "../db/migrate";
 import { createScopeStore } from "../db/scopes";
@@ -37,25 +28,11 @@ it.skipIf(process.env.VERBO_QWEN_WORKFLOW_BENCHMARK !== "1")(
   async () => {
     let configured = DEFAULT_CHAT_SETTINGS;
     try {
-      configured = chatSettingsSchema.parse(
-        JSON.parse(
-          readFileSync(
-            join(process.env.APPDATA ?? "", "verbo", "settings.json"),
-            "utf8",
-          ),
-        ),
-      );
+      configured = chatSettingsSchema.parse(JSON.parse(readFileSync(join(process.env.APPDATA ?? "", "verbo", "settings.json"), "utf8")));
     } catch {
       /* Use installed configured default. */
     }
-    const directory = mkdtempSync(
-      join(
-        process.cwd(),
-        ".tmp",
-        "scratch",
-        `${new Date().toISOString().slice(0, 10)}-qwen-workflows-`,
-      ),
-    );
+    const directory = mkdtempSync(join(process.cwd(), ".tmp", "scratch", `${new Date().toISOString().slice(0, 10)}-qwen-workflows-`));
     const file = join(directory, "results.json");
     const record = {
       configured,
@@ -64,11 +41,9 @@ it.skipIf(process.env.VERBO_QWEN_WORKFLOW_BENCHMARK !== "1")(
       local: [] as unknown[],
       workflows: [] as unknown[],
       finishedAt: "",
-      effects:
-        "No production handlers or CLI. Only the fixed fixture:/note.md can be created by the registered fixture capability.",
+      effects: "No production handlers or CLI. Only the fixed fixture:/note.md can be created by the registered fixture capability.",
     };
-    const save = (): void =>
-      writeFileSync(file, JSON.stringify(record, null, 2));
+    const save = (): void => writeFileSync(file, JSON.stringify(record, null, 2));
     const gate = createRequestGate();
     const emptyRegistry = createRegistry([]);
     const choices = ["write", "edit", "move", "rename", "delete"];
@@ -117,10 +92,7 @@ it.skipIf(process.env.VERBO_QWEN_WORKFLOW_BENCHMARK !== "1")(
               })
             ).output,
         });
-        const selected =
-          result.value.kind === "selected"
-            ? result.value.value
-            : result.value.kind;
+        const selected = result.value.kind === "selected" ? result.value.value : result.value.kind;
         record.local.push({
           request,
           expected,
@@ -150,7 +122,7 @@ it.skipIf(process.env.VERBO_QWEN_WORKFLOW_BENCHMARK !== "1")(
       const database = new DatabaseSync(join(root, "fixture.sqlite"));
       migrateDatabase(database, VERBO_MIGRATIONS);
       const scopes = createScopeStore(database);
-      const added = scopes.apply({
+      const added = await scopes.apply({
         removeIds: [],
         updates: [],
         additions: [
@@ -164,11 +136,7 @@ it.skipIf(process.env.VERBO_QWEN_WORKFLOW_BENCHMARK !== "1")(
         ],
       });
       if (!added.ok) throw new Error(added.summary);
-      database
-        .prepare(
-          "INSERT INTO threads(id,title,created_at,updated_at) VALUES('fixture-thread','Fixture',1,1)",
-        )
-        .run();
+      database.prepare("INSERT INTO threads(id,title,created_at,updated_at) VALUES('fixture-thread','Fixture',1,1)").run();
       let effects = 0,
         commandDispatches = 0;
       const registry = createRegistry(
@@ -191,8 +159,7 @@ it.skipIf(process.env.VERBO_QWEN_WORKFLOW_BENCHMARK !== "1")(
           },
           {
             id: "files.create",
-            description:
-              "Create the sole disposable fixture note. Only path fixture:/note.md is allowed.",
+            description: "Create the sole disposable fixture note. Only path fixture:/note.md is allowed.",
             kind: "mutation",
             args: z
               .object({
@@ -236,7 +203,7 @@ it.skipIf(process.env.VERBO_QWEN_WORKFLOW_BENCHMARK !== "1")(
         database,
         dispatcher,
         retryDelays: [],
-        work: (input) =>
+        work: async (input) =>
           runWorkflowTurn({
             ...input,
             database,
@@ -247,11 +214,10 @@ it.skipIf(process.env.VERBO_QWEN_WORKFLOW_BENCHMARK !== "1")(
             inventory: {
               folders: [
                 {
-                  id: scopes.list()[0]!.id,
+                  id: (await scopes.list())[0]!.id,
                   aliases: ["fixture"],
                   kind: "none",
-                  description:
-                    "Disposable generic note fixture. Use registered files commands.",
+                  description: "Disposable generic note fixture. Use registered files commands.",
                   read: true,
                   write: true,
                   defaultSave: true,

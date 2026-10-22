@@ -15,7 +15,7 @@ import type {
   ServiceView,
 } from "../services/service-manager";
 
-const nameSchema = z.object({ name: z.enum(["ollama", "voice"]) }).strict();
+const nameSchema = z.object({ name: z.enum(["ollama", "voice", "web"]) }).strict();
 
 function assertTrustedWindow(
   event: IpcMainInvokeEvent,
@@ -32,6 +32,7 @@ function assertTrustedWindow(
 export type ServiceSnapshot = {
   ollama: ServiceView;
   voice: ServiceView;
+  web: ServiceView;
 };
 
 export function registerServiceIpc(mainWindow: BrowserWindow): void {

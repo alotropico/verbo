@@ -6,16 +6,18 @@ import { StatusMessage } from "./StatusMessage";
 import styles from "./ServiceControls.module.css";
 
 type ServiceView = {
-  name: "ollama" | "voice";
+  name: "ollama" | "voice" | "web";
   state: "stopped" | "starting" | "ready" | "error";
   owned: boolean;
   reused: boolean;
+  identity?: string | null;
+  pid?: number | null;
   detail: string;
   error: string | null;
   suppressed: boolean;
 };
 
-type Snapshot = { ollama: ServiceView; voice: ServiceView };
+type Snapshot = { ollama: ServiceView; voice: ServiceView; web: ServiceView };
 
 function dotClass(state: ServiceView["state"]): string {
   if (state === "ready") return styles.ready;

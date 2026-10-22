@@ -6,19 +6,15 @@ import { persistCommandReceipt } from "../test-support/receipts";
 import { VERBO_MIGRATIONS, migrateDatabase } from "./migrate";
 import { createWorkflowExecutionStore } from "./workflow-executions";
 
-function setup(): {
+async function setup(): Promise<{
   database: DatabaseSync;
   store: ReturnType<typeof createWorkflowExecutionStore>;
   execution: import("./workflow-executions").WorkflowExecution;
-} {
+}> {
   const database = new DatabaseSync(":memory:");
   migrateDatabase(database, VERBO_MIGRATIONS);
-  database
-    .prepare(
-      "INSERT INTO threads(id,title,created_at,updated_at) VALUES('thread','old history',1,1)",
-    )
-    .run();
-  createMemoryStore(database).add({
+  database.prepare("INSERT INTO threads(id,title,created_at,updated_at) VALUES('thread','old history',1,1)").run();
+  await createMemoryStore(database).add({
     text: "Keep me",
     scope: "global",
     inclusion: "always",
@@ -39,14 +35,9 @@ function setup(): {
 }
 
 describe("durable execution and action claims", () => {
-  it("does not mistake an approval receipt or uncertain result for a completed effect on restart", () => {
-    const { database, store, execution } = setup();
-    const active = store.beginStep(
-      execution,
-      "operate",
-      "turn",
-      "commander.output.v1",
-    );
+  it("does not mistake an approval receipt or uncertain result for a completed effect on restart", async () => {
+    const { database, store, execution } = await setup();
+    const active = store.beginStep(execution, "operate", "turn", "commander.output.v1");
     for (const [ordinal, status, code] of [
       [0, "requires_confirmation", undefined],
       [1, "partial", "effect_uncertain"],
@@ -75,31 +66,16 @@ describe("durable execution and action claims", () => {
         resources: [],
         startedAt: 1,
       });
-      database
-        .prepare(
-          "UPDATE workflow_action_attempts SET state='dispatched' WHERE id=?",
-        )
-        .run(claim.id);
+      database.prepare("UPDATE workflow_action_attempts SET state='dispatched' WHERE id=?").run(claim.id);
     }
-    store.reconcileInterrupted();
-    expect(
-      store.attempts(execution.id).map((attempt) => attempt.state),
-    ).toEqual(["uncertain", "uncertain", "completed"]);
+    await store.reconcileInterrupted();
+    expect(store.attempts(execution.id).map((attempt) => attempt.state)).toEqual(["uncertain", "uncertain", "completed"]);
   });
-  it("keeps command Memory in Alo and rejects stale app state writers", () => {
-    const { database, store, execution } = setup();
-    expect(createMemoryStore(database).list({}).entries[0]?.text).toBe(
-      "Keep me",
-    );
-    const active = store.beginStep(
-      execution,
-      "operate",
-      "turn",
-      "commander.output.v1",
-    );
-    expect(() =>
-      store.beginStep(execution, "operate", "turn", "commander.output.v1"),
-    ).toThrow("Stale");
+  it("keeps command Memory in Alo and rejects stale app state writers", async () => {
+    const { database, store, execution } = await setup();
+    expect((await createMemoryStore(database).list({})).entries[0]?.text).toBe("Keep me");
+    const active = store.beginStep(execution, "operate", "turn", "commander.output.v1");
+    expect(() => store.beginStep(execution, "operate", "turn", "commander.output.v1")).toThrow("Stale");
     const completed = store.settle(active.execution, {
       status: "completed",
       currentStepId: null,
@@ -107,9 +83,7 @@ describe("durable execution and action claims", () => {
       result: { status: "succeeded", output: { findings: [], receiptIds: [] } },
     });
     expect(completed.status).toBe("completed");
-    expect(() => store.settle(active.execution, completed.checkpoint)).toThrow(
-      "revision",
-    );
+    expect(() => store.settle(active.execution, completed.checkpoint)).toThrow("revision");
     store.linkTurn({
       executionId: execution.id,
       turnId: "turn",
@@ -117,20 +91,11 @@ describe("durable execution and action claims", () => {
       assistantMessageId: "assistant",
       relation: "start",
     });
-    expect(
-      database
-        .prepare("SELECT COUNT(*) AS total FROM workflow_execution_turns")
-        .get()?.total,
-    ).toBe(1);
+    expect(database.prepare("SELECT COUNT(*) AS total FROM workflow_execution_turns").get()?.total).toBe(1);
   });
-  it("claims once before dispatch, rejects changed attempts and suspends uncertain effects at restart", () => {
-    const { store, execution } = setup();
-    const active = store.beginStep(
-      execution,
-      "operate",
-      "turn",
-      "commander.output.v1",
-    );
+  it("claims once before dispatch, rejects changed attempts and suspends uncertain effects at restart", async () => {
+    const { store, execution } = await setup();
+    const active = store.beginStep(execution, "operate", "turn", "commander.output.v1");
     const input = {
       executionId: execution.id,
       stepRunId: active.stepRunId,
@@ -145,18 +110,14 @@ describe("durable execution and action claims", () => {
       id: claim.id,
       receiptId: claim.receiptId,
     });
-    expect(() => store.claimAttempt({ ...input, digest: "changed" })).toThrow(
-      "different action",
-    );
+    expect(() => store.claimAttempt({ ...input, digest: "changed" })).toThrow("different action");
     store.transitionAttempt(claim.id, "claimed", "dispatched");
-    store.reconcileInterrupted();
+    await store.reconcileInterrupted();
     expect(store.attempts(execution.id)[0]?.state).toBe("uncertain");
     expect(store.read(execution.id)).toMatchObject({
       status: "suspended",
       reason: "restart_requires_review",
     });
-    expect(() =>
-      store.claimAttempt({ ...input, ordinal: 1, receiptId: randomUUID() }),
-    ).toThrow("active trusted step");
+    expect(() => store.claimAttempt({ ...input, ordinal: 1, receiptId: randomUUID() })).toThrow("active trusted step");
   });
 });

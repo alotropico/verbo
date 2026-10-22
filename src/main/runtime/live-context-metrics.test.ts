@@ -259,7 +259,7 @@ it.skipIf(process.env.VERBO_LIVE_CONTEXT_METRICS !== "1")(
         [{ role: "user", content: "A disposable marker chat" }],
         settings,
       );
-      expect(title.length).toBeLessThanOrEqual(24);
+      expect(title.length).toBeLessThanOrEqual(48);
       expect(inferenceMeasurements.latest(ids[0], "conversational")).toEqual(
         beforeTitle,
       );

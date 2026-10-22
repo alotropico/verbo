@@ -4,18 +4,15 @@ import type { DatabaseSync } from "node:sqlite";
 
 import { type CommandNode } from "../../shared/commands";
 
-export function saveCommandOverride(
+export async function saveCommandOverride(
   _database: DatabaseSync,
   _defaults: CommandNode[],
   raw: unknown,
-): { ok: true } | { ok: false; summary: string } {
-  return aloData("settings.save", raw);
+): Promise<{ ok: true } | { ok: false; summary: string }> {
+  return await aloData("settings.save", raw);
 }
 
-export function resetCommandOverrides(
-  _database: DatabaseSync,
-  nodeId: string,
-): void {
-  aloData("settings.reset", { nodeId });
+export async function resetCommandOverrides(_database: DatabaseSync, nodeId: string): Promise<void> {
+  await aloData("settings.reset", { nodeId });
   return;
 }

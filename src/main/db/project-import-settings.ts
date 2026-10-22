@@ -2,22 +2,14 @@ import { aloData } from "../alo/data-client";
 
 import type { DatabaseSync } from "node:sqlite";
 
-import {
-  type EntitySaveResult,
-  type ProjectImportSettings,
-} from "../../shared/application-registration";
+import { type EntitySaveResult, type ProjectImportSettings } from "../../shared/application-registration";
 
-export function readProjectImportSettings(
-  _database: DatabaseSync,
-): ProjectImportSettings {
+export async function readProjectImportSettings(_database: DatabaseSync): Promise<ProjectImportSettings> {
   void _database; // Retain the existing app-facing signature; storage belongs to Alo.
 
-  return aloData("settings.project-import.read");
+  return await aloData("settings.project-import.read");
 }
 
-export function saveProjectImportSettings(
-  _database: DatabaseSync,
-  input: unknown,
-): EntitySaveResult {
-  return aloData("settings.project-import.save", input);
+export async function saveProjectImportSettings(_database: DatabaseSync, input: unknown): Promise<EntitySaveResult> {
+  return await aloData("settings.project-import.save", input);
 }

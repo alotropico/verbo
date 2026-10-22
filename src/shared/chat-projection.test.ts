@@ -1,16 +1,9 @@
 import { describe, expect, it } from "vitest";
 import type { ActionResult } from "./action-contract";
-import {
-  emptyChatProjection,
-  projectChatEvent,
-  visibleProjection,
-  type ProjectedPart,
-} from "./chat-projection";
+import { emptyChatProjection, projectChatEvent, visibleProjection, type ProjectedPart } from "./chat-projection";
 
 function withoutTrace(parts: ProjectedPart[]): ProjectedPart[] {
-  return parts.filter(
-    (part) => !(part.type === "data" && part.name === "execution-trace"),
-  );
+  return parts.filter((part) => !(part.type === "data" && part.name === "execution-trace"));
 }
 
 const listed: ActionResult = {
@@ -20,6 +13,47 @@ const listed: ActionResult = {
 };
 
 describe("chat projection", () => {
+  it("deduplicates identified clock deliveries before accumulating approval time", () => {
+    const event = {
+      type: "trace_clock" as const,
+      deliveryId: "clock-one",
+      approvalDeltaMs: 125,
+    };
+    const first = projectChatEvent(emptyChatProjection(), event);
+    expect(projectChatEvent(first, event)).toBe(first);
+    expect(projectChatEvent(first, event).clock?.approvalWaitMs).toBe(125);
+    expect(projectChatEvent(first, { ...event, deliveryId: "clock-two" }).clock?.approvalWaitMs).toBe(250);
+  });
+
+  it("deduplicates identified trace and content deliveries, accepting distinct deliveries", () => {
+    const seed = projectChatEvent(emptyChatProjection(), {
+      type: "trace_clock",
+      workStartedAt: 100,
+    });
+    const trace = {
+      type: "execution_trace" as const,
+      deliveryId: "trace-one",
+      trace: seed.trace!,
+    };
+    const first = projectChatEvent(seed, trace);
+    expect(projectChatEvent(first, trace)).toBe(first);
+    const content = {
+      type: "tools" as const,
+      deliveryId: "content-one",
+      content: "",
+      calls: [{ id: "one", name: "capabilities.list", arguments: {} }],
+    };
+    const second = projectChatEvent(first, content);
+    expect(projectChatEvent(second, content)).toBe(second);
+    expect(
+      projectChatEvent(second, {
+        ...content,
+        deliveryId: "content-two",
+        calls: [{ id: "two", name: "capabilities.list", arguments: {} }],
+      }).parts.filter((part) => part.type === "tool-call"),
+    ).toHaveLength(2);
+  });
+
   it("keeps the last phase active through Decision, execution, and reporting handoffs", () => {
     let state = projectChatEvent(emptyChatProjection(), {
       type: "routing_stage",
@@ -60,14 +94,8 @@ describe("chat projection", () => {
       type: "trace_clock",
       resultReadyAt: 100,
     });
-    expect(
-      state.trace?.nodes.every((node) => node.lifecycle === "finished"),
-    ).toBe(true);
-    expect(
-      visibleProjection(state).filter(
-        (part) => part.type === "data" && part.name === "execution-trace",
-      ),
-    ).toHaveLength(1);
+    expect(state.trace?.nodes.every((node) => node.lifecycle === "finished")).toBe(true);
+    expect(visibleProjection(state).filter((part) => part.type === "data" && part.name === "execution-trace")).toHaveLength(1);
   });
 
   it("keeps backend progress distinct, updates it in place and avoids repeating a terminal notice as model text", () => {
@@ -105,9 +133,7 @@ describe("chat projection", () => {
       stop: "limit",
       summary: "Turn limit reached",
     });
-    expect(
-      visibleProjection(state).filter((part) => part.type === "text"),
-    ).toEqual([]);
+    expect(visibleProjection(state).filter((part) => part.type === "text")).toEqual([]);
   });
   it("keeps earlier text and a settled tool when the next round streams", () => {
     let state = emptyChatProjection();
@@ -224,11 +250,7 @@ describe("chat projection", () => {
       message: "The message could not be saved.",
     });
     const visible = visibleProjection(state);
-    expect(
-      visible.some(
-        (part) => part.type === "text" && part.text === "The file stayed put.",
-      ),
-    ).toBe(true);
+    expect(visible.some((part) => part.type === "text" && part.text === "The file stayed put.")).toBe(true);
     expect(visible).toContainEqual(
       expect.objectContaining({
         type: "data",
@@ -236,9 +258,7 @@ describe("chat projection", () => {
         data: expect.objectContaining({ readiness: "ready" }),
       }),
     );
-    expect(visible).toContainEqual(
-      expect.objectContaining({ type: "data", name: "finalization" }),
-    );
+    expect(visible).toContainEqual(expect.objectContaining({ type: "data", name: "finalization" }));
     expect(state.trace?.summary.workMs).toBe(3_000);
   });
 
@@ -262,8 +282,6 @@ describe("chat projection", () => {
     });
     expect(state.trace?.readiness).toBe("ready");
     expect(state.trace?.summary.waitMs).toBe(40);
-    expect(state.trace?.summary.workMs).toBe(
-      (state.trace?.timing.resultReadyAt ?? started) - started - 40,
-    );
+    expect(state.trace?.summary.workMs).toBe((state.trace?.timing.resultReadyAt ?? started) - started - 40);
   });
 });

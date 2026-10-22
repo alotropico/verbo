@@ -1,34 +1,58 @@
 import { electronApp, is, optimizer } from "@electron-toolkit/utils";
-import {
-  app,
-  BrowserWindow,
-  dialog,
-  nativeTheme,
-  session,
-  shell,
-} from "electron";
-import { join } from "path";
+import { app, BrowserWindow, dialog, nativeTheme, session, shell } from "electron";
+import { dirname, join } from "path";
 import { resolvePublicUrl } from "../shared/public-network";
 import { closeDatabase, getDatabase } from "./db/database";
 import { createAssetStore } from "./files/asset-store";
 import { registerIpc } from "./ipc/register-ipc";
 import { registerReplyNotifications } from "./reply-notifications";
+import { createReplyAttentionStore } from "./reply-attention-store";
 import { turnDispatcher } from "./runtime/queue-service";
 import { serviceManager } from "./services/service-host";
 import { voiceBridge } from "./voice/client";
-import {
-  allowsMicrophoneCheck,
-  allowsMicrophoneRequest,
-} from "./voice/microphone";
+import { allowsMicrophoneCheck, allowsMicrophoneRequest } from "./voice/microphone";
 import { loadWindowState, rememberWindowState } from "./window-state";
+import { hiddenTestPaths } from "./hidden-test";
+import { resetWebClient } from "./web/client";
+
+const hiddenTest = hiddenTestPaths(process.env, app.isPackaged);
+if (hiddenTest) {
+  app.setPath("userData", hiddenTest.userData);
+  app.setPath("sessionData", hiddenTest.sessionData);
+}
 
 nativeTheme.themeSource = "dark";
 
 let mainWindow: BrowserWindow | null = null;
 let shutdownServices = async (): Promise<void> => {};
+let quitting = false;
+let databaseClosed = false;
+
+async function cleanupOnQuit(): Promise<void> {
+  if (quitting) return;
+  quitting = true;
+  try {
+    await Promise.race([shutdownServices(), new Promise((resolve) => setTimeout(resolve, 5000))]);
+  } catch {
+    // Ignore service shutdown failure during quit
+  }
+  try {
+    resetWebClient();
+  } catch {
+    // Ignore client dispose failure during quit
+  }
+  if (!databaseClosed) {
+    databaseClosed = true;
+    closeDatabase();
+  }
+}
 
 app.on("will-quit", () => {
-  void shutdownServices();
+  if (!databaseClosed) {
+    databaseClosed = true;
+    resetWebClient();
+    closeDatabase();
+  }
 });
 
 function createWindow(): void {
@@ -44,6 +68,7 @@ function createWindow(): void {
     width: windowState.width,
     height: windowState.height,
     show: false,
+    ...(hiddenTest ? { skipTaskbar: true, focusable: false } : {}),
     autoHideMenuBar: true,
     icon,
     backgroundColor: "#16151a",
@@ -54,24 +79,32 @@ function createWindow(): void {
       contextIsolation: true,
       sandbox: true,
       nodeIntegration: false,
+      ...(hiddenTest ? { backgroundThrottling: false, offscreen: true } : {}),
     },
   });
+  if (hiddenTest) mainWindow.webContents.setAudioMuted(true);
   rememberWindowState(mainWindow, windowStatePath);
-  registerReplyNotifications(mainWindow);
+  const replyNotifications = registerReplyNotifications(mainWindow, {
+    iconDirectory: dirname(icon),
+    store: createReplyAttentionStore(join(app.getPath("userData"), "reply-attention.json")),
+    enabled: !hiddenTest,
+  });
 
   mainWindow.on("ready-to-show", () => {
+    if (hiddenTest) return;
     if (windowState.maximized) mainWindow?.maximize();
     mainWindow?.show();
   });
 
   mainWindow.webContents.setWindowOpenHandler((details) => {
+    if (hiddenTest) return { action: "deny" };
     void resolvePublicUrl(details.url)
       .then((destination) => shell.openExternal(destination.url.href))
       .catch(() => {});
     return { action: "deny" };
   });
 
-  registerIpc(mainWindow);
+  registerIpc(mainWindow, replyNotifications);
 
   if (is.dev && process.env["ELECTRON_RENDERER_URL"]) {
     mainWindow.loadURL(process.env["ELECTRON_RENDERER_URL"]);
@@ -83,24 +116,13 @@ function createWindow(): void {
 app.whenReady().then(async () => {
   electronApp.setAppUserModelId("com.alotropico.verbo");
 
-  session.defaultSession.setPermissionRequestHandler(
-    (webContents, permission, callback, details) => {
-      const mediaTypes =
-        "mediaTypes" in details ? details.mediaTypes : undefined;
-      callback(
-        webContents.id === mainWindow?.webContents.id &&
-          allowsMicrophoneRequest(permission, mediaTypes),
-      );
-    },
-  );
-  session.defaultSession.setPermissionCheckHandler(
-    (webContents, permission, _requestingOrigin, details) => {
-      return (
-        webContents?.id === mainWindow?.webContents.id &&
-        allowsMicrophoneCheck(permission, details.mediaType)
-      );
-    },
-  );
+  session.defaultSession.setPermissionRequestHandler((webContents, permission, callback, details) => {
+    const mediaTypes = "mediaTypes" in details ? details.mediaTypes : undefined;
+    callback(!hiddenTest && webContents.id === mainWindow?.webContents.id && allowsMicrophoneRequest(permission, mediaTypes));
+  });
+  session.defaultSession.setPermissionCheckHandler((webContents, permission, _requestingOrigin, details) => {
+    return !hiddenTest && webContents?.id === mainWindow?.webContents.id && allowsMicrophoneCheck(permission, details.mediaType);
+  });
 
   session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
     const devExtras = is.dev
@@ -123,34 +145,35 @@ app.whenReady().then(async () => {
   try {
     const database = getDatabase();
 
-    createAssetStore(
-      database,
-      join(app.getPath("userData"), "attachments"),
-    ).sweep(Date.now());
+    createAssetStore(database, join(app.getPath("userData"), "attachments")).sweep(Date.now());
     turnDispatcher();
   } catch (error) {
     const message = error instanceof Error ? error.message : "Startup failed.";
-    dialog.showErrorBox("Verbo failed to start", message);
+    if (hiddenTest) console.error("Verbo failed to start:", message);
+    else dialog.showErrorBox("Verbo failed to start", message);
     app.quit();
     return;
   }
-  const services = await serviceManager(app.getAppPath());
+  const services = await serviceManager(app.getAppPath(), {
+    voiceEnabled: !hiddenTest,
+    webEnabled: !hiddenTest,
+  });
   shutdownServices = () => services.shutdown();
   await services.boot();
-  void voiceBridge()
-    .status()
-    .then((status) => {
-      if (status.ok) {
-        console.log("Voice service reachable.");
-        return;
-      }
-      console.log(`${status.detail}`);
-    })
-    .catch((error: unknown) => {
-      const message =
-        error instanceof Error ? error.message : "Voice status failed.";
-      console.log(`${message} Typed chat still works.`);
-    });
+  if (!hiddenTest)
+    void voiceBridge()
+      .status()
+      .then((status) => {
+        if (status.ok) {
+          console.log("Voice service reachable.");
+          return;
+        }
+        console.log(`${status.detail}`);
+      })
+      .catch((error: unknown) => {
+        const message = error instanceof Error ? error.message : "Voice status failed.";
+        console.log(`${message} Typed chat still works.`);
+      });
   createWindow();
 
   app.on("activate", () => {
@@ -164,6 +187,11 @@ app.on("window-all-closed", () => {
   }
 });
 
-app.on("before-quit", () => {
-  closeDatabase();
+app.on("before-quit", (event) => {
+  if (!databaseClosed) {
+    event.preventDefault();
+    void cleanupOnQuit().finally(() => {
+      app.quit();
+    });
+  }
 });

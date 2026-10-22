@@ -3,27 +3,15 @@ import { randomUUID } from "node:crypto";
 import { join } from "node:path";
 import type { DatabaseSync } from "node:sqlite";
 import { z } from "zod";
-import {
-  actionResultSchema,
-  type ActionResult,
-} from "../../shared/action-contract";
-import { commandNodeSchema, type CommandSettings } from "../../shared/commands";
-import {
-  activeInvocation,
-  bindApprovalInvocation,
-  withInvocation,
-} from "../agents/policy";
+import { actionResultSchema, type ActionResult } from "../../shared/action-contract";
+import { activeInvocation, bindApprovalInvocation, withInvocation } from "../agents/policy";
 import type { CapabilityRegistry } from "../capabilities/registry";
 import { createAssetStore } from "../files/asset-store";
 import { modelSupportsVision } from "../runtime/model-vision";
 import { loadSettings } from "../services/settings-store";
-import { aloCall, aloCallSync } from "./client";
+import { aloCall, AloCallError, currentAloSignal } from "./client";
 import { aloContext } from "./context";
 
-type Settings = Pick<
-  CommandSettings,
-  "metadata" | "nodes" | "defaults" | "entries"
->;
 const admissionSchema = z.discriminatedUnion("ok", [
   z.object({
     ok: z.literal(true),
@@ -36,72 +24,37 @@ const admissionSchema = z.discriminatedUnion("ok", [
 ]);
 
 /** Thin owner client; Verbo retains workflow admission and presentation. */
-export function createAloRegistry(
-  database?: DatabaseSync,
-  defaultsOnly = false,
-): CapabilityRegistry {
-  const settings = z
-    .object({
-      metadata: z.array(z.unknown()),
-      nodes: z.array(commandNodeSchema),
-      defaults: z.array(commandNodeSchema),
-      entries: z.array(z.object({ id: z.string() }).passthrough()),
-    })
-    .parse(
-      aloCallSync({
-        method: "settings.read",
-        context: { actor: "ui", threadId: "alo-settings" },
-      }),
-    ) as Settings;
-  // Only a per-read human snapshot. Every new settings/catalog read constructs a fresh registry.
-  const catalog = (
-    operation: string,
-    args: Record<string, unknown> = {},
-  ): unknown =>
-    aloCallSync({
+export function createAloRegistry(database?: DatabaseSync, defaultsOnly = false): CapabilityRegistry {
+  const catalog = async (operation: string, args: Record<string, unknown> = {}): Promise<unknown> =>
+    await aloCall({
       method: "catalog",
       args: { operation, ...args },
       context: aloContext(),
     });
   const registry: CapabilityRegistry = {
-    nodes: () =>
-      activeInvocation()
-        ? (catalog("nodes") as ReturnType<CapabilityRegistry["nodes"]>)
-        : defaultsOnly
-          ? settings.defaults
-          : settings.nodes,
-    metadata: () =>
-      activeInvocation()
-        ? (catalog("metadata") as ReturnType<
-            NonNullable<CapabilityRegistry["metadata"]>
-          >)
-        : settings.metadata,
-    resolve: (name) =>
-      catalog("resolve", { name }) as ReturnType<CapabilityRegistry["resolve"]>,
+    nodes: async () => {
+      if (defaultsOnly && !activeInvocation()) {
+        const settings = (await aloCall({ method: "settings.read", context: { actor: "ui", threadId: "alo-settings" } })) as {
+          defaults: Awaited<ReturnType<CapabilityRegistry["nodes"]>>;
+        };
+        return settings.defaults;
+      }
+      return (await catalog("nodes")) as Awaited<ReturnType<CapabilityRegistry["nodes"]>>;
+    },
+    metadata: async () => (await catalog("metadata")) as Awaited<ReturnType<NonNullable<CapabilityRegistry["metadata"]>>>,
+    resolve: (name) => catalog("resolve", { name }) as Promise<Awaited<ReturnType<CapabilityRegistry["resolve"]>>>,
     normalize: (name, args) =>
-      catalog("normalize", { name, args }) as {
+      catalog("normalize", { name, args }) as Promise<{
         name: string;
         args: Record<string, unknown>;
-      },
-    list: (name) =>
-      catalog("list", { name }) as ReturnType<CapabilityRegistry["list"]>,
-    search: (query) =>
-      catalog("search", { query }) as ReturnType<CapabilityRegistry["search"]>,
-    describe: (ids) =>
-      !activeInvocation() &&
-      ids.every((id) => settings.entries.some((entry) => entry.id === id))
-        ? {
-            entries: ids
-              .slice(0, 8)
-              .map((id) => settings.entries.find((entry) => entry.id === id)!),
-            truncated: ids.length > 8,
-          }
-        : (catalog("describe", { ids }) as ReturnType<
-            CapabilityRegistry["describe"]
-          >),
+      }>,
+    list: (name) => catalog("list", { name }) as Promise<Awaited<ReturnType<CapabilityRegistry["list"]>>>,
+    search: (query) => catalog("search", { query }) as Promise<Awaited<ReturnType<CapabilityRegistry["search"]>>>,
+    describe: (ids) => catalog("describe", { ids }) as Promise<Awaited<ReturnType<CapabilityRegistry["describe"]>>>,
     invoke: (name, args, context) =>
       withInvocation(context.invocation, async (): Promise<ActionResult> => {
-        if (context.signal?.aborted)
+        const signal = context.signal ?? currentAloSignal();
+        if (signal?.aborted)
           return {
             action: name,
             status: "cancelled",
@@ -110,34 +63,31 @@ export function createAloRegistry(
         let admitted: z.infer<typeof admissionSchema>;
         try {
           admitted = admissionSchema.parse(
-            aloCallSync({
-              method: "catalog",
-              args: { operation: "admit", name, args },
-              context: aloContext(context, database, args),
-            }),
+            await aloCall(
+              {
+                method: "catalog",
+                args: { operation: "admit", name, args },
+                context: aloContext(context, database, args),
+              },
+              signal,
+            ),
           );
         } catch {
           return {
             action: name,
-            status: "error",
-            code: "alo_unavailable",
-            summary:
-              "Alo could not validate the command. No effect was dispatched.",
+            status: signal?.aborted ? "cancelled" : "error",
+            code: signal?.aborted ? "cancelled" : "alo_unavailable",
+            summary: "Alo could not validate the command. No effect was dispatched.",
           };
         }
         if (!admitted.ok) return admitted.result;
         // Only a referenced, verified app upload crosses the ownership boundary.
         if (database && typeof admitted.args.contentRef === "string") {
           const ref = admitted.args.contentRef;
-          const upload = database
-            .prepare("SELECT name FROM attachments WHERE id=? AND thread_id=?")
-            .get(ref, context.threadId);
+          const upload = database.prepare("SELECT name FROM attachments WHERE id=? AND thread_id=?").get(ref, context.threadId);
           if (upload) {
             try {
-              const text = createAssetStore(
-                database,
-                join(app.getPath("userData"), "attachments"),
-              ).text(context.threadId, ref);
+              const text = await createAssetStore(database, join(app.getPath("userData"), "attachments")).text(context.threadId, ref);
               if (text === null)
                 return {
                   action: admitted.name,
@@ -145,39 +95,36 @@ export function createAloRegistry(
                   code: "missing_content",
                   summary: "The referenced upload is unavailable.",
                 };
-              aloCallSync({
-                method: "assets.put",
-                args: { id: ref, name: String(upload.name), text },
-                context: { actor: "ui", threadId: context.threadId },
-              });
+              await aloCall(
+                {
+                  method: "assets.put",
+                  args: { id: ref, name: String(upload.name), text },
+                  context: { actor: "ui", threadId: context.threadId },
+                },
+                signal,
+              );
             } catch {
               return {
                 action: admitted.name,
-                status: "error",
-                code: "content_transfer_failed",
-                summary:
-                  "The referenced upload could not be transferred. No effect was dispatched.",
+                status: signal?.aborted ? "cancelled" : "error",
+                code: signal?.aborted ? "cancelled" : "content_transfer_failed",
+                summary: "The referenced upload could not be transferred. No effect was dispatched.",
               };
             }
           }
         }
         const policy = activeInvocation();
-        const ledger =
-          context.parentReceiptId || context.derivedDispatch
-            ? undefined
-            : policy?.ledger;
-        let claim: ReturnType<NonNullable<typeof ledger>["before"]> | undefined;
+        const ledger = context.parentReceiptId || context.derivedDispatch ? undefined : policy?.ledger;
+        let claim: Awaited<ReturnType<NonNullable<typeof ledger>["before"]>> | undefined;
         try {
-          claim = ledger?.before(admitted.name, admitted.args, admitted.kind);
+          claim = await ledger?.before(admitted.name, admitted.args, admitted.kind);
         } catch (error) {
           const failure = error as { code?: string; message?: string };
           return {
             action: admitted.name,
-            status: "error",
-            code: failure.code ?? "workflow_admission_failed",
-            summary:
-              failure.message ??
-              "The workflow could not admit this command. No effect was dispatched.",
+            status: signal?.aborted ? "cancelled" : "error",
+            code: signal?.aborted ? "cancelled" : (failure.code ?? "workflow_admission_failed"),
+            summary: failure.message ?? "The workflow could not admit this command. No effect was dispatched.",
           };
         }
         if (claim?.replay) return claim.replay;
@@ -200,9 +147,7 @@ export function createAloRegistry(
           const trusted = aloContext(bound, database, admitted.args);
           if (admitted.name === "files.inspect_image") {
             try {
-              trusted.visionSupported = modelSupportsVision(
-                loadSettings().model,
-              );
+              trusted.visionSupported = modelSupportsVision(loadSettings().model);
             } catch {
               trusted.visionSupported = false;
             }
@@ -215,34 +160,24 @@ export function createAloRegistry(
                 args: admitted.args,
                 context: trusted,
               },
-              context.signal,
+              signal,
             ),
           );
-        } catch {
+        } catch (error) {
           const uncertain =
-            admitted.kind === "mutation" ||
-            admitted.effect === "launch" ||
-            admitted.effect === "process";
+            (!(error instanceof AloCallError) || error.dispatched) &&
+            (admitted.kind === "mutation" || admitted.effect === "launch" || admitted.effect === "process");
           result = {
             action: admitted.name,
             receiptId,
-            status: uncertain
-              ? "partial"
-              : context.signal?.aborted
-                ? "cancelled"
-                : "error",
-            code: uncertain
-              ? "effect_uncertain"
-              : context.signal?.aborted
-                ? "cancelled"
-                : "alo_unavailable",
+            status: uncertain ? "partial" : signal?.aborted ? "cancelled" : "error",
+            code: uncertain ? "effect_uncertain" : signal?.aborted ? "cancelled" : "alo_unavailable",
             summary: uncertain
               ? "Alo did not return a final receipt. Effects may be partial. Inspect the known receipt before any retry."
               : "Alo could not complete the command. No local fallback or retry was attempted.",
           };
         }
-        if (result.status === "requires_confirmation" && result.operationId)
-          bindApprovalInvocation(result.operationId, context.threadId);
+        if (result.status === "requires_confirmation" && result.operationId) bindApprovalInvocation(result.operationId, context.threadId);
         try {
           if (claim) ledger?.after(claim, result);
         } catch {
@@ -250,8 +185,7 @@ export function createAloRegistry(
             ...result,
             status: "error",
             code: "receipt_failed",
-            summary:
-              "Workflow settlement failed. Recorded effects must not be replayed.",
+            summary: "Workflow settlement failed. Recorded effects must not be replayed.",
           };
         }
         return result;
@@ -265,13 +199,9 @@ export function createAloRegistry(
           })
           .strict()
           .safeParse(args ?? {});
-        if (parsed.success)
-          return registry.invoke(parsed.data.name, parsed.data.args, context);
+        if (parsed.success) return registry.invoke(parsed.data.name, parsed.data.args, context);
       }
-      return aloCall(
-        { method: "tool", name, args, context: aloContext(context, database) },
-        context.signal,
-      )
+      return aloCall({ method: "tool", name, args, context: aloContext(context, database) }, context.signal)
         .then((result) => actionResultSchema.parse(result))
         .catch(() => ({
           action: name,

@@ -1,34 +1,14 @@
-import {
-  useLayoutEffect,
-  useSyncExternalStore,
-  type Dispatch,
-  type SetStateAction,
-  type RefObject,
-} from "react";
-import {
-  useForm,
-  type FormErrors,
-  type UseFormInput,
-  type UseFormReturnType,
-} from "@mantine/form";
+import { useLayoutEffect, useSyncExternalStore, type Dispatch, type SetStateAction, type RefObject } from "react";
+import { useForm, type FormErrors, type UseFormInput, type UseFormReturnType } from "@mantine/form";
 import { useSettingsSession } from "./settings-session-context";
 import type { AutosaveController, AutosaveState } from "@/runtime/autosave";
 
-export function useSettingsDraft<Value>(
-  key: string,
-  initial: Value | (() => Value),
-): [Value, Dispatch<SetStateAction<Value>>] {
+export function useSettingsDraft<Value>(key: string, initial: Value | (() => Value)): [Value, Dispatch<SetStateAction<Value>>] {
   const cell = useSettingsSession().cell(key, initial);
-  return [
-    useSyncExternalStore(cell.subscribe, cell.snapshot, cell.snapshot),
-    cell.set,
-  ];
+  return [useSyncExternalStore(cell.subscribe, cell.snapshot, cell.snapshot), cell.set];
 }
 
-export function useSettingsRef<Value>(
-  key: string,
-  initial: Value,
-): RefObject<Value> {
+export function useSettingsRef<Value>(key: string, initial: Value): RefObject<Value> {
   return useSettingsSession().cell(key, () => ({ current: initial })).value;
 }
 
@@ -36,13 +16,11 @@ export function useSettingsAutosave<Value>(
   key: string,
   save: (value: Value) => Promise<void>,
   merge?: (previous: Value, next: Value) => Value,
+  initial?: Value,
 ): { controller: AutosaveController<Value>; state: AutosaveState } {
   const entry = useSettingsSession().autosave(key, save, merge);
-  const state = useSyncExternalStore(
-    entry.state.subscribe,
-    entry.state.snapshot,
-    entry.state.snapshot,
-  );
+  if (initial !== undefined) entry.controller.baseline(initial);
+  const state = useSyncExternalStore(entry.state.subscribe, entry.state.snapshot, entry.state.snapshot);
   useLayoutEffect(() => {
     entry.controller.configure(save, entry.notify, merge);
   }, [entry, save, merge]);
@@ -78,11 +56,7 @@ export function useSettingsForm<Values extends Record<string, unknown>>(
     setInitialValues(snapshot.baseline);
   }, [setInitialValues, snapshot.baseline]);
   useLayoutEffect(() => {
-    setSnapshot((previous) =>
-      previous.errors === form.errors
-        ? previous
-        : { ...previous, errors: form.errors },
-    );
+    setSnapshot((previous) => (previous.errors === form.errors ? previous : { ...previous, errors: form.errors }));
   }, [form.errors, setSnapshot]);
   return form;
 }

@@ -1,13 +1,10 @@
 import type { DatabaseSync } from "node:sqlite";
 import type { ActionHistoryEntry } from "../../shared/actions-overview";
 import { aloData } from "../alo/data-client";
-export function recentActionAudits(
-  _database: DatabaseSync,
-  limit = 40,
-): ActionHistoryEntry[] {
-  return aloData("history.read", { limit });
+export async function recentActionAudits(_database: DatabaseSync, limit = 40): Promise<ActionHistoryEntry[]> {
+  return await aloData("history.read", { limit });
 }
-export function recordActionAudit(
+export async function recordActionAudit(
   _database: DatabaseSync,
   input: {
     actor: string;
@@ -18,6 +15,6 @@ export function recordActionAudit(
     code?: string;
     now?: number;
   },
-): void {
-  aloData("history.record", input);
+): Promise<void> {
+  await aloData("history.record", input);
 }

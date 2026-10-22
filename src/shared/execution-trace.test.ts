@@ -467,6 +467,43 @@ describe("report prose", () => {
     expect(paragraphs.join("\n")).not.toContain("00000000-0000-4000-8000");
     expect(activitySummaryText(trace.summary)).toContain("change attempt");
   });
+
+  it("evaluates failed workflow outcome as failed with zero tool calls, and preserves step blocked outcome", () => {
+    const failedTrace = evaluateTrace({
+      turnId: "zero-call-fail",
+      workflow: {
+        executionId: "wf-failed",
+        workflowId: "conversational",
+        status: "failed",
+      },
+      calls: [],
+    });
+    const wfNode = failedTrace.nodes.find((n) => n.kind === "workflow");
+    expect(wfNode?.outcome).toBe("failed");
+    expect(wfNode?.lifecycle).toBe("finished");
+
+    const blockedTrace = evaluateTrace({
+      turnId: "zero-call-blocked",
+      stages: [
+        {
+          id: "step-1",
+          kind: "step",
+          label: "operate",
+          parentId: "wf-blocked",
+          order: 0,
+          state: "blocked",
+        },
+      ],
+      workflow: {
+        executionId: "wf-blocked",
+        workflowId: "commander",
+        status: "failed",
+      },
+      calls: [],
+    });
+    const blockedWfNode = blockedTrace.nodes.find((n) => n.kind === "workflow");
+    expect(blockedWfNode?.outcome).toBe("blocked");
+  });
 });
 
 describe("file subjects", () => {

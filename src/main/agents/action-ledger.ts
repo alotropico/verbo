@@ -14,58 +14,35 @@ export function createActionLedger(input: {
   preconditions: Record<string, unknown>;
 }): NonNullable<InvocationPolicy["ledger"]> {
   const store = createWorkflowExecutionStore(input.database);
-  const previous = store
-    .attempts(input.executionId)
-    .filter((attempt) => attempt.step_run_id === input.stepRunId);
-  let ordinal = previous.reduce(
-    (max, attempt) => Math.max(max, Number(attempt.ordinal) + 1),
-    0,
-  );
+  const previous = store.attempts(input.executionId).filter((attempt) => attempt.step_run_id === input.stepRunId);
+  let ordinal = previous.reduce((max, attempt) => Math.max(max, Number(attempt.ordinal) + 1), 0);
   return {
-    before(action, args, kind) {
+    async before(action, args, kind) {
       const digest = commandFingerprint(args);
       if (input.resuming && kind === "mutation") {
-        if (
-          previous.some(
-            (attempt) =>
-              attempt.state === "uncertain" || attempt.state === "dispatched",
-          )
-        )
+        if (previous.some((attempt) => attempt.state === "uncertain" || attempt.state === "dispatched"))
           throw new CommandFailure(
             "needs_reconciliation",
             "A prior effect is uncertain. Inspect its receipts and environment before any new mutation.",
           );
         const completed = previous.find(
-          (attempt) =>
-            attempt.action_id === action &&
-            attempt.args_digest === digest &&
-            attempt.state === "completed",
+          (attempt) => attempt.action_id === action && attempt.args_digest === digest && attempt.state === "completed",
         );
         if (completed) {
-          const thread = input.database
-            .prepare("SELECT thread_id FROM workflow_executions WHERE id=?")
-            .get(input.executionId);
+          const thread = input.database.prepare("SELECT thread_id FROM workflow_executions WHERE id=?").get(input.executionId);
           const remote = thread
-            ? aloData<{ result: unknown } | null>(
+            ? await aloData<{ result: unknown } | null>(
                 "receipts.read",
                 { receiptId: String(completed.receipt_id) },
                 String(thread.thread_id),
               )
             : undefined;
-          const row = remote
-            ? { result_json: JSON.stringify(remote.result) }
-            : undefined;
-          if (!row)
-            throw new CommandFailure(
-              "receipt_missing",
-              "The completed mutation's receipt is missing; it must not be replayed.",
-            );
+          const row = remote ? { result_json: JSON.stringify(remote.result) } : undefined;
+          if (!row) throw new CommandFailure("receipt_missing", "The completed mutation's receipt is missing; it must not be replayed.");
           return {
             id: String(completed.id),
             receiptId: String(completed.receipt_id),
-            replay: actionResultSchema.parse(
-              JSON.parse(String(row.result_json)),
-            ),
+            replay: actionResultSchema.parse(JSON.parse(String(row.result_json))),
           };
         }
       }
@@ -77,23 +54,14 @@ export function createActionLedger(input: {
         digest,
         preconditions: input.preconditions,
       });
-      if (!claim.fresh)
-        throw new CommandFailure(
-          "attempt_conflict",
-          "This attempt slot is already claimed and needs reconciliation.",
-        );
+      if (!claim.fresh) throw new CommandFailure("attempt_conflict", "This attempt slot is already claimed and needs reconciliation.");
       store.transitionAttempt(claim.id, "claimed", "dispatched");
       return claim;
     },
     after(claim, result) {
       // Receipt persistence is authoritative and normally settles this in its transaction.
       // A missing receipt after dispatch remains uncertain rather than permitting replay.
-      const state = [
-        "receipt_failed",
-        "effect_uncertain",
-        "needs_review",
-        "needs_reconciliation",
-      ].includes(result.code ?? "")
+      const state = ["receipt_failed", "effect_uncertain", "needs_review", "needs_reconciliation"].includes(result.code ?? "")
         ? "uncertain"
         : result.status === "requires_confirmation"
           ? "dispatched"

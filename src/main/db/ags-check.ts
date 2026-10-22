@@ -8,22 +8,22 @@ export type AgsCheckConfig = {
   identity: string | null;
 };
 
-export function readAgsCheck(_database: DatabaseSync): AgsCheckConfig {
+export async function readAgsCheck(_database: DatabaseSync): Promise<AgsCheckConfig> {
   void _database; // Retain the existing app-facing signature; storage belongs to Alo.
 
-  return aloData("settings.ags-check.read");
+  return await aloData("settings.ags-check.read");
 }
 
-export function clearAgsCheck(_database: DatabaseSync): void {
+export async function clearAgsCheck(_database: DatabaseSync): Promise<void> {
   void _database; // Retain the existing app-facing signature; storage belongs to Alo.
 
-  aloData("settings.ags-check.clear");
+  await aloData("settings.ags-check.clear");
   return;
 }
 
-export function saveAgsCheck(
+export async function saveAgsCheck(
   _database: DatabaseSync,
   candidate: string,
-): { ok: true; path: string } | { ok: false; code: string; summary: string } {
-  return aloData("settings.ags-check.save", { path: candidate });
+): Promise<{ ok: true; path: string } | { ok: false; code: string; summary: string }> {
+  return await aloData("settings.ags-check.save", { path: candidate });
 }

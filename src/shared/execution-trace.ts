@@ -600,7 +600,10 @@ function applyWorkflowStatus(
       outcome: workflowId === "conversational" ? "succeeded" : "blocked",
     };
   }
-  if (status === "failed" && outcome === "succeeded")
+  if (
+    status === "failed" &&
+    (outcome === "succeeded" || outcome === "unverified")
+  )
     return { lifecycle: "finished", outcome: "failed" };
   if (status === "running")
     return {
@@ -834,9 +837,16 @@ export function evaluateTrace(input: {
       !node.superseded,
   );
   if (workflowNode) {
-    const rolled = rollup(requested);
+    const workflowSteps = nodes.filter(
+      (node) => node.kind === "step" && node.parentId === workflowNode.id,
+    );
+    const rolled = requested.length
+      ? rollup(requested)
+      : workflowSteps.length
+        ? rollup(workflowSteps)
+        : "unverified";
     const applied = applyWorkflowStatus(
-      requested.length ? rolled : "unverified",
+      rolled,
       input.workflow?.status ??
         (workflowNode.lifecycle === "waiting" ? "awaiting_input" : undefined),
       input.workflow?.workflowId ?? workflowNode.label,
